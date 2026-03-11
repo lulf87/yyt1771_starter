@@ -24,17 +24,25 @@ class FakeCapture:
         self._opened = False
 
 
-def test_build_hik_rtsp_url_uses_expected_format() -> None:
+@pytest.mark.parametrize(
+    ("channel", "stream", "expected_suffix"),
+    [
+        (2, 1, "/Streaming/channels/201"),
+        (1, 2, "/Streaming/channels/102"),
+        (17, 1, "/Streaming/channels/1701"),
+    ],
+)
+def test_build_hik_rtsp_url_uses_expected_format(channel: int, stream: int, expected_suffix: str) -> None:
     url = build_hik_rtsp_url(
         host="192.168.1.10",
         username="admin",
         password="secret",
-        channel=2,
-        stream=1,
+        channel=channel,
+        stream=stream,
         port=8554,
     )
 
-    assert url == "rtsp://admin:secret@192.168.1.10:8554/Streaming/channels/21"
+    assert url == f"rtsp://admin:secret@192.168.1.10:8554{expected_suffix}"
 
 
 @pytest.mark.parametrize(

@@ -30,7 +30,8 @@ def build_hik_rtsp_url(
         raise ValueError("stream must be >= 1")
     if port < 1:
         raise ValueError("port must be >= 1")
-    return f"rtsp://{username}:{password}@{host}:{port}/Streaming/channels/{channel}{stream}"
+    stream_segment = f"{channel}{stream:02d}"
+    return f"rtsp://{username}:{password}@{host}:{port}/Streaming/channels/{stream_segment}"
 
 
 class HikRtspCamera(CameraPort):
