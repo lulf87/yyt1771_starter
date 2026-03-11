@@ -1,0 +1,9 @@
+sample_id: DEMO-001
+camera:
+  backend: mock_camera
+temp:
+  backend: mock_temp
+plc:
+  backend: mock_plc
+workflow:
+  dry_run: true
