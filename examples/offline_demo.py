@@ -24,10 +24,11 @@ def main() -> None:
     print(
         {
             "frame_has_image": frame.image is not None,
-            "metric_name": metric.metric_name,
+            "feature_point_px": metric.feature_point_px,
+            "baseline_px": metric.baseline_px,
             "metric_raw": metric.metric_raw,
-            "metric_norm": metric.metric_norm,
             "quality": metric.quality,
+            "metric_name": metric.metric_name,
             "sync_point": hub.snapshot(),
         }
     )
