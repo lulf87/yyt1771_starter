@@ -20,6 +20,7 @@ ALLOWED_DEPENDENCIES = {
     "storage": {"core"},
     "report": {"core"},
     "workflow": {"core", "camera", "temp", "plc", "vision", "sync", "curve", "storage", "report"},
+    "webapp": {"core", "workflow", "storage", "report"},
 }
 
 

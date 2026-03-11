@@ -17,6 +17,7 @@
 | `src.workflow` | 会话、状态机、预检查、调度 | `src.core`、`src.camera`、`src.temp`、`src.plc`、`src.vision`、`src.sync`、`src.curve`、`src.storage`、`src.report` | 具体视觉实现细节 |
 | `src.storage` | 落盘、索引、回放 | `src.core` | 工作流反向控制 |
 | `src.report` | 结果摘要、图表导出 | `src.core` | 设备访问、流程控制 |
+| `src.webapp` | HTTP 路由、请求响应模型、依赖注入 | `src.core`、`src.workflow`、`src.storage`、`src.report` | 设备适配器直连、视觉算法直调 |
 
 ## 2. 公共数据契约归属
 
@@ -95,6 +96,13 @@
 - `summary.py`：结果摘要
 - `plotter.py`：绘图或导出图像
 
+### `src/webapp/`
+
+- `app.py`：FastAPI app factory
+- `deps.py`：Web 层依赖注入
+- `schemas.py`：请求/响应模型
+- `routes/health.py`：健康检查路由
+
 ## 4. 导入规则
 
 统一使用 `src.*` 绝对导入。
@@ -135,10 +143,20 @@ EndDisplacementMetricExtractor
   Normalizer / Af95
 ```
 
+Web 交互入口冻结为：
+
+```text
+Browser
+   ↓
+src.webapp
+   ↓
+workflow / storage / report
+```
+
 说明：
 
 - 真正的设备控制命令后置，先把离线主链打通。
-- GUI 不是当前主链的一部分。
+- GUI 不是当前主链的一部分，浏览器是正式交互入口。
 - `workflow` 只负责编排，不替代 `vision` 或 `curve`。
 
 ## 6. 约束提醒

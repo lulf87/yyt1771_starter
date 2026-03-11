@@ -59,6 +59,7 @@ src/
   workflow/
   storage/
   report/
+  webapp/
 ```
 
 禁止新增新的一级业务模块，除非我明确批准。
@@ -74,6 +75,9 @@ project-root/
   README.md
   configs/
     recipe_example.yaml
+    dev_mock.yaml
+    dev_lab.yaml
+    prod_win.yaml
   docs/
     architecture_lock.md
     module_map.md
@@ -138,6 +142,14 @@ project-root/
       README.md
       summary.py
       plotter.py
+    webapp/
+      __init__.py
+      app.py
+      deps.py
+      schemas.py
+      routes/
+        __init__.py
+        health.py
   tests/
     conftest.py
     architecture/
@@ -148,6 +160,8 @@ project-root/
       test_sync_hub.py
     vision/
       test_vision_end_displacement.py
+    webapp/
+      test_health.py
 ```
 
 说明：
@@ -208,6 +222,14 @@ project-root/
 ### report
 只负责结果摘要与图表导出。
 
+### webapp
+只负责 HTTP 路由、请求响应模型、依赖注入与服务装配。
+
+禁止：
+- 直接读取相机 RTSP
+- 直接读写 Modbus 温度或 PLC
+- 把视觉/曲线算法塞进路由函数
+
 ---
 
 ## 6. 依赖规则（必须遵守）
@@ -222,6 +244,7 @@ project-root/
 - `curve -> core`
 - `storage -> core`
 - `report -> core`
+- `webapp -> core/workflow/storage/report`
 - `workflow -> core/camera/temp/plc/vision/sync/curve/storage/report`
 - `examples -> src` 公共 API
 - `tests -> 被测模块`
@@ -235,6 +258,7 @@ project-root/
 - `storage -> workflow`（控制反向依赖）
 - `camera/temp/plc -> gui`
 - `report -> camera/temp/plc`
+- `webapp -> camera/temp/plc/vision/curve/sync`
 - 任意业务模块横向随意互相调用
 
 一句话：
@@ -283,6 +307,7 @@ tests/
   curve/
   sync/
   vision/
+  webapp/
 ```
 
 后续若新增 `workflow` 测试，则使用：

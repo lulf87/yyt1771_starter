@@ -1,0 +1,12 @@
+profile: dev_mock
+platform: mac
+mode: mock
+webapp:
+  host: 127.0.0.1
+  port: 8000
+adapters:
+  camera: mock
+  temp: mock
+  plc: mock
+storage:
+  sqlite_path: data/dev_mock.sqlite3

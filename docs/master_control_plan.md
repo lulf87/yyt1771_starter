@@ -7,6 +7,18 @@
 
 围绕 YY/T 1771 的视觉法上位机，先打通离线最小主链，再逐步接入真实设备。
 
+正式交互路线冻结为：
+
+```text
+Browser -> Web API -> Workflow/Storage/Report
+```
+
+其中：
+
+- Mac：开发、测试、mock 联调
+- Windows：最终真实设备运行环境
+- 浏览器：最终用户交互入口
+
 项目固定主链：
 
 ```text
@@ -122,6 +134,16 @@ Frame -> ShapeMetric -> SyncPoint -> Curve -> Result
 - 最后接 PLC
 - 不允许三路同时首接
 
+### Phase 6：Web 交互冻结与扩展
+
+目标：以 Web API 和浏览器交互替代桌面 GUI 路线。
+
+范围：
+
+- `src/webapp/`
+- 运行 profile 配置
+- 后续浏览器页面与接口扩展
+
 ## 3. 当前阶段禁止项
 
 在 Phase 1/2 期间，禁止：
@@ -131,6 +153,11 @@ Frame -> ShapeMetric -> SyncPoint -> Curve -> Result
 - 先做复杂 PLC 控制逻辑
 - 先做多阶段相变高级算法
 - 先写大量“通用工具”目录
+
+在 Web 路线冻结后，继续禁止：
+
+- 新增桌面 GUI 主路线
+- 让路由层直接操作设备适配器
 
 ## 4. 每轮工单的固定格式
 
@@ -144,7 +171,10 @@ Frame -> ShapeMetric -> SyncPoint -> Curve -> Result
 
 ## 5. 当前下一步
 
-**下一步不是直接上视觉算法，而是先做 Phase 1：契约冻结。**
+当前路线补充说明：
+
+- 最终交互不是桌面 GUI，而是 Web。
+- 同一套 Python 后端代码需要支持 Mac 开发和 Windows 生产，差异通过配置文件控制。
 
 原因：
 

@@ -1,0 +1,12 @@
+profile: dev_lab
+platform: mac
+mode: lab
+webapp:
+  host: 127.0.0.1
+  port: 8000
+adapters:
+  camera: hik_rtsp_opencv
+  temp: modbus_temp
+  plc: mock
+storage:
+  sqlite_path: data/dev_lab.sqlite3
