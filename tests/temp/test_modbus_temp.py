@@ -4,8 +4,12 @@ from src.temp.modbus_temp import ModbusTempReader
 
 
 class FakeResponse:
-    def __init__(self, registers: list[int] | None) -> None:
+    def __init__(self, registers: list[int] | None, error: bool = False) -> None:
         self.registers = registers
+        self._error = error
+
+    def isError(self) -> bool:
+        return self._error
 
 
 class FakeModbusClient:
@@ -26,12 +30,26 @@ class FakeModbusClient:
         self.connected = self.connect_result
         return self.connect_result
 
-    def read_holding_registers(self, address: int, count: int, slave: int) -> FakeResponse | None:
+    def read_holding_registers(
+        self,
+        address: int,
+        *,
+        count: int = 1,
+        device_id: int = 1,
+        **_: object,
+    ) -> FakeResponse | None:
         if not self.holding_values:
             return None
         return FakeResponse(self.holding_values.pop(0))
 
-    def read_input_registers(self, address: int, count: int, slave: int) -> FakeResponse | None:
+    def read_input_registers(
+        self,
+        address: int,
+        *,
+        count: int = 1,
+        device_id: int = 1,
+        **_: object,
+    ) -> FakeResponse | None:
         if not self.input_values:
             return None
         return FakeResponse(self.input_values.pop(0))
@@ -130,6 +148,28 @@ def test_read_raises_when_registers_are_empty() -> None:
     )
 
     with pytest.raises(RuntimeError, match="empty register response"):
+        reader.read()
+
+
+def test_read_raises_on_modbus_exception_response() -> None:
+    class ErrorClient(FakeModbusClient):
+        def read_holding_registers(
+            self,
+            address: int,
+            *,
+            count: int = 1,
+            device_id: int = 1,
+            **_: object,
+        ) -> FakeResponse:
+            return FakeResponse(registers=None, error=True)
+
+    reader = ModbusTempReader(
+        host="127.0.0.1",
+        client_factory=lambda: ErrorClient(),
+        auto_open=True,
+    )
+
+    with pytest.raises(RuntimeError, match="Modbus exception response"):
         reader.read()
 
 

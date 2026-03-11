@@ -78,9 +78,12 @@ class ModbusTempReader(TempReader):
             self.open()
         assert self._client is not None
         reader = self._select_reader(self._client)
-        response = reader(self.register_address, self.register_count, self.unit_id)
+        response = self._read_registers(reader)
         if response is None:
             raise RuntimeError("Failed to read temperature register")
+        is_error = getattr(response, "isError", None)
+        if callable(is_error) and is_error():
+            raise RuntimeError("Modbus exception response while reading temperature register")
         registers = getattr(response, "registers", None)
         if not registers:
             raise RuntimeError("Received empty register response")
@@ -106,6 +109,23 @@ class ModbusTempReader(TempReader):
         if not callable(reader):
             raise RuntimeError(f"Client does not support {self.function} register reads")
         return reader
+
+    def _read_registers(self, reader: Callable[..., Any]) -> Any:
+        try:
+            return reader(
+                self.register_address,
+                count=self.register_count,
+                device_id=self.unit_id,
+            )
+        except TypeError:
+            try:
+                return reader(
+                    self.register_address,
+                    count=self.register_count,
+                    slave=self.unit_id,
+                )
+            except TypeError:
+                return reader(self.register_address, self.register_count, self.unit_id)
 
     def _default_client_factory(self) -> Callable[[], Any]:
         try:
