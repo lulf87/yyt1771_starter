@@ -7,7 +7,9 @@ def test_app_can_be_created() -> None:
     app = create_app(profile="dev_mock")
 
     assert app.title == "YYT1771 Web API"
-    assert app.state.profile == "dev_mock"
+    assert app.state.profile_name == "dev_mock"
+    assert app.state.runtime_config.profile == "dev_mock"
+    assert app.state.runtime_config.webapp.host == "127.0.0.1"
 
 
 def test_health_returns_basic_status_payload() -> None:
