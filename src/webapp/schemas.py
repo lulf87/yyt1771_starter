@@ -29,5 +29,9 @@ class SessionSummaryResponse(BaseModel):
     af95: float | None
 
 
+class SessionHistoryResponse(BaseModel):
+    items: list[SessionSummaryResponse]
+
+
 class ErrorResponse(BaseModel):
     detail: str

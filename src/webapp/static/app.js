@@ -2,6 +2,7 @@ const healthStatusNode = document.getElementById("health-status");
 const profileNameNode = document.getElementById("profile-name");
 const profileModeNode = document.getElementById("profile-mode");
 const sessionResultNode = document.getElementById("session-result");
+const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 
 function renderSessionResult(payload) {
@@ -21,6 +22,35 @@ async function loadProfile() {
   profileModeNode.textContent = payload.mode;
 }
 
+function renderRecentSessions(items) {
+  if (!items.length) {
+    recentSessionsNode.innerHTML =
+      '<li class="session-item session-item--empty">No sessions have been recorded yet.</li>';
+    return;
+  }
+
+  recentSessionsNode.innerHTML = items
+    .map(
+      (item) => `
+        <li class="session-item">
+          <strong>${item.session_id}</strong>
+          <div class="session-meta">
+            state=${item.state} | point_count=${item.point_count} | af95=${
+              item.af95 === null ? "n/a" : item.af95
+            }
+          </div>
+        </li>
+      `,
+    )
+    .join("");
+}
+
+async function loadRecentSessions() {
+  const response = await fetch("/api/session");
+  const payload = await response.json();
+  renderRecentSessions(payload.items || []);
+}
+
 async function runMockSession() {
   runMockButton.disabled = true;
   runMockButton.textContent = "Running...";
@@ -35,6 +65,7 @@ async function runMockSession() {
       const summaryPayload = await summaryResponse.json();
       renderSessionResult(summaryPayload);
     }
+    await loadRecentSessions();
   } catch (error) {
     renderSessionResult({ detail: String(error) });
   } finally {
@@ -45,7 +76,7 @@ async function runMockSession() {
 
 async function bootstrap() {
   try {
-    await Promise.all([loadHealth(), loadProfile()]);
+    await Promise.all([loadHealth(), loadProfile(), loadRecentSessions()]);
   } catch (error) {
     renderSessionResult({ detail: String(error) });
   }

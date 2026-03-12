@@ -44,3 +44,31 @@ def test_get_session_returns_404_for_missing_summary(tmp_path: Path) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Session not found: missing-session"}
+
+
+def test_list_sessions_returns_latest_first_and_default_history_shape(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    first = client.post("/api/session/run-mock")
+    second = client.post("/api/session/run-mock")
+    response = client.get("/api/session")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert list(payload) == ["items"]
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["session_id"] == second.json()["session_id"]
+    assert payload["items"][1]["session_id"] == first.json()["session_id"]
+
+
+def test_list_sessions_honors_limit_query_parameter(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    client.post("/api/session/run-mock")
+    newest = client.post("/api/session/run-mock")
+    response = client.get("/api/session", params={"limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [newest.json()]

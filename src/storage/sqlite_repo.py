@@ -75,6 +75,31 @@ class SqliteSessionRepo:
             created_at_ms=row["created_at_ms"],
         )
 
+    def list_summaries(self, limit: int = 10) -> list[SessionSummary]:
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero")
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT session_id, state, point_count, af95, created_at_ms
+                FROM session_results
+                ORDER BY created_at_ms DESC, session_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            SessionSummary(
+                session_id=row["session_id"],
+                state=row["state"],
+                point_count=row["point_count"],
+                af95=row["af95"],
+                created_at_ms=row["created_at_ms"],
+            )
+            for row in rows
+        ]
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
