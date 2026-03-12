@@ -20,3 +20,14 @@ class ProfileResponse(BaseModel):
     mode: str
     webapp: WebAppSettingsResponse
     adapters: dict[str, str]
+
+
+class SessionSummaryResponse(BaseModel):
+    session_id: str
+    state: str
+    point_count: int
+    af95: float | None
+
+
+class ErrorResponse(BaseModel):
+    detail: str

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from src.core.enums import SessionState
-from src.core.models import SessionRecord, SyncPoint
+from src.core.models import SessionRecord, ShapeMetric, SyncPoint, TempReading
 from src.curve.af95 import estimate_af95
 from src.storage.sqlite_repo import SessionSummary
 
@@ -20,6 +20,28 @@ class SessionSummaryRepo(Protocol):
 @dataclass(slots=True)
 class WorkflowSession:
     record: SessionRecord
+
+
+def build_mock_sync_points() -> list[SyncPoint]:
+    """Return a deterministic offline curve for mock session runs."""
+
+    return [
+        SyncPoint(
+            timestamp_ms=1_000,
+            temp=TempReading(timestamp_ms=1_000, celsius=30.0, source="workflow_mock"),
+            metric=ShapeMetric(timestamp_ms=1_000, metric_raw=0.0, metric_name="end_displacement", quality=1.0),
+        ),
+        SyncPoint(
+            timestamp_ms=2_000,
+            temp=TempReading(timestamp_ms=2_000, celsius=40.0, source="workflow_mock"),
+            metric=ShapeMetric(timestamp_ms=2_000, metric_raw=18.0, metric_name="end_displacement", quality=1.0),
+        ),
+        SyncPoint(
+            timestamp_ms=3_000,
+            temp=TempReading(timestamp_ms=3_000, celsius=50.0, source="workflow_mock"),
+            metric=ShapeMetric(timestamp_ms=3_000, metric_raw=20.0, metric_name="end_displacement", quality=1.0),
+        ),
+    ]
 
 
 class WorkflowSessionRunner:

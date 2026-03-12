@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from src.webapp.config import load_runtime_config
 from src.webapp.routes.health import router as health_router
 from src.webapp.routes.profile import router as profile_router
+from src.webapp.routes.session import router as session_router
 
 
 def create_app(profile: str = "dev_mock") -> FastAPI:
@@ -15,4 +16,5 @@ def create_app(profile: str = "dev_mock") -> FastAPI:
     app.state.runtime_config = runtime_config
     app.include_router(health_router)
     app.include_router(profile_router)
+    app.include_router(session_router)
     return app
