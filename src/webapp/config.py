@@ -23,6 +23,7 @@ class RuntimeConfig:
     webapp: WebAppConfig
     adapters: dict[str, str]
     storage: dict[str, Any] = field(default_factory=dict)
+    replay: dict[str, Any] = field(default_factory=dict)
     logging: dict[str, Any] = field(default_factory=dict)
 
     def as_public_dict(self) -> dict[str, Any]:
@@ -62,6 +63,7 @@ def load_runtime_config(profile: str) -> RuntimeConfig:
         ),
         adapters={str(name): str(value) for name, value in adapters.items()},
         storage=_normalize_mapping(raw_config.get("storage")),
+        replay=_normalize_mapping(raw_config.get("replay")),
         logging=_normalize_mapping(raw_config.get("logging")),
     )
 

@@ -21,6 +21,7 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="health-status"' in response.text
     assert 'id="profile-name"' in response.text
     assert 'id="run-mock-btn"' in response.text
+    assert 'id="run-replay-btn"' in response.text
     assert 'id="session-result"' in response.text
     assert 'id="recent-sessions"' in response.text
 
@@ -34,3 +35,4 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/system/profile" in response.text
     assert "/api/session" in response.text
     assert "/api/session/run-mock" in response.text
+    assert "/api/session/run-replay" in response.text

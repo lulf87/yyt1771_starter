@@ -4,6 +4,7 @@ const profileModeNode = document.getElementById("profile-mode");
 const sessionResultNode = document.getElementById("session-result");
 const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
+const runReplayButton = document.getElementById("run-replay-btn");
 
 function renderSessionResult(payload) {
   sessionResultNode.textContent = JSON.stringify(payload, null, 2);
@@ -51,12 +52,11 @@ async function loadRecentSessions() {
   renderRecentSessions(payload.items || []);
 }
 
-async function runMockSession() {
-  runMockButton.disabled = true;
-  runMockButton.textContent = "Running...";
-
+async function runSession(endpoint, button, idleLabel) {
+  button.disabled = true;
+  button.textContent = "Running...";
   try {
-    const runResponse = await fetch("/api/session/run-mock", { method: "POST" });
+    const runResponse = await fetch(endpoint, { method: "POST" });
     const runPayload = await runResponse.json();
     renderSessionResult(runPayload);
 
@@ -69,9 +69,17 @@ async function runMockSession() {
   } catch (error) {
     renderSessionResult({ detail: String(error) });
   } finally {
-    runMockButton.disabled = false;
-    runMockButton.textContent = "Run Mock Session";
+    button.disabled = false;
+    button.textContent = idleLabel;
   }
+}
+
+async function runMockSession() {
+  await runSession("/api/session/run-mock", runMockButton, "Run Mock Session");
+}
+
+async function runReplaySession() {
+  await runSession("/api/session/run-replay", runReplayButton, "Run Replay Session");
 }
 
 async function bootstrap() {
@@ -83,4 +91,5 @@ async function bootstrap() {
 }
 
 runMockButton.addEventListener("click", runMockSession);
+runReplayButton.addEventListener("click", runReplaySession);
 bootstrap();

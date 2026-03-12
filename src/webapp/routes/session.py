@@ -7,7 +7,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.storage.sqlite_repo import SqliteSessionRepo
-from src.webapp.deps import get_session_repo, get_session_runner
+from src.webapp.config import RuntimeConfig
+from src.webapp.deps import get_runtime_config, get_session_repo, get_session_runner
 from src.webapp.schemas import SessionHistoryResponse, SessionSummaryResponse
 from src.workflow.session import WorkflowSessionRunner, build_mock_sync_points
 
@@ -35,6 +36,37 @@ def list_session_summaries(
 def run_mock_session(runner: WorkflowSessionRunner = Depends(get_session_runner)) -> SessionSummaryResponse:
     session_id = f"mock-{uuid.uuid4().hex[:12]}"
     summary = runner.run_offline(session_id=session_id, sync_points=build_mock_sync_points())
+    return SessionSummaryResponse(
+        session_id=summary.session_id,
+        state=summary.state,
+        point_count=summary.point_count,
+        af95=summary.af95,
+    )
+
+
+@router.post("/run-replay", response_model=SessionSummaryResponse)
+def run_replay_session(
+    runner: WorkflowSessionRunner = Depends(get_session_runner),
+    runtime_config: RuntimeConfig = Depends(get_runtime_config),
+) -> SessionSummaryResponse:
+    dataset_path = runtime_config.replay.get("dataset_path")
+    if not dataset_path:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Replay dataset path is not configured for the current profile",
+        )
+
+    try:
+        summary = runner.run_replay(
+            session_id=f"replay-{uuid.uuid4().hex[:12]}",
+            dataset_path=str(dataset_path),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
     return SessionSummaryResponse(
         session_id=summary.session_id,
         state=summary.state,

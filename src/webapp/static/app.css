@@ -76,6 +76,11 @@ dd {
   margin-bottom: 16px;
 }
 
+.button-row {
+  display: flex;
+  gap: 12px;
+}
+
 button {
   border: 0;
   border-radius: 999px;
@@ -131,6 +136,11 @@ pre {
 @media (max-width: 640px) {
   .actions {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .button-row {
+    width: 100%;
     flex-direction: column;
   }
 

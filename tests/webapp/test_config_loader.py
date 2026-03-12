@@ -16,6 +16,7 @@ def test_load_runtime_config_reads_known_profile() -> None:
         "temp": "mock",
         "plc": "mock",
     }
+    assert runtime_config.replay["dataset_path"] == "examples/replay"
 
 
 def test_load_runtime_config_raises_clear_error_for_missing_profile() -> None:

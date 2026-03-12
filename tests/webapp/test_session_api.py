@@ -72,3 +72,19 @@ def test_list_sessions_honors_limit_query_parameter(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["items"] == [newest.json()]
+
+
+def test_run_replay_session_returns_summary_and_updates_history(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    replay_response = client.post("/api/session/run-replay")
+    history_response = client.get("/api/session")
+
+    assert replay_response.status_code == 200
+    replay_payload = replay_response.json()
+    assert replay_payload["session_id"].startswith("replay-")
+    assert replay_payload["state"] == "completed"
+    assert replay_payload["point_count"] == 3
+    assert replay_payload["af95"] is not None
+    assert history_response.status_code == 200
+    assert history_response.json()["items"][0]["session_id"] == replay_payload["session_id"]
