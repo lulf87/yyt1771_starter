@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_title }}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body data-page="workspace" data-session-id="{{ session_id }}">
+    <main id="workspace-shell" class="workspace-shell" data-testid="workspace-shell">
+      <header class="workspace-topbar">
+        <div>
+          <p class="eyebrow">Experiment Workspace</p>
+          <h1>{{ app_title }}</h1>
+        </div>
+        <div class="workspace-topbar-meta">
+          <span class="status-pill status-ok">session</span>
+          <strong id="workspace-session-id">{{ session_id }}</strong>
+          <span id="workspace-summary-state" class="status-pill status-warn">{{ summary.state }}</span>
+        </div>
+      </header>
+
+      <div class="workspace-grid">
+        <aside id="workspace-stepper" class="workspace-stepper panel" data-testid="workspace-stepper">
+          <h2>Flow</h2>
+          <ol class="workspace-steps">
+            {% for step in steps %}
+            <li class="workspace-step{% if loop.first %} workspace-step--active{% endif %}">
+              <span class="workspace-step-index">{{ loop.index }}</span>
+              <span>{{ step }}</span>
+            </li>
+            {% endfor %}
+          </ol>
+        </aside>
+
+        <section id="workspace-main" class="workspace-main" data-testid="workspace-main">
+          <article class="panel workspace-card">
+            <h2>Primary Work Area</h2>
+            <p>Reserved for image, curve, and operator-focused workspace interactions.</p>
+            <div class="workspace-placeholder">Workspace canvas placeholder</div>
+          </article>
+          <article class="panel workspace-card">
+            <h2>Current Session</h2>
+            <p id="workspace-summary-copy">
+              Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
+            </p>
+          </article>
+        </section>
+
+        <aside id="workspace-sidepanel" class="workspace-sidepanel panel" data-testid="workspace-sidepanel">
+          <h2>Session Snapshot</h2>
+          <dl class="facts">
+            <div>
+              <dt>State</dt>
+              <dd>{{ summary.state }}</dd>
+            </div>
+            <div>
+              <dt>Point Count</dt>
+              <dd>{{ summary.point_count }}</dd>
+            </div>
+            <div>
+              <dt>Af95</dt>
+              <dd>{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
+            </div>
+          </dl>
+          <div class="workspace-links">
+            <a class="workspace-link" href="/">Back to Home</a>
+            <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

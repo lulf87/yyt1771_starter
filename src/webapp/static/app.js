@@ -12,9 +12,22 @@ const detailAf95Node = document.getElementById("detail-af95");
 const detailPointCountNode = document.getElementById("detail-point-count");
 const detailCurveNode = document.getElementById("detail-curve-line");
 const detailKeyFramesNode = document.getElementById("detail-key-frames");
+const sessionWorkspaceLinkNode = document.getElementById("session-workspace-link");
+const workspaceShellNode = document.getElementById("workspace-shell");
+
+function workspaceUrl(sessionId) {
+  return `/workspace/${encodeURIComponent(sessionId)}`;
+}
 
 function renderSessionResult(payload) {
+  if (!sessionResultNode) {
+    return;
+  }
   sessionResultNode.textContent = JSON.stringify(payload, null, 2);
+  if (sessionWorkspaceLinkNode && payload.session_id) {
+    sessionWorkspaceLinkNode.href = workspaceUrl(payload.session_id);
+    sessionWorkspaceLinkNode.classList.remove("workspace-link--hidden");
+  }
 }
 
 async function loadHealth() {
@@ -35,6 +48,9 @@ function renderStatusPill(status) {
 }
 
 function renderPrecheck(payload) {
+  if (!precheckStatusNode || !precheckItemsNode) {
+    return;
+  }
   precheckStatusNode.innerHTML = renderStatusPill(payload.status);
   precheckItemsNode.innerHTML = (payload.items || [])
     .map(
@@ -56,6 +72,9 @@ async function loadPrecheck() {
 }
 
 function renderRecentSessions(items) {
+  if (!recentSessionsNode) {
+    return;
+  }
   if (!items.length) {
     recentSessionsNode.innerHTML =
       '<li class="session-item session-item--empty">No sessions have been recorded yet.</li>';
@@ -72,6 +91,7 @@ function renderRecentSessions(items) {
               item.af95 === null ? "n/a" : item.af95
             }
           </div>
+          <a class="workspace-link" href="${workspaceUrl(item.session_id)}">Open Workspace</a>
         </li>
       `,
     )
@@ -85,6 +105,9 @@ async function loadRecentSessions() {
 }
 
 function renderCurve(points) {
+  if (!detailCurveNode) {
+    return;
+  }
   if (!points.length) {
     detailCurveNode.setAttribute("points", "");
     return;
@@ -113,6 +136,9 @@ function renderCurve(points) {
 }
 
 function renderKeyFrames(keyFrames) {
+  if (!detailKeyFramesNode) {
+    return;
+  }
   if (!keyFrames.length) {
     detailKeyFramesNode.innerHTML = '<p class="session-item--empty">No replay detail loaded.</p>';
     return;
@@ -165,6 +191,9 @@ function drawFrameImage(canvas, image, featurePoint) {
 }
 
 function renderReplayDetail(detail) {
+  if (!detailAf95Node || !detailPointCountNode) {
+    return;
+  }
   detailAf95Node.textContent = detail.af95 === null ? "n/a" : String(detail.af95);
   detailPointCountNode.textContent = String(detail.point_count);
   renderCurve(detail.points || []);
@@ -236,7 +265,45 @@ async function bootstrap() {
   }
 }
 
-runMockButton.addEventListener("click", runMockSession);
-runReplayButton.addEventListener("click", runReplaySession);
-refreshPrecheckButton.addEventListener("click", loadPrecheck);
-bootstrap();
+async function bootstrapWorkspace() {
+  if (!workspaceShellNode) {
+    return;
+  }
+
+  const sessionId = document.body.dataset.sessionId;
+  if (!sessionId) {
+    return;
+  }
+
+  const summaryResponse = await fetch(`/api/session/${sessionId}`);
+  if (!summaryResponse.ok) {
+    return;
+  }
+  const summary = await summaryResponse.json();
+  const summaryCopyNode = document.getElementById("workspace-summary-copy");
+  const summaryStateNode = document.getElementById("workspace-summary-state");
+  if (summaryCopyNode) {
+    summaryCopyNode.textContent =
+      `Session ${summary.session_id} is currently recorded as ${summary.state} with ${summary.point_count} points.`;
+  }
+  if (summaryStateNode) {
+    summaryStateNode.textContent = summary.state;
+    summaryStateNode.className = `status-pill status-${summary.state === "completed" ? "ok" : "warn"}`;
+  }
+}
+
+if (runMockButton) {
+  runMockButton.addEventListener("click", runMockSession);
+}
+if (runReplayButton) {
+  runReplayButton.addEventListener("click", runReplaySession);
+}
+if (refreshPrecheckButton) {
+  refreshPrecheckButton.addEventListener("click", loadPrecheck);
+}
+if (document.body.dataset.page === "home") {
+  bootstrap();
+}
+if (document.body.dataset.page === "workspace") {
+  bootstrapWorkspace();
+}

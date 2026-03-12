@@ -216,6 +216,140 @@ pre {
   background: #fff;
 }
 
+.workspace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #8b5e3c;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.workspace-link:hover {
+  text-decoration: underline;
+}
+
+.workspace-link--hidden {
+  display: none;
+}
+
+.workspace-shell {
+  min-height: 100vh;
+  padding: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(139, 94, 60, 0.16), transparent 34%),
+    linear-gradient(180deg, #efe7d8 0%, #e3d8c5 100%);
+}
+
+.workspace-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 0 auto 20px;
+  max-width: 1400px;
+  padding: 18px 22px;
+  border-radius: 20px;
+  background: rgba(24, 32, 44, 0.92);
+  color: #f8fafc;
+  box-shadow: 0 16px 36px rgba(24, 32, 44, 0.18);
+}
+
+.workspace-topbar h1 {
+  margin-bottom: 0;
+}
+
+.workspace-topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-grid {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  gap: 18px;
+}
+
+.workspace-stepper,
+.workspace-sidepanel {
+  align-self: start;
+}
+
+.workspace-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(250, 247, 240, 0.9);
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  color: #52606d;
+}
+
+.workspace-step--active {
+  background: rgba(139, 94, 60, 0.12);
+  color: #1f2933;
+  border-color: rgba(139, 94, 60, 0.28);
+}
+
+.workspace-step-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(24, 32, 44, 0.1);
+  font-weight: 700;
+}
+
+.workspace-main {
+  display: grid;
+  gap: 18px;
+}
+
+.workspace-card {
+  min-height: 220px;
+}
+
+.workspace-placeholder {
+  min-height: 180px;
+  border-radius: 16px;
+  border: 1px dashed rgba(139, 94, 60, 0.28);
+  background:
+    linear-gradient(135deg, rgba(139, 94, 60, 0.08), rgba(255, 255, 255, 0.55)),
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 12px,
+      rgba(139, 94, 60, 0.05) 12px,
+      rgba(139, 94, 60, 0.05) 24px
+    );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #52606d;
+  font-weight: 600;
+}
+
+.workspace-links {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
 @media (max-width: 640px) {
   .actions {
     align-items: flex-start;
@@ -229,5 +363,16 @@ pre {
 
   button {
     width: 100%;
+  }
+}
+
+@media (max-width: 1080px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-topbar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
