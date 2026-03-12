@@ -5,6 +5,10 @@ const sessionResultNode = document.getElementById("session-result");
 const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 const runReplayButton = document.getElementById("run-replay-btn");
+const detailAf95Node = document.getElementById("detail-af95");
+const detailPointCountNode = document.getElementById("detail-point-count");
+const detailCurveNode = document.getElementById("detail-curve-line");
+const detailKeyFramesNode = document.getElementById("detail-key-frames");
 
 function renderSessionResult(payload) {
   sessionResultNode.textContent = JSON.stringify(payload, null, 2);
@@ -52,6 +56,102 @@ async function loadRecentSessions() {
   renderRecentSessions(payload.items || []);
 }
 
+function renderCurve(points) {
+  if (!points.length) {
+    detailCurveNode.setAttribute("points", "");
+    return;
+  }
+
+  const width = 320;
+  const height = 180;
+  const padding = 16;
+  const xs = points.map((_, index) => index);
+  const ys = points.map((point) => (point.metric_norm === null ? 0 : point.metric_norm));
+  const maxX = Math.max(...xs, 1);
+  const minY = Math.min(...ys, 0);
+  const maxY = Math.max(...ys, 1);
+  const ySpan = Math.max(maxY - minY, 1);
+
+  const polylinePoints = points
+    .map((point, index) => {
+      const x = padding + (index / maxX) * (width - padding * 2);
+      const normalizedY = point.metric_norm === null ? 0 : (point.metric_norm - minY) / ySpan;
+      const y = height - padding - normalizedY * (height - padding * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  detailCurveNode.setAttribute("points", polylinePoints);
+}
+
+function renderKeyFrames(keyFrames) {
+  if (!keyFrames.length) {
+    detailKeyFramesNode.innerHTML = '<p class="session-item--empty">No replay detail loaded.</p>';
+    return;
+  }
+
+  detailKeyFramesNode.innerHTML = keyFrames
+    .map(
+      (frame, index) => `
+        <article class="key-frame-card">
+          <h3>${frame.label}</h3>
+          <canvas id="key-frame-canvas-${index}" class="key-frame-canvas"></canvas>
+          <p>timestamp=${frame.timestamp_ms} | metric_raw=${frame.metric_raw === null ? "n/a" : frame.metric_raw}</p>
+        </article>
+      `,
+    )
+    .join("");
+
+  keyFrames.forEach((frame, index) => {
+    const canvas = document.getElementById(`key-frame-canvas-${index}`);
+    if (!canvas) {
+      return;
+    }
+    drawFrameImage(canvas, frame.image, frame.feature_point_px);
+  });
+}
+
+function drawFrameImage(canvas, image, featurePoint) {
+  const height = image.length;
+  const width = image[0] ? image[0].length : 0;
+  const scale = 12;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  image.forEach((row, y) => {
+    row.forEach((value, x) => {
+      context.fillStyle = `rgb(${value}, ${value}, ${value})`;
+      context.fillRect(x * scale, y * scale, scale, scale);
+    });
+  });
+
+  if (featurePoint) {
+    context.strokeStyle = "#cf1124";
+    context.lineWidth = 2;
+    context.strokeRect(featurePoint[0] * scale, featurePoint[1] * scale, scale, scale);
+  }
+}
+
+function renderReplayDetail(detail) {
+  detailAf95Node.textContent = detail.af95 === null ? "n/a" : String(detail.af95);
+  detailPointCountNode.textContent = String(detail.point_count);
+  renderCurve(detail.points || []);
+  renderKeyFrames(detail.key_frames || []);
+}
+
+async function loadSessionDetail(sessionId) {
+  const response = await fetch(`/api/session/${sessionId}/detail`);
+  if (!response.ok) {
+    throw new Error(`detail request failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  renderReplayDetail(payload);
+}
+
 async function runSession(endpoint, button, idleLabel) {
   button.disabled = true;
   button.textContent = "Running...";
@@ -79,7 +179,25 @@ async function runMockSession() {
 }
 
 async function runReplaySession() {
-  await runSession("/api/session/run-replay", runReplayButton, "Run Replay Session");
+  runReplayButton.disabled = true;
+  runReplayButton.textContent = "Running...";
+  try {
+    const runResponse = await fetch("/api/session/run-replay", { method: "POST" });
+    const runPayload = await runResponse.json();
+    renderSessionResult(runPayload);
+    if (runPayload.session_id) {
+      const summaryResponse = await fetch(`/api/session/${runPayload.session_id}`);
+      const summaryPayload = await summaryResponse.json();
+      renderSessionResult(summaryPayload);
+      await loadSessionDetail(runPayload.session_id);
+    }
+    await loadRecentSessions();
+  } catch (error) {
+    renderSessionResult({ detail: String(error) });
+  } finally {
+    runReplayButton.disabled = false;
+    runReplayButton.textContent = "Run Replay Session";
+  }
 }
 
 async function bootstrap() {

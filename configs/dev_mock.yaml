@@ -10,5 +10,6 @@ adapters:
   plc: mock
 storage:
   sqlite_path: data/dev_mock.sqlite3
+  artifact_dir: var/artifacts
 replay:
   dataset_path: examples/replay

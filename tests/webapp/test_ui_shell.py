@@ -8,6 +8,7 @@ from src.webapp.app import create_app
 def _make_client(tmp_path: Path) -> TestClient:
     app = create_app(profile="dev_mock")
     app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "ui-shell.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
     return TestClient(app)
 
 
@@ -24,6 +25,10 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="run-replay-btn"' in response.text
     assert 'id="session-result"' in response.text
     assert 'id="recent-sessions"' in response.text
+    assert 'id="detail-af95"' in response.text
+    assert 'id="detail-point-count"' in response.text
+    assert 'id="detail-curve"' in response.text
+    assert 'id="detail-key-frames"' in response.text
 
 
 def test_static_app_js_is_served(tmp_path: Path) -> None:
@@ -36,3 +41,4 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/session" in response.text
     assert "/api/session/run-mock" in response.text
     assert "/api/session/run-replay" in response.text
+    assert "/api/session/${sessionId}/detail" in response.text

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from src.core.models import ShapeMetric, SyncPoint, TempReading
+from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SessionSummary, SqliteSessionRepo
 from src.workflow.session import WorkflowSessionRunner, build_replay_sync_points
 
@@ -77,16 +78,24 @@ def test_build_replay_sync_points_reads_valid_dataset() -> None:
 
 def test_run_replay_completes_and_persists_summary(tmp_path: Path) -> None:
     repo = SqliteSessionRepo(tmp_path / "sessions.db")
-    runner = WorkflowSessionRunner(repo=repo)
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    runner = WorkflowSessionRunner(repo=repo, artifact_store=artifact_store)
     dataset_path = Path(__file__).resolve().parents[2] / "examples" / "replay"
 
     result = runner.run_replay(session_id="replay-001", dataset_path=dataset_path)
     persisted = repo.get_summary("replay-001")
+    detail = artifact_store.get_detail("replay-001")
 
     assert result.state == "completed"
     assert result.point_count == 3
     assert result.af95 is not None
     assert persisted == result
+    assert detail is not None
+    assert detail["session_id"] == "replay-001"
+    assert detail["source"] == "replay"
+    assert detail["point_count"] == 3
+    assert len(detail["points"]) == 3
+    assert {frame["label"] for frame in detail["key_frames"]} == {"first", "middle", "last"}
 
 
 def test_build_replay_sync_points_raises_for_missing_dataset(tmp_path: Path) -> None:

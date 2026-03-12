@@ -6,10 +6,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.webapp.config import RuntimeConfig
-from src.webapp.deps import get_runtime_config, get_session_repo, get_session_runner
-from src.webapp.schemas import SessionHistoryResponse, SessionSummaryResponse
+from src.webapp.deps import (
+    get_runtime_config,
+    get_session_artifact_store,
+    get_session_repo,
+    get_session_runner,
+)
+from src.webapp.schemas import ReplayDetailResponse, SessionHistoryResponse, SessionSummaryResponse
 from src.workflow.session import WorkflowSessionRunner, build_mock_sync_points
 
 router = APIRouter(prefix="/api/session", tags=["session"])
@@ -73,6 +79,20 @@ def run_replay_session(
         point_count=summary.point_count,
         af95=summary.af95,
     )
+
+
+@router.get("/{session_id}/detail", response_model=ReplayDetailResponse)
+def get_session_detail(
+    session_id: str,
+    artifact_store: SessionArtifactStore = Depends(get_session_artifact_store),
+) -> ReplayDetailResponse:
+    detail = artifact_store.get_detail(session_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session detail not found: {session_id}",
+        )
+    return ReplayDetailResponse(**detail)
 
 
 @router.get("/{session_id}", response_model=SessionSummaryResponse)

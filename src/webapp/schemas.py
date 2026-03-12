@@ -33,5 +33,30 @@ class SessionHistoryResponse(BaseModel):
     items: list[SessionSummaryResponse]
 
 
+class ReplayDetailPointResponse(BaseModel):
+    timestamp_ms: int
+    celsius: float
+    metric_raw: float
+    metric_norm: float | None
+    quality: float
+
+
+class ReplayKeyFrameResponse(BaseModel):
+    label: str
+    timestamp_ms: int
+    image: list[list[int]]
+    feature_point_px: list[int] | None
+    metric_raw: float | None
+
+
+class ReplayDetailResponse(BaseModel):
+    session_id: str
+    source: str
+    af95: float | None
+    point_count: int
+    points: list[ReplayDetailPointResponse]
+    key_frames: list[ReplayKeyFrameResponse]
+
+
 class ErrorResponse(BaseModel):
     detail: str

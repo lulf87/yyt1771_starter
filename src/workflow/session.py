@@ -7,11 +7,12 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from src.core.enums import SessionState
 from src.core.models import FramePacket, SessionRecord, ShapeMetric, SyncPoint, TempReading
-from src.curve.af95 import estimate_af95
+from src.curve.af95 import estimate_af95, normalize_sync_points
+from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SessionSummary
 from src.vision.metric_end_displacement import EndDisplacementMetricExtractor
 
@@ -86,8 +87,9 @@ class WorkflowSessionRunner:
     point_count counts the total input sync_points, not only the valid curve points.
     """
 
-    def __init__(self, repo: SessionSummaryRepo) -> None:
+    def __init__(self, repo: SessionSummaryRepo, artifact_store: SessionArtifactStore | None = None) -> None:
         self.repo = repo
+        self.artifact_store = artifact_store
 
     def run_offline(self, session_id: str, sync_points: list[SyncPoint]) -> SessionSummary:
         record = SessionRecord(session_id=session_id, state=SessionState.RUNNING)
@@ -118,8 +120,65 @@ class WorkflowSessionRunner:
             )
 
     def run_replay(self, session_id: str, dataset_path: str | Path) -> SessionSummary:
-        sync_points = build_replay_sync_points(dataset_path)
-        return self.run_offline(session_id=session_id, sync_points=sync_points)
+        record = SessionRecord(session_id=session_id, state=SessionState.RUNNING)
+        created_at_ms = int(time.time() * 1000)
+
+        try:
+            sync_points = build_replay_sync_points(dataset_path)
+            af95 = estimate_af95(sync_points)
+            detail_payload = build_replay_detail(session_id=session_id, sync_points=sync_points, af95=af95)
+            if self.artifact_store is None:
+                raise RuntimeError("artifact_store is required for replay sessions")
+            self.artifact_store.save_detail(session_id, detail_payload)
+
+            summary = SessionSummary(
+                session_id=record.session_id,
+                state=SessionState.COMPLETED.value,
+                point_count=len(sync_points),
+                af95=af95,
+                created_at_ms=created_at_ms,
+            )
+            self.repo.save_summary(summary)
+            record.state = SessionState.COMPLETED
+            return summary
+        except Exception as exc:
+            record.state = SessionState.FAILED
+            return SessionSummary(
+                session_id=record.session_id,
+                state=record.state.value,
+                point_count=0,
+                af95=None,
+                created_at_ms=created_at_ms,
+                meta={"reason": "replay_failed", "detail": str(exc)},
+            )
+
+
+def build_replay_detail(session_id: str, sync_points: list[SyncPoint], af95: float | None) -> dict[str, Any]:
+    normalized_points = normalize_sync_points(sync_points)
+    normalized_by_timestamp = {point.timestamp_ms: point for point in normalized_points}
+    detail_points: list[dict[str, Any]] = []
+    for sync_point in sync_points:
+        if sync_point.temp is None or sync_point.metric is None or sync_point.metric.metric_raw is None:
+            continue
+        normalized = normalized_by_timestamp.get(sync_point.timestamp_ms)
+        detail_points.append(
+            {
+                "timestamp_ms": sync_point.timestamp_ms,
+                "celsius": sync_point.temp.celsius,
+                "metric_raw": sync_point.metric.metric_raw,
+                "metric_norm": normalized.metric_norm if normalized is not None else None,
+                "quality": sync_point.metric.quality,
+            }
+        )
+
+    return {
+        "session_id": session_id,
+        "source": "replay",
+        "af95": af95,
+        "point_count": len(detail_points),
+        "points": detail_points,
+        "key_frames": _select_key_frames(sync_points),
+    }
 
 
 def _resolve_dataset_path(dataset_path: str | Path) -> Path:
@@ -148,3 +207,37 @@ def _load_replay_temps(csv_path: Path) -> dict[int, TempReading]:
                 source="replay_dataset",
             )
     return temperatures
+
+
+def _select_key_frames(sync_points: list[SyncPoint]) -> list[dict[str, Any]]:
+    frame_points = [point for point in sync_points if point.frame is not None and point.metric is not None]
+    if not frame_points:
+        return []
+
+    indexed_points: list[tuple[str, SyncPoint]] = [("first", frame_points[0])]
+    if len(frame_points) > 2:
+        indexed_points.append(("middle", frame_points[len(frame_points) // 2]))
+    if len(frame_points) > 1:
+        indexed_points.append(("last", frame_points[-1]))
+
+    key_frames: list[dict[str, Any]] = []
+    seen_timestamps: set[tuple[str, int]] = set()
+    for label, sync_point in indexed_points:
+        if sync_point.frame is None or sync_point.metric is None:
+            continue
+        marker = (label, sync_point.timestamp_ms)
+        if marker in seen_timestamps:
+            continue
+        seen_timestamps.add(marker)
+        key_frames.append(
+            {
+                "label": label,
+                "timestamp_ms": sync_point.timestamp_ms,
+                "image": sync_point.frame.image,
+                "feature_point_px": list(sync_point.metric.feature_point_px)
+                if sync_point.metric.feature_point_px is not None
+                else None,
+                "metric_raw": sync_point.metric.metric_raw,
+            }
+        )
+    return key_frames

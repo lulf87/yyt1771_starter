@@ -133,6 +133,62 @@ pre {
   font-size: 0.92rem;
 }
 
+.detail-facts {
+  margin-bottom: 16px;
+}
+
+.curve-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  background: rgba(250, 247, 240, 0.9);
+  margin-bottom: 16px;
+}
+
+.curve-bg {
+  fill: rgba(250, 247, 240, 0.9);
+}
+
+#detail-curve-line {
+  stroke: #8b5e3c;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.key-frame-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.key-frame-card {
+  background: rgba(250, 247, 240, 0.9);
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.key-frame-card h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.key-frame-card p {
+  margin: 8px 0 0;
+  color: #52606d;
+  font-size: 0.92rem;
+}
+
+.key-frame-canvas {
+  width: 100%;
+  image-rendering: pixelated;
+  border-radius: 8px;
+  background: #fff;
+}
+
 @media (max-width: 640px) {
   .actions {
     align-items: flex-start;

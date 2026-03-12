@@ -57,6 +57,32 @@
           <li class="session-item session-item--empty">Loading recent sessions...</li>
         </ul>
       </section>
+
+      <section class="panel">
+        <div class="actions">
+          <div>
+            <h2>Replay Detail</h2>
+            <p>Latest replay detail artifact rendered through the detail API.</p>
+          </div>
+        </div>
+        <dl class="facts detail-facts">
+          <div>
+            <dt>Af95</dt>
+            <dd id="detail-af95" data-testid="detail-af95">n/a</dd>
+          </div>
+          <div>
+            <dt>Point Count</dt>
+            <dd id="detail-point-count" data-testid="detail-point-count">0</dd>
+          </div>
+        </dl>
+        <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay curve">
+          <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
+          <polyline id="detail-curve-line" fill="none" points=""></polyline>
+        </svg>
+        <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">
+          <p class="session-item--empty">Run a replay session to load detail artifacts.</p>
+        </div>
+      </section>
     </main>
 
     <script src="/static/app.js" defer></script>
