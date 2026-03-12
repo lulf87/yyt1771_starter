@@ -5,6 +5,9 @@ const sessionResultNode = document.getElementById("session-result");
 const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 const runReplayButton = document.getElementById("run-replay-btn");
+const refreshPrecheckButton = document.getElementById("refresh-precheck-btn");
+const precheckStatusNode = document.getElementById("precheck-status");
+const precheckItemsNode = document.getElementById("precheck-items");
 const detailAf95Node = document.getElementById("detail-af95");
 const detailPointCountNode = document.getElementById("detail-point-count");
 const detailCurveNode = document.getElementById("detail-curve-line");
@@ -25,6 +28,31 @@ async function loadProfile() {
   const payload = await response.json();
   profileNameNode.textContent = payload.profile;
   profileModeNode.textContent = payload.mode;
+}
+
+function renderStatusPill(status) {
+  return `<span class="status-pill status-${status}">${status}</span>`;
+}
+
+function renderPrecheck(payload) {
+  precheckStatusNode.innerHTML = renderStatusPill(payload.status);
+  precheckItemsNode.innerHTML = (payload.items || [])
+    .map(
+      (item) => `
+        <li class="session-item">
+          <div class="session-meta">${renderStatusPill(item.status)}</div>
+          <strong>${item.name}</strong>
+          <div class="session-meta">${item.detail}</div>
+        </li>
+      `,
+    )
+    .join("");
+}
+
+async function loadPrecheck() {
+  const response = await fetch("/api/system/precheck");
+  const payload = await response.json();
+  renderPrecheck(payload);
 }
 
 function renderRecentSessions(items) {
@@ -202,7 +230,7 @@ async function runReplaySession() {
 
 async function bootstrap() {
   try {
-    await Promise.all([loadHealth(), loadProfile(), loadRecentSessions()]);
+    await Promise.all([loadHealth(), loadProfile(), loadPrecheck(), loadRecentSessions()]);
   } catch (error) {
     renderSessionResult({ detail: String(error) });
   }
@@ -210,4 +238,5 @@ async function bootstrap() {
 
 runMockButton.addEventListener("click", runMockSession);
 runReplayButton.addEventListener("click", runReplaySession);
+refreshPrecheckButton.addEventListener("click", loadPrecheck);
 bootstrap();

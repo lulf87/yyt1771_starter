@@ -35,6 +35,27 @@
       <section class="panel">
         <div class="actions">
           <div>
+            <h2>System Precheck</h2>
+            <p>Configuration and path readiness only. No live device connections are attempted.</p>
+          </div>
+          <div class="button-row">
+            <button id="refresh-precheck-btn" type="button">Refresh Precheck</button>
+          </div>
+        </div>
+        <dl class="facts detail-facts">
+          <div>
+            <dt>Overall</dt>
+            <dd id="precheck-status" data-testid="precheck-status">Loading...</dd>
+          </div>
+        </dl>
+        <ul id="precheck-items" class="session-list" data-testid="precheck-items">
+          <li class="session-item session-item--empty">Loading precheck results...</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="actions">
+          <div>
             <h2>Session Controls</h2>
             <p>Trigger one offline session through the existing API pipeline.</p>
           </div>

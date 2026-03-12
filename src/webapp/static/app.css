@@ -133,6 +133,33 @@ pre {
   font-size: 0.92rem;
 }
 
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.status-warn,
+.status-pending {
+  background: rgba(217, 119, 6, 0.15);
+  color: #b45309;
+}
+
+.status-fail {
+  background: rgba(207, 17, 36, 0.15);
+  color: #b91c1c;
+}
+
 .detail-facts {
   margin-bottom: 16px;
 }

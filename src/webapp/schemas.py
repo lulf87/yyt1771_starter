@@ -58,5 +58,17 @@ class ReplayDetailResponse(BaseModel):
     key_frames: list[ReplayKeyFrameResponse]
 
 
+class PrecheckItemResponse(BaseModel):
+    name: str
+    status: str
+    detail: str
+
+
+class PrecheckResponse(BaseModel):
+    profile: str
+    status: str
+    items: list[PrecheckItemResponse]
+
+
 class ErrorResponse(BaseModel):
     detail: str
