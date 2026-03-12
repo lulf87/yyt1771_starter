@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_title }}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Offline Web Shell</p>
+        <h1 id="app-title">{{ app_title }}</h1>
+        <p class="subtitle">Health, profile, and mock session controls in one minimal browser page.</p>
+      </header>
+
+      <section class="panel">
+        <h2>System</h2>
+        <dl class="facts">
+          <div>
+            <dt>Health</dt>
+            <dd id="health-status" data-testid="health-status">Loading...</dd>
+          </div>
+          <div>
+            <dt>Profile</dt>
+            <dd id="profile-name" data-testid="profile-name">Loading...</dd>
+          </div>
+          <div>
+            <dt>Mode</dt>
+            <dd id="profile-mode">Loading...</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel">
+        <div class="actions">
+          <div>
+            <h2>Mock Session</h2>
+            <p>Trigger one offline session through the existing API pipeline.</p>
+          </div>
+          <button id="run-mock-btn" type="button">Run Mock Session</button>
+        </div>
+        <pre id="session-result" data-testid="session-result">No session has been run yet.</pre>
+      </section>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
