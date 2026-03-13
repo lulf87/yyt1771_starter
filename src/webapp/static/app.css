@@ -478,6 +478,7 @@ pre {
 .workspace-adjustment-grid {
   display: grid;
   gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .workspace-adjustment-card {
@@ -500,6 +501,85 @@ pre {
   margin: 12px 0 0;
   color: #52606d;
   font-size: 0.95rem;
+}
+
+.workspace-adjustment-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-adjustment-editor-field {
+  display: grid;
+  gap: 6px;
+  color: #52606d;
+  font-size: 0.92rem;
+}
+
+.workspace-adjustment-editor-field span {
+  font-weight: 700;
+  color: #36506c;
+}
+
+.workspace-adjustment-editor-field input,
+.workspace-adjustment-editor-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 94, 60, 0.22);
+  background: rgba(255, 255, 255, 0.86);
+  color: #1f2933;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.workspace-adjustment-editor-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.workspace-adjustment-editor-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-action-btn--secondary {
+  background: #36506c;
+}
+
+.workspace-adjustment-status {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(250, 247, 240, 0.95);
+  color: #52606d;
+  border: 1px solid rgba(139, 94, 60, 0.12);
+}
+
+.workspace-adjustment-status--success {
+  color: #166534;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.26);
+}
+
+.workspace-adjustment-status--error {
+  color: #991b1b;
+  background: rgba(207, 17, 36, 0.1);
+  border-color: rgba(207, 17, 36, 0.24);
+}
+
+.workspace-adjustment-status--info {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.workspace-adjustment-notes-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #52606d;
+  display: grid;
+  gap: 8px;
 }
 
 .workspace-adjustment-controls-head p {
@@ -567,6 +647,24 @@ pre {
   width: 100%;
   background: #b9a895;
   color: #fffaf4;
+}
+
+.workspace-version-history {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-version-item {
+  border-radius: 12px;
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  background: rgba(250, 247, 240, 0.92);
+  padding: 12px;
+}
+
+.workspace-version-item p {
+  margin: 6px 0 0;
+  color: #52606d;
+  font-size: 0.9rem;
 }
 
 @media (max-width: 640px) {

@@ -94,3 +94,25 @@ def test_put_adjustment_rejects_invalid_override_key(tmp_path: Path) -> None:
 
     assert response.status_code == 422
     assert response.json() == {"detail": "Unsupported adjustment keys: invalid_key"}
+
+
+def test_apply_adjustment_increments_version_history(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    session_id = client.post("/api/session/run-mock").json()["session_id"]
+
+    client.put(
+        f"/api/session/{session_id}/adjustment/draft",
+        json={"overrides": {"af95": 43.1}, "reason": "first"},
+    )
+    client.post(f"/api/session/{session_id}/adjustment/apply")
+    client.put(
+        f"/api/session/{session_id}/adjustment/draft",
+        json={"overrides": {"af95": 44.2}, "reason": "second"},
+    )
+
+    response = client.post(f"/api/session/{session_id}/adjustment/apply")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["version"] for item in payload["applied_versions"]] == [1, 2]
+    assert payload["latest_result"]["af95"] == 44.2

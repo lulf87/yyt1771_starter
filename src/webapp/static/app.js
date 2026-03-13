@@ -55,6 +55,23 @@ const workspaceAdjustmentThresholdNode = document.getElementById("workspace-adju
 const workspaceAdjustmentComponentAreaNode = document.getElementById("workspace-adjustment-component-area");
 const workspaceAdjustmentMetricNormNode = document.getElementById("workspace-adjustment-metric-norm");
 const workspaceAdjustmentContextStageNode = document.getElementById("workspace-adjustment-context-stage");
+const adjustmentAutoAf95Node = document.getElementById("adjustment-auto-af95");
+const adjustmentAutoSourceNode = document.getElementById("adjustment-auto-source");
+const adjustmentAutoPointCountNode = document.getElementById("adjustment-auto-point-count");
+const adjustmentLatestAf95Node = document.getElementById("adjustment-latest-af95");
+const adjustmentLatestSourceNode = document.getElementById("adjustment-latest-source");
+const adjustmentLatestVersionNode = document.getElementById("adjustment-latest-version");
+const adjustmentLatestNoteNode = document.getElementById("adjustment-latest-note");
+const adjustmentDraftAf95Node = document.getElementById("adjustment-draft-af95");
+const adjustmentDraftReasonNode = document.getElementById("adjustment-draft-reason");
+const adjustmentSaveDraftButton = document.getElementById("adjustment-save-draft-btn");
+const adjustmentApplyButton = document.getElementById("adjustment-apply-btn");
+const adjustmentDraftStatusNode = document.getElementById("adjustment-draft-status");
+const adjustmentHasDraftNode = document.getElementById("adjustment-has-draft");
+const adjustmentAppliedCountNode = document.getElementById("adjustment-applied-count");
+const adjustmentIsManualNode = document.getElementById("adjustment-is-manual");
+const adjustmentDraftUpdatedNode = document.getElementById("adjustment-draft-updated");
+const adjustmentVersionHistoryNode = document.getElementById("adjustment-version-history");
 const workspaceStepNodes = Array.from(document.querySelectorAll("[data-testid='workspace-step']"));
 
 const WORKSPACE_STEPS = ["准备", "采集", "处理", "计算", "调整", "存储"];
@@ -62,6 +79,7 @@ let workspaceDetailState = null;
 let workspaceSummaryState = null;
 let workspaceStageState = null;
 let workspaceActiveSelectionState = null;
+let workspaceAdjustmentState = null;
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -283,6 +301,130 @@ function formatValue(value, empty = "N/A") {
     return value.length ? value.join(", ") : empty;
   }
   return String(value);
+}
+
+function formatResultValue(value, unit = "") {
+  if (value === null || value === undefined || value === "") {
+    return "N/A";
+  }
+  return unit ? `${value} ${unit}` : String(value);
+}
+
+function setAdjustmentStatusMessage(message, tone = "neutral") {
+  if (!adjustmentDraftStatusNode) {
+    return;
+  }
+  adjustmentDraftStatusNode.textContent = message;
+  adjustmentDraftStatusNode.className = `workspace-adjustment-status workspace-adjustment-status--${tone}`;
+}
+
+function getWorkspaceSessionId() {
+  return document.body.dataset.sessionId || "";
+}
+
+function collectDraftPayload() {
+  const af95Value = adjustmentDraftAf95Node ? adjustmentDraftAf95Node.value.trim() : "";
+  const reason = adjustmentDraftReasonNode ? adjustmentDraftReasonNode.value.trim() : "";
+  return {
+    overrides: {
+      af95: af95Value === "" ? null : Number(af95Value),
+    },
+    reason,
+  };
+}
+
+function renderAdjustmentState(state) {
+  workspaceAdjustmentState = state;
+  if (!state) {
+    if (adjustmentApplyButton) {
+      adjustmentApplyButton.disabled = true;
+    }
+    setAdjustmentStatusMessage("Adjustment state is unavailable.", "error");
+    return;
+  }
+
+  const autoResult = state.auto_result || {};
+  const latestResult = state.latest_result || {};
+  const appliedVersions = state.applied_versions || [];
+  const draft = state.draft;
+  const hasManualOverride = appliedVersions.length > 0;
+  const latestVersion = appliedVersions.length ? appliedVersions[appliedVersions.length - 1].version : null;
+
+  if (adjustmentAutoAf95Node) {
+    adjustmentAutoAf95Node.textContent = formatResultValue(autoResult.af95, "°C");
+  }
+  if (adjustmentAutoSourceNode) {
+    adjustmentAutoSourceNode.textContent =
+      workspaceDetailState?.source && workspaceDetailState.source !== "n/a" ? workspaceDetailState.source : "summary";
+  }
+  if (adjustmentAutoPointCountNode) {
+    adjustmentAutoPointCountNode.textContent = String(workspaceSummaryState?.point_count ?? 0);
+  }
+  if (adjustmentLatestAf95Node) {
+    adjustmentLatestAf95Node.textContent = formatResultValue(latestResult.af95, "°C");
+  }
+  if (adjustmentLatestSourceNode) {
+    adjustmentLatestSourceNode.textContent = hasManualOverride ? "adjusted" : "auto";
+  }
+  if (adjustmentLatestVersionNode) {
+    adjustmentLatestVersionNode.textContent = latestVersion === null ? "N/A" : `v${latestVersion}`;
+  }
+  if (adjustmentLatestNoteNode) {
+    adjustmentLatestNoteNode.textContent = hasManualOverride
+      ? "Latest result reflects the newest applied adjustment version."
+      : "Latest result currently matches the automatic result.";
+  }
+  if (adjustmentHasDraftNode) {
+    adjustmentHasDraftNode.textContent = draft ? "Yes" : "No";
+  }
+  if (adjustmentAppliedCountNode) {
+    adjustmentAppliedCountNode.textContent = String(appliedVersions.length);
+  }
+  if (adjustmentIsManualNode) {
+    adjustmentIsManualNode.textContent = hasManualOverride ? "Yes" : "No";
+  }
+  if (adjustmentDraftUpdatedNode) {
+    adjustmentDraftUpdatedNode.textContent = draft ? formatValue(draft.updated_at_ms) : "N/A";
+  }
+  if (adjustmentDraftAf95Node) {
+    adjustmentDraftAf95Node.value = draft && draft.overrides ? formatValue(draft.overrides.af95, "") : "";
+  }
+  if (adjustmentDraftReasonNode) {
+    adjustmentDraftReasonNode.value = draft ? draft.reason : "";
+  }
+  if (adjustmentApplyButton) {
+    adjustmentApplyButton.disabled = !draft;
+  }
+  if (adjustmentVersionHistoryNode) {
+    if (!appliedVersions.length) {
+      adjustmentVersionHistoryNode.innerHTML =
+        '<p class="session-item--empty">No applied adjustment versions yet.</p>';
+    } else {
+      adjustmentVersionHistoryNode.innerHTML = appliedVersions
+        .slice()
+        .reverse()
+        .map(
+          (version) => `
+            <article class="workspace-version-item" data-testid="adjustment-version-item">
+              <strong>v${version.version}</strong>
+              <p>reason=${escapeHtml(version.reason)}</p>
+              <p>created_at_ms=${version.created_at_ms}</p>
+              <p>before.af95=${version.result_before.af95 === null ? "N/A" : version.result_before.af95}</p>
+              <p>after.af95=${version.result_after.af95 === null ? "N/A" : version.result_after.af95}</p>
+            </article>
+          `,
+        )
+        .join("");
+    }
+  }
+
+  if (draft) {
+    setAdjustmentStatusMessage(`Draft ready: ${draft.reason}`, "info");
+  } else if (hasManualOverride) {
+    setAdjustmentStatusMessage(`Applied ${appliedVersions.length} adjustment version(s).`, "success");
+  } else {
+    setAdjustmentStatusMessage("No draft loaded.", "neutral");
+  }
 }
 
 function updateWorkspaceAdjustmentPreview(selection) {
@@ -626,6 +768,16 @@ function renderWorkspaceDetail(detail) {
   }
 }
 
+async function loadWorkspaceAdjustmentState(sessionId) {
+  const response = await fetch(`/api/session/${sessionId}/adjustment`);
+  if (!response.ok) {
+    throw new Error(`adjustment request failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  renderAdjustmentState(payload);
+  return payload;
+}
+
 function renderReplayDetail(detail) {
   if (!detailAf95Node || !detailPointCountNode) {
     return;
@@ -711,9 +863,10 @@ async function bootstrapWorkspace() {
     return;
   }
 
-  const [summaryResponse, detailResponse] = await Promise.allSettled([
+  const [summaryResponse, detailResponse, adjustmentResponse] = await Promise.allSettled([
     fetch(`/api/session/${sessionId}`),
     fetch(`/api/session/${sessionId}/detail`),
+    fetch(`/api/session/${sessionId}/adjustment`),
   ]);
 
   if (summaryResponse.status !== "fulfilled" || !summaryResponse.value.ok) {
@@ -737,6 +890,77 @@ async function bootstrapWorkspace() {
     renderWorkspaceDetail(emptyDetail);
     renderWorkspaceStages(mapWorkspaceStages(summary, null), summary.state);
   }
+
+  if (adjustmentResponse.status === "fulfilled" && adjustmentResponse.value.ok) {
+    renderAdjustmentState(await adjustmentResponse.value.json());
+  } else {
+    renderAdjustmentState(null);
+  }
+}
+
+async function saveWorkspaceDraft() {
+  const sessionId = getWorkspaceSessionId();
+  if (!sessionId || !adjustmentSaveDraftButton || !adjustmentApplyButton) {
+    return;
+  }
+  const payload = collectDraftPayload();
+  if (!payload.reason) {
+    setAdjustmentStatusMessage("Reason is required before saving a draft.", "error");
+    return;
+  }
+  if (payload.overrides.af95 !== null && Number.isNaN(payload.overrides.af95)) {
+    setAdjustmentStatusMessage("Draft Af95 must be a number or empty.", "error");
+    return;
+  }
+
+  adjustmentSaveDraftButton.disabled = true;
+  adjustmentApplyButton.disabled = true;
+  setAdjustmentStatusMessage("Saving draft...", "info");
+  try {
+    const response = await fetch(`/api/session/${sessionId}/adjustment/draft`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const responsePayload = await response.json();
+    if (!response.ok) {
+      throw new Error(responsePayload.detail || `draft save failed: ${response.status}`);
+    }
+    renderAdjustmentState(responsePayload);
+    setAdjustmentStatusMessage("Draft saved.", "success");
+  } catch (error) {
+    setAdjustmentStatusMessage(String(error), "error");
+  } finally {
+    adjustmentSaveDraftButton.disabled = false;
+    adjustmentApplyButton.disabled = !(workspaceAdjustmentState && workspaceAdjustmentState.draft);
+  }
+}
+
+async function applyWorkspaceAdjustment() {
+  const sessionId = getWorkspaceSessionId();
+  if (!sessionId || !adjustmentSaveDraftButton || !adjustmentApplyButton) {
+    return;
+  }
+
+  adjustmentSaveDraftButton.disabled = true;
+  adjustmentApplyButton.disabled = true;
+  setAdjustmentStatusMessage("Applying adjustment...", "info");
+  try {
+    const response = await fetch(`/api/session/${sessionId}/adjustment/apply`, {
+      method: "POST",
+    });
+    const responsePayload = await response.json();
+    if (!response.ok) {
+      throw new Error(responsePayload.detail || `adjustment apply failed: ${response.status}`);
+    }
+    renderAdjustmentState(responsePayload);
+    setAdjustmentStatusMessage("Adjustment applied.", "success");
+  } catch (error) {
+    setAdjustmentStatusMessage(String(error), "error");
+  } finally {
+    adjustmentSaveDraftButton.disabled = false;
+    adjustmentApplyButton.disabled = !(workspaceAdjustmentState && workspaceAdjustmentState.draft);
+  }
 }
 
 if (runMockButton) {
@@ -750,6 +974,12 @@ if (refreshPrecheckButton) {
 }
 if (workspaceRefreshButton) {
   workspaceRefreshButton.addEventListener("click", bootstrapWorkspace);
+}
+if (adjustmentSaveDraftButton) {
+  adjustmentSaveDraftButton.addEventListener("click", saveWorkspaceDraft);
+}
+if (adjustmentApplyButton) {
+  adjustmentApplyButton.addEventListener("click", applyWorkspaceAdjustment);
 }
 if (document.body.dataset.page === "home") {
   bootstrap();

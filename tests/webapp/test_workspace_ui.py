@@ -43,10 +43,24 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-adjustment-basis"' in response.text
     assert 'id="workspace-adjustment-context"' in response.text
     assert 'id="workspace-adjustment-controls"' in response.text
+    assert 'id="workspace-adjustment-auto-result"' in response.text
+    assert 'id="workspace-adjustment-latest-result"' in response.text
+    assert 'id="workspace-adjustment-draft-editor"' in response.text
+    assert 'id="workspace-adjustment-notes"' in response.text
     assert 'id="workspace-adjustment-source"' in response.text
     assert 'id="workspace-adjustment-point-count"' in response.text
     assert 'id="workspace-adjustment-keyframe-count"' in response.text
     assert 'id="workspace-adjustment-af95"' in response.text
+    assert 'id="adjustment-auto-af95"' in response.text
+    assert 'id="adjustment-auto-source"' in response.text
+    assert 'id="adjustment-latest-af95"' in response.text
+    assert 'id="adjustment-latest-source"' in response.text
+    assert 'id="adjustment-latest-version"' in response.text
+    assert 'id="adjustment-draft-af95"' in response.text
+    assert 'id="adjustment-draft-reason"' in response.text
+    assert 'id="adjustment-save-draft-btn"' in response.text
+    assert 'id="adjustment-apply-btn"' in response.text
+    assert 'id="adjustment-draft-status"' in response.text
     assert 'id="workspace-adjustment-roi"' in response.text
     assert 'id="workspace-adjustment-feature-point"' in response.text
     assert 'id="workspace-adjustment-baseline"' in response.text
@@ -54,6 +68,12 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-adjustment-threshold"' in response.text
     assert 'id="workspace-adjustment-component-area"' in response.text
     assert 'id="workspace-adjustment-coming-soon"' in response.text
+    assert 'id="workspace-adjustment-status-card"' in response.text
+    assert 'id="workspace-adjustment-history-card"' in response.text
+    assert 'id="adjustment-has-draft"' in response.text
+    assert 'id="adjustment-applied-count"' in response.text
+    assert 'id="adjustment-is-manual"' in response.text
+    assert 'id="adjustment-version-history"' in response.text
     assert 'id="workspace-stage-card"' in response.text
     assert 'id="workspace-session-summary-card"' in response.text
     assert 'id="workspace-active-selection"' in response.text
@@ -77,6 +97,7 @@ def test_workspace_route_keeps_empty_state_when_detail_is_missing(tmp_path: Path
     assert 'id="workspace-adjustment-active-summary"' in response.text
     assert "Automatic analysis basis will appear here when detail data is available." in response.text
     assert "Coming soon. Read-only in current phase." in response.text
+    assert "No draft loaded." in response.text
     assert 'disabled>' in response.text
 
 
@@ -92,6 +113,10 @@ def test_workspace_static_js_contains_selection_linking_hooks(tmp_path: Path) ->
     assert "updateWorkspaceAdjustmentPreview" in response.text
     assert "workspace-adjustment-source" in response.text
     assert "workspace-step--upcoming" in response.text
+    assert "/api/session/${sessionId}/adjustment" in response.text
+    assert "/adjustment/draft" in response.text
+    assert "/adjustment/apply" in response.text
+    assert "renderAdjustmentState" in response.text
 
 
 def test_workspace_route_returns_404_for_missing_session(tmp_path: Path) -> None:

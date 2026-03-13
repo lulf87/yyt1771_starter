@@ -81,11 +81,122 @@
           >
             <div class="workspace-section-head">
               <div>
-                <h2>Adjustment Preview</h2>
-                <p>Read-only context for future adjustment work. No parameters can be changed in this phase.</p>
+                <h2>Adjustment MVP</h2>
+                <p>Review automatic results, prepare a draft override, and apply the latest Af95 adjustment.</p>
               </div>
             </div>
             <div class="workspace-adjustment-grid">
+              <section
+                id="workspace-adjustment-auto-result"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-auto-result"
+              >
+                <h3>Automatic Result</h3>
+                <dl class="facts workspace-adjustment-facts">
+                  <div>
+                    <dt>Auto Af95</dt>
+                    <dd id="adjustment-auto-af95">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Auto Result Source</dt>
+                    <dd id="adjustment-auto-source">summary</dd>
+                  </div>
+                  <div>
+                    <dt>Auto Point Count</dt>
+                    <dd id="adjustment-auto-point-count">0</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section
+                id="workspace-adjustment-latest-result"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-latest-result"
+              >
+                <h3>Latest Result</h3>
+                <dl class="facts workspace-adjustment-facts">
+                  <div>
+                    <dt>Latest Af95</dt>
+                    <dd id="adjustment-latest-af95">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Latest Result Source</dt>
+                    <dd id="adjustment-latest-source">auto</dd>
+                  </div>
+                  <div>
+                    <dt>Latest Version</dt>
+                    <dd id="adjustment-latest-version">N/A</dd>
+                  </div>
+                </dl>
+                <p id="adjustment-latest-note" class="workspace-adjustment-copy">
+                  Latest result currently matches the automatic result.
+                </p>
+              </section>
+
+              <section
+                id="workspace-adjustment-draft-editor"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-draft-editor"
+              >
+                <h3>Draft Editor</h3>
+                <div class="workspace-adjustment-editor">
+                  <label class="workspace-adjustment-editor-field">
+                    <span>Draft Af95</span>
+                    <input
+                      id="adjustment-draft-af95"
+                      data-testid="adjustment-draft-af95"
+                      type="number"
+                      step="0.01"
+                      inputmode="decimal"
+                      placeholder="Enter Af95 override"
+                    />
+                  </label>
+                  <label class="workspace-adjustment-editor-field">
+                    <span>Reason</span>
+                    <textarea
+                      id="adjustment-draft-reason"
+                      data-testid="adjustment-draft-reason"
+                      placeholder="Describe why this adjustment is needed"
+                    ></textarea>
+                  </label>
+                  <div class="workspace-adjustment-editor-actions">
+                    <button
+                      id="adjustment-save-draft-btn"
+                      data-testid="adjustment-save-draft-btn"
+                      type="button"
+                      class="workspace-action-btn"
+                    >
+                      Save Draft
+                    </button>
+                    <button
+                      id="adjustment-apply-btn"
+                      data-testid="adjustment-apply-btn"
+                      type="button"
+                      class="workspace-action-btn workspace-action-btn--secondary"
+                      disabled
+                    >
+                      Apply Adjustment
+                    </button>
+                  </div>
+                  <p id="adjustment-draft-status" data-testid="adjustment-draft-status" class="workspace-adjustment-status">
+                    No draft loaded.
+                  </p>
+                </div>
+              </section>
+
+              <section
+                id="workspace-adjustment-notes"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-notes"
+              >
+                <h3>Adjustment Notes</h3>
+                <ul class="workspace-adjustment-notes-list">
+                  <li>Current MVP only supports Af95 result-level adjustment.</li>
+                  <li>Auto result, latest result, draft, and applied versions remain separate.</li>
+                  <li>As / Af / Af-tan and parameter-level tuning stay reserved for later phases.</li>
+                </ul>
+              </section>
+
               <section
                 id="workspace-adjustment-basis"
                 class="workspace-adjustment-card"
@@ -324,6 +435,35 @@
             <p id="workspace-summary-copy">
               Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
             </p>
+          </div>
+
+          <div id="workspace-adjustment-status-card" class="workspace-summary-card" data-testid="workspace-adjustment-status-card">
+            <h2>Adjustment Status</h2>
+            <dl class="facts workspace-side-facts">
+              <div>
+                <dt>Has Draft</dt>
+                <dd id="adjustment-has-draft">No</dd>
+              </div>
+              <div>
+                <dt>Applied Count</dt>
+                <dd id="adjustment-applied-count">0</dd>
+              </div>
+              <div>
+                <dt>Manual Override</dt>
+                <dd id="adjustment-is-manual">No</dd>
+              </div>
+              <div>
+                <dt>Draft Updated</dt>
+                <dd id="adjustment-draft-updated">N/A</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div id="workspace-adjustment-history-card" class="workspace-summary-card" data-testid="workspace-adjustment-history-card">
+            <h2>Version History</h2>
+            <div id="adjustment-version-history" data-testid="adjustment-version-history" class="workspace-version-history">
+              <p class="session-item--empty">No applied adjustment versions yet.</p>
+            </div>
           </div>
 
           <div id="workspace-actions-card" class="workspace-summary-card" data-testid="workspace-actions-card">
