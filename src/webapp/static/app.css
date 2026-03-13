@@ -337,6 +337,12 @@ pre {
   color: #52606d;
 }
 
+.workspace-step--upcoming {
+  background: rgba(59, 130, 246, 0.08);
+  color: #36506c;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
 .workspace-step--error {
   background: rgba(207, 17, 36, 0.12);
   color: #991b1b;
@@ -467,6 +473,100 @@ pre {
 .workspace-keyframe-card--active {
   border-color: rgba(207, 17, 36, 0.6);
   box-shadow: 0 0 0 2px rgba(207, 17, 36, 0.12);
+}
+
+.workspace-adjustment-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-adjustment-card {
+  border-radius: 16px;
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(248, 241, 230, 0.72));
+  padding: 16px;
+}
+
+.workspace-adjustment-card h3 {
+  margin-bottom: 12px;
+}
+
+.workspace-adjustment-facts {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.workspace-adjustment-copy {
+  margin: 12px 0 0;
+  color: #52606d;
+  font-size: 0.95rem;
+}
+
+.workspace-adjustment-controls-head p {
+  margin-bottom: 0;
+}
+
+.workspace-adjustment-control-groups {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.workspace-adjustment-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px dashed rgba(139, 94, 60, 0.24);
+  background: rgba(244, 238, 229, 0.72);
+}
+
+.workspace-adjustment-fieldset legend {
+  padding: 0 6px;
+  font-weight: 700;
+  color: #6b4226;
+}
+
+.workspace-adjustment-fieldset label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: #52606d;
+  font-size: 0.92rem;
+}
+
+.workspace-adjustment-fieldset label:last-of-type {
+  margin-bottom: 0;
+}
+
+.workspace-adjustment-fieldset input,
+.workspace-adjustment-fieldset textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 94, 60, 0.18);
+  background: rgba(255, 255, 255, 0.74);
+  color: #52606d;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.workspace-adjustment-fieldset textarea {
+  min-height: 88px;
+  resize: none;
+}
+
+.workspace-adjustment-fieldset[disabled] input,
+.workspace-adjustment-fieldset[disabled] textarea,
+.workspace-adjustment-fieldset[disabled] button {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.workspace-adjustment-fieldset[disabled] button {
+  width: 100%;
+  background: #b9a895;
+  color: #fffaf4;
 }
 
 @media (max-width: 640px) {

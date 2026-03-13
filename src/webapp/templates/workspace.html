@@ -74,6 +74,163 @@
               <p class="session-item--empty">No replay detail available.</p>
             </div>
           </article>
+          <article
+            id="workspace-adjustment-preview"
+            class="panel workspace-card"
+            data-testid="workspace-adjustment-preview"
+          >
+            <div class="workspace-section-head">
+              <div>
+                <h2>Adjustment Preview</h2>
+                <p>Read-only context for future adjustment work. No parameters can be changed in this phase.</p>
+              </div>
+            </div>
+            <div class="workspace-adjustment-grid">
+              <section
+                id="workspace-adjustment-basis"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-basis"
+              >
+                <h3>Automatic Basis</h3>
+                <dl class="facts workspace-adjustment-facts">
+                  <div>
+                    <dt>Source</dt>
+                    <dd id="workspace-adjustment-source">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Point Count</dt>
+                    <dd id="workspace-adjustment-point-count">0</dd>
+                  </div>
+                  <div>
+                    <dt>Key Frame Count</dt>
+                    <dd id="workspace-adjustment-keyframe-count">0</dd>
+                  </div>
+                  <div>
+                    <dt>Af95</dt>
+                    <dd id="workspace-adjustment-af95">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Current Stage</dt>
+                    <dd id="workspace-adjustment-stage">计算</dd>
+                  </div>
+                  <div>
+                    <dt>Detail Available</dt>
+                    <dd id="workspace-adjustment-detail-status">No</dd>
+                  </div>
+                  <div>
+                    <dt>Active Selection</dt>
+                    <dd id="workspace-adjustment-active-summary">N/A</dd>
+                  </div>
+                </dl>
+                <p id="workspace-adjustment-basis-copy" class="workspace-adjustment-copy">
+                  Automatic analysis basis will appear here when detail data is available.
+                </p>
+              </section>
+
+              <section
+                id="workspace-adjustment-context"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-context"
+              >
+                <h3>Extraction &amp; Analysis Context</h3>
+                <dl class="facts workspace-adjustment-facts">
+                  <div>
+                    <dt>ROI</dt>
+                    <dd id="workspace-adjustment-roi">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>feature_point_px</dt>
+                    <dd id="workspace-adjustment-feature-point">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>baseline_px</dt>
+                    <dd id="workspace-adjustment-baseline">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>quality</dt>
+                    <dd id="workspace-adjustment-quality">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>threshold_value</dt>
+                    <dd id="workspace-adjustment-threshold">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>component_area</dt>
+                    <dd id="workspace-adjustment-component-area">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>metric_norm</dt>
+                    <dd id="workspace-adjustment-metric-norm">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>stage</dt>
+                    <dd id="workspace-adjustment-context-stage">计算</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section
+                id="workspace-adjustment-controls"
+                class="workspace-adjustment-card"
+                data-testid="workspace-adjustment-controls"
+              >
+                <div class="workspace-adjustment-controls-head">
+                  <div>
+                    <h3>Future Adjustment Controls</h3>
+                    <p id="workspace-adjustment-coming-soon" data-testid="workspace-adjustment-coming-soon">
+                      Coming soon. Read-only in current phase.
+                    </p>
+                  </div>
+                </div>
+                <div class="workspace-adjustment-control-groups">
+                  <fieldset class="workspace-adjustment-fieldset" disabled>
+                    <legend>Image Processing Parameters</legend>
+                    <label>
+                      ROI
+                      <input type="text" value="auto from replay detail" readonly />
+                    </label>
+                    <label>
+                      Threshold
+                      <input type="text" value="read-only preview" readonly />
+                    </label>
+                    <label>
+                      Baseline Lock
+                      <input type="text" value="automatic" readonly />
+                    </label>
+                  </fieldset>
+
+                  <fieldset class="workspace-adjustment-fieldset" disabled>
+                    <legend>Curve Analysis Parameters</legend>
+                    <label>
+                      Smoothing
+                      <input type="text" value="not available yet" readonly />
+                    </label>
+                    <label>
+                      Normalization Basis
+                      <input type="text" value="current replay detail" readonly />
+                    </label>
+                    <label>
+                      Af95 Threshold
+                      <input type="text" value="0.95" readonly />
+                    </label>
+                  </fieldset>
+
+                  <fieldset class="workspace-adjustment-fieldset" disabled>
+                    <legend>Result Override</legend>
+                    <label>
+                      As / Af / Af95
+                      <input type="text" value="manual override unavailable" readonly />
+                    </label>
+                    <label>
+                      Reason
+                      <textarea readonly>Read-only preview. Saving adjustments is not enabled in this phase.</textarea>
+                    </label>
+                    <button type="button" disabled>Save Adjustment</button>
+                  </fieldset>
+                </div>
+              </section>
+            </div>
+          </article>
         </section>
 
         <aside id="workspace-sidepanel" class="workspace-sidepanel panel" data-testid="workspace-sidepanel">

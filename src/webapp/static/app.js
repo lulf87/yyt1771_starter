@@ -39,10 +39,29 @@ const workspaceActiveMetricRawNode = document.getElementById("workspace-active-m
 const workspaceActiveMetricNormNode = document.getElementById("workspace-active-metric-norm");
 const workspaceActiveFeaturePointNode = document.getElementById("workspace-active-feature-point");
 const workspaceActiveQualityNode = document.getElementById("workspace-active-quality");
+const workspaceAdjustmentSourceNode = document.getElementById("workspace-adjustment-source");
+const workspaceAdjustmentPointCountNode = document.getElementById("workspace-adjustment-point-count");
+const workspaceAdjustmentKeyframeCountNode = document.getElementById("workspace-adjustment-keyframe-count");
+const workspaceAdjustmentAf95Node = document.getElementById("workspace-adjustment-af95");
+const workspaceAdjustmentStageNode = document.getElementById("workspace-adjustment-stage");
+const workspaceAdjustmentDetailStatusNode = document.getElementById("workspace-adjustment-detail-status");
+const workspaceAdjustmentActiveSummaryNode = document.getElementById("workspace-adjustment-active-summary");
+const workspaceAdjustmentBasisCopyNode = document.getElementById("workspace-adjustment-basis-copy");
+const workspaceAdjustmentRoiNode = document.getElementById("workspace-adjustment-roi");
+const workspaceAdjustmentFeaturePointNode = document.getElementById("workspace-adjustment-feature-point");
+const workspaceAdjustmentBaselineNode = document.getElementById("workspace-adjustment-baseline");
+const workspaceAdjustmentQualityNode = document.getElementById("workspace-adjustment-quality");
+const workspaceAdjustmentThresholdNode = document.getElementById("workspace-adjustment-threshold");
+const workspaceAdjustmentComponentAreaNode = document.getElementById("workspace-adjustment-component-area");
+const workspaceAdjustmentMetricNormNode = document.getElementById("workspace-adjustment-metric-norm");
+const workspaceAdjustmentContextStageNode = document.getElementById("workspace-adjustment-context-stage");
 const workspaceStepNodes = Array.from(document.querySelectorAll("[data-testid='workspace-step']"));
 
 const WORKSPACE_STEPS = ["准备", "采集", "处理", "计算", "调整", "存储"];
 let workspaceDetailState = null;
+let workspaceSummaryState = null;
+let workspaceStageState = null;
+let workspaceActiveSelectionState = null;
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -232,6 +251,7 @@ function renderWorkspaceSummary(summary) {
   if (!summary) {
     return;
   }
+  workspaceSummaryState = summary;
   if (workspaceSessionIdNode) {
     workspaceSessionIdNode.textContent = summary.session_id;
   }
@@ -255,7 +275,82 @@ function renderWorkspaceSummary(summary) {
   }
 }
 
+function formatValue(value, empty = "N/A") {
+  if (value === null || value === undefined || value === "") {
+    return empty;
+  }
+  if (Array.isArray(value)) {
+    return value.length ? value.join(", ") : empty;
+  }
+  return String(value);
+}
+
+function updateWorkspaceAdjustmentPreview(selection) {
+  if (
+    !workspaceAdjustmentSourceNode ||
+    !workspaceAdjustmentPointCountNode ||
+    !workspaceAdjustmentKeyframeCountNode ||
+    !workspaceAdjustmentAf95Node ||
+    !workspaceAdjustmentStageNode ||
+    !workspaceAdjustmentDetailStatusNode ||
+    !workspaceAdjustmentActiveSummaryNode ||
+    !workspaceAdjustmentBasisCopyNode ||
+    !workspaceAdjustmentRoiNode ||
+    !workspaceAdjustmentFeaturePointNode ||
+    !workspaceAdjustmentBaselineNode ||
+    !workspaceAdjustmentQualityNode ||
+    !workspaceAdjustmentThresholdNode ||
+    !workspaceAdjustmentComponentAreaNode ||
+    !workspaceAdjustmentMetricNormNode ||
+    !workspaceAdjustmentContextStageNode
+  ) {
+    return;
+  }
+
+  const detail = workspaceDetailState || { points: [], key_frames: [], af95: null, source: "n/a" };
+  const stage = workspaceStageState?.currentStage || "计算";
+  const detailAvailable = (detail.points || []).length > 0;
+
+  workspaceAdjustmentSourceNode.textContent = formatValue(detail.source);
+  workspaceAdjustmentPointCountNode.textContent = String((detail.points || []).length);
+  workspaceAdjustmentKeyframeCountNode.textContent = String((detail.key_frames || []).length);
+  workspaceAdjustmentAf95Node.textContent = detail.af95 === null ? "N/A" : `${detail.af95} °C`;
+  workspaceAdjustmentStageNode.textContent = stage;
+  workspaceAdjustmentDetailStatusNode.textContent = detailAvailable ? "Yes" : "No";
+
+  if (!selection) {
+    workspaceAdjustmentActiveSummaryNode.textContent = "N/A";
+    workspaceAdjustmentBasisCopyNode.textContent =
+      detailAvailable
+        ? "Automatic basis is available, but no point or key frame is currently selected."
+        : "Automatic analysis basis will appear here when detail data is available.";
+    workspaceAdjustmentRoiNode.textContent = "N/A";
+    workspaceAdjustmentFeaturePointNode.textContent = "N/A";
+    workspaceAdjustmentBaselineNode.textContent = "N/A";
+    workspaceAdjustmentQualityNode.textContent = "N/A";
+    workspaceAdjustmentThresholdNode.textContent = "N/A";
+    workspaceAdjustmentComponentAreaNode.textContent = "N/A";
+    workspaceAdjustmentMetricNormNode.textContent = "N/A";
+    workspaceAdjustmentContextStageNode.textContent = stage;
+    return;
+  }
+
+  workspaceAdjustmentActiveSummaryNode.textContent =
+    `${selection.label || "point"} @ ${formatValue(selection.timestamp_ms)} ms, metric_raw=${formatValue(selection.metric_raw)}`;
+  workspaceAdjustmentBasisCopyNode.textContent =
+    `Automatic basis is using ${formatValue(detail.source)} detail with ${String((detail.points || []).length)} points and the current selection context.`;
+  workspaceAdjustmentRoiNode.textContent = formatValue(selection.roi);
+  workspaceAdjustmentFeaturePointNode.textContent = formatValue(selection.feature_point_px);
+  workspaceAdjustmentBaselineNode.textContent = formatValue(selection.baseline_px);
+  workspaceAdjustmentQualityNode.textContent = formatValue(selection.quality);
+  workspaceAdjustmentThresholdNode.textContent = formatValue(selection.threshold_value);
+  workspaceAdjustmentComponentAreaNode.textContent = formatValue(selection.component_area);
+  workspaceAdjustmentMetricNormNode.textContent = formatValue(selection.metric_norm);
+  workspaceAdjustmentContextStageNode.textContent = stage;
+}
+
 function renderActiveSelection(selection) {
+  workspaceActiveSelectionState = selection;
   if (
     !workspaceActiveLabelNode ||
     !workspaceActiveTimestampNode ||
@@ -278,6 +373,7 @@ function renderActiveSelection(selection) {
     workspaceActiveFeaturePointNode.textContent = "N/A";
     workspaceActiveQualityNode.textContent = "N/A";
     workspaceActivePointNode.textContent = "No point selected.";
+    updateWorkspaceAdjustmentPreview(null);
     return;
   }
 
@@ -290,6 +386,7 @@ function renderActiveSelection(selection) {
   workspaceActiveQualityNode.textContent = selection.quality ?? "N/A";
   workspaceActivePointNode.textContent =
     `Selected ${selection.label || "point"} at ${selection.timestamp_ms} ms, metric_raw=${selection.metric_raw ?? "N/A"}.`;
+  updateWorkspaceAdjustmentPreview(selection);
 }
 
 function mapWorkspaceStages(summary, detail) {
@@ -313,7 +410,7 @@ function mapWorkspaceStages(summary, detail) {
   statuses[1].status = "done";
   statuses[2].status = hasDetail ? "done" : "done";
   statuses[3].status = isFailed ? "error" : "active";
-  statuses[4].status = "todo";
+  statuses[4].status = "upcoming";
   statuses[5].status = summary.state === "completed" ? "done" : isFailed ? "todo" : "done";
 
   return {
@@ -327,6 +424,7 @@ function mapWorkspaceStages(summary, detail) {
 }
 
 function renderWorkspaceStages(stageView, sessionState) {
+  workspaceStageState = stageView;
   if (workspaceCurrentStageNode) {
     workspaceCurrentStageNode.textContent = stageView.currentStage;
   }
@@ -338,7 +436,13 @@ function renderWorkspaceStages(stageView, sessionState) {
     if (!stage) {
       return;
     }
-    node.classList.remove("workspace-step--done", "workspace-step--active", "workspace-step--todo", "workspace-step--error");
+    node.classList.remove(
+      "workspace-step--done",
+      "workspace-step--active",
+      "workspace-step--todo",
+      "workspace-step--upcoming",
+      "workspace-step--error",
+    );
     node.classList.add(`workspace-step--${stage.status}`);
     const statusNode = node.querySelector("[data-testid='workspace-step-status']");
     if (statusNode) {
@@ -348,6 +452,7 @@ function renderWorkspaceStages(stageView, sessionState) {
   if (workspaceSessionStateNode) {
     workspaceSessionStateNode.className = `status-pill status-${sessionState === "completed" ? "ok" : sessionState === "failed" ? "fail" : "warn"}`;
   }
+  updateWorkspaceAdjustmentPreview(workspaceActiveSelectionState);
 }
 
 function renderWorkspaceCurve(detail) {
@@ -445,6 +550,10 @@ function setActiveWorkspacePoint(index) {
     metric_norm: point?.metric_norm ?? null,
     feature_point_px: frame?.feature_point_px ?? null,
     quality: point?.quality ?? null,
+    roi: frame?.roi ?? null,
+    baseline_px: frame?.baseline_px ?? null,
+    threshold_value: frame?.threshold_value ?? null,
+    component_area: frame?.component_area ?? null,
   });
 }
 
@@ -512,6 +621,8 @@ function renderWorkspaceDetail(detail) {
   renderWorkspaceKeyframes(detail);
   if (!(detail.key_frames || []).length) {
     renderActiveSelection(null);
+  } else {
+    updateWorkspaceAdjustmentPreview(null);
   }
 }
 

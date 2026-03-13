@@ -39,6 +39,21 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-active-timestamp"' in response.text
     assert 'id="workspace-active-metric-raw"' in response.text
     assert 'id="workspace-active-feature-point"' in response.text
+    assert 'id="workspace-adjustment-preview"' in response.text
+    assert 'id="workspace-adjustment-basis"' in response.text
+    assert 'id="workspace-adjustment-context"' in response.text
+    assert 'id="workspace-adjustment-controls"' in response.text
+    assert 'id="workspace-adjustment-source"' in response.text
+    assert 'id="workspace-adjustment-point-count"' in response.text
+    assert 'id="workspace-adjustment-keyframe-count"' in response.text
+    assert 'id="workspace-adjustment-af95"' in response.text
+    assert 'id="workspace-adjustment-roi"' in response.text
+    assert 'id="workspace-adjustment-feature-point"' in response.text
+    assert 'id="workspace-adjustment-baseline"' in response.text
+    assert 'id="workspace-adjustment-quality"' in response.text
+    assert 'id="workspace-adjustment-threshold"' in response.text
+    assert 'id="workspace-adjustment-component-area"' in response.text
+    assert 'id="workspace-adjustment-coming-soon"' in response.text
     assert 'id="workspace-stage-card"' in response.text
     assert 'id="workspace-session-summary-card"' in response.text
     assert 'id="workspace-active-selection"' in response.text
@@ -58,6 +73,11 @@ def test_workspace_route_keeps_empty_state_when_detail_is_missing(tmp_path: Path
     assert "No replay detail available." in response.text
     assert 'id="workspace-detail-status"' in response.text
     assert 'id="workspace-active-selection"' in response.text
+    assert 'id="workspace-adjustment-preview"' in response.text
+    assert 'id="workspace-adjustment-active-summary"' in response.text
+    assert "Automatic analysis basis will appear here when detail data is available." in response.text
+    assert "Coming soon. Read-only in current phase." in response.text
+    assert 'disabled>' in response.text
 
 
 def test_workspace_static_js_contains_selection_linking_hooks(tmp_path: Path) -> None:
@@ -69,6 +89,9 @@ def test_workspace_static_js_contains_selection_linking_hooks(tmp_path: Path) ->
     assert "setActiveWorkspacePoint" in response.text
     assert "workspace-active-label" in response.text
     assert "workspace-active-point" in response.text
+    assert "updateWorkspaceAdjustmentPreview" in response.text
+    assert "workspace-adjustment-source" in response.text
+    assert "workspace-step--upcoming" in response.text
 
 
 def test_workspace_route_returns_404_for_missing_session(tmp_path: Path) -> None:
