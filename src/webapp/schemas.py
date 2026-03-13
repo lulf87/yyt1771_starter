@@ -1,6 +1,6 @@
 """Request and response models for the web application layer."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -56,6 +56,41 @@ class ReplayDetailResponse(BaseModel):
     point_count: int
     points: list[ReplayDetailPointResponse]
     key_frames: list[ReplayKeyFrameResponse]
+
+
+class AdjustmentResultResponse(BaseModel):
+    af95: float | None = None
+    as_value: float | None = None
+    af_value: float | None = None
+    af_tan: float | None = None
+
+
+class AdjustmentDraftRequest(BaseModel):
+    overrides: dict[str, float | None]
+    reason: str = Field(min_length=1)
+
+
+class AdjustmentDraftResponse(BaseModel):
+    overrides: dict[str, float | None]
+    reason: str
+    updated_at_ms: int
+
+
+class AppliedAdjustmentVersionResponse(BaseModel):
+    version: int
+    result_before: AdjustmentResultResponse
+    overrides: dict[str, float | None]
+    result_after: AdjustmentResultResponse
+    reason: str
+    created_at_ms: int
+
+
+class AdjustmentStateResponse(BaseModel):
+    session_id: str
+    auto_result: AdjustmentResultResponse
+    latest_result: AdjustmentResultResponse
+    draft: AdjustmentDraftResponse | None
+    applied_versions: list[AppliedAdjustmentVersionResponse]
 
 
 class PrecheckItemResponse(BaseModel):

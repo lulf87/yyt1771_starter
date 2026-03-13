@@ -10,12 +10,20 @@ from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.webapp.config import RuntimeConfig
 from src.webapp.deps import (
+    get_adjustment_service,
     get_runtime_config,
     get_session_artifact_store,
     get_session_repo,
     get_session_runner,
 )
-from src.webapp.schemas import ReplayDetailResponse, SessionHistoryResponse, SessionSummaryResponse
+from src.webapp.schemas import (
+    AdjustmentDraftRequest,
+    AdjustmentStateResponse,
+    ReplayDetailResponse,
+    SessionHistoryResponse,
+    SessionSummaryResponse,
+)
+from src.workflow.adjustments import AdjustmentService
 from src.workflow.session import WorkflowSessionRunner, build_mock_sync_points
 
 router = APIRouter(prefix="/api/session", tags=["session"])
@@ -93,6 +101,66 @@ def get_session_detail(
             detail=f"Session detail not found: {session_id}",
         )
     return ReplayDetailResponse(**detail)
+
+
+@router.get("/{session_id}/adjustment", response_model=AdjustmentStateResponse)
+def get_session_adjustment(
+    session_id: str,
+    service: AdjustmentService = Depends(get_adjustment_service),
+) -> AdjustmentStateResponse:
+    try:
+        state_payload = service.get_adjustment_state(session_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    return AdjustmentStateResponse(**state_payload)
+
+
+@router.put("/{session_id}/adjustment/draft", response_model=AdjustmentStateResponse)
+def save_session_adjustment_draft(
+    session_id: str,
+    payload: AdjustmentDraftRequest,
+    service: AdjustmentService = Depends(get_adjustment_service),
+) -> AdjustmentStateResponse:
+    try:
+        state_payload = service.save_draft(
+            session_id=session_id,
+            overrides=payload.overrides,
+            reason=payload.reason,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return AdjustmentStateResponse(**state_payload)
+
+
+@router.post("/{session_id}/adjustment/apply", response_model=AdjustmentStateResponse)
+def apply_session_adjustment(
+    session_id: str,
+    service: AdjustmentService = Depends(get_adjustment_service),
+) -> AdjustmentStateResponse:
+    try:
+        state_payload = service.apply_draft(session_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return AdjustmentStateResponse(**state_payload)
 
 
 @router.get("/{session_id}", response_model=SessionSummaryResponse)

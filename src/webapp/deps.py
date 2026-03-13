@@ -5,8 +5,10 @@ from pathlib import Path
 from fastapi import Depends, Request
 
 from src.storage.session_artifacts import SessionArtifactStore
+from src.storage.session_adjustments import SessionAdjustmentStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.webapp.config import RuntimeConfig
+from src.workflow.adjustments import AdjustmentService
 from src.workflow.session import WorkflowSessionRunner
 
 
@@ -27,12 +29,21 @@ def get_session_repo(request: Request) -> SqliteSessionRepo:
 
 
 def get_session_artifact_store(request: Request) -> SessionArtifactStore:
-    runtime_config = get_runtime_config(request)
+    artifact_path = _resolve_artifact_path(get_runtime_config(request))
+    return SessionArtifactStore(artifact_path)
+
+
+def get_session_adjustment_store(request: Request) -> SessionAdjustmentStore:
+    artifact_path = _resolve_artifact_path(get_runtime_config(request))
+    return SessionAdjustmentStore(artifact_path)
+
+
+def _resolve_artifact_path(runtime_config: RuntimeConfig) -> Path:
     artifact_dir = runtime_config.storage.get("artifact_dir", "var/artifacts")
     artifact_path = Path(artifact_dir)
     if not artifact_path.is_absolute():
         artifact_path = Path(__file__).resolve().parents[2] / artifact_path
-    return SessionArtifactStore(artifact_path)
+    return artifact_path
 
 
 def get_session_runner(
@@ -40,3 +51,10 @@ def get_session_runner(
     artifact_store: SessionArtifactStore = Depends(get_session_artifact_store),
 ) -> WorkflowSessionRunner:
     return WorkflowSessionRunner(repo=repo, artifact_store=artifact_store)
+
+
+def get_adjustment_service(
+    repo: SqliteSessionRepo = Depends(get_session_repo),
+    store: SessionAdjustmentStore = Depends(get_session_adjustment_store),
+) -> AdjustmentService:
+    return AdjustmentService(repo=repo, store=store)
