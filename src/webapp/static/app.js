@@ -14,9 +14,31 @@ const detailCurveNode = document.getElementById("detail-curve-line");
 const detailKeyFramesNode = document.getElementById("detail-key-frames");
 const sessionWorkspaceLinkNode = document.getElementById("session-workspace-link");
 const workspaceShellNode = document.getElementById("workspace-shell");
+const workspaceSessionIdNode = document.getElementById("workspace-session-id");
+const workspaceSessionStateNode = document.getElementById("workspace-session-state");
+const workspaceSideStateNode = document.getElementById("workspace-side-state");
+const workspaceAf95Node = document.getElementById("workspace-af95");
+const workspacePointCountNode = document.getElementById("workspace-point-count");
+const workspaceSourceNode = document.getElementById("workspace-source");
+const workspaceDetailPointCountNode = document.getElementById("workspace-detail-point-count");
+const workspaceKeyframeCountNode = document.getElementById("workspace-keyframe-count");
+const workspaceCurveNode = document.getElementById("workspace-curve-line");
+const workspaceCurvePointsNode = document.getElementById("workspace-curve-points");
+const workspaceCurveEmptyNode = document.getElementById("workspace-curve-empty");
+const workspaceAf95LineNode = document.getElementById("workspace-af95-line");
+const workspaceKeyframesNode = document.getElementById("workspace-keyframes");
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function renderSessionResult(payload) {
@@ -190,6 +212,168 @@ function drawFrameImage(canvas, image, featurePoint) {
   }
 }
 
+function renderWorkspaceSummary(summary) {
+  if (!summary) {
+    return;
+  }
+  if (workspaceSessionIdNode) {
+    workspaceSessionIdNode.textContent = summary.session_id;
+  }
+  if (workspaceSessionStateNode) {
+    workspaceSessionStateNode.textContent = summary.state;
+    workspaceSessionStateNode.className = `status-pill status-${summary.state === "completed" ? "ok" : "warn"}`;
+  }
+  if (workspaceSideStateNode) {
+    workspaceSideStateNode.textContent = summary.state;
+  }
+  if (workspacePointCountNode) {
+    workspacePointCountNode.textContent = String(summary.point_count);
+  }
+  if (workspaceAf95Node) {
+    workspaceAf95Node.textContent = summary.af95 === null ? "n/a" : String(summary.af95);
+  }
+  const summaryCopyNode = document.getElementById("workspace-summary-copy");
+  if (summaryCopyNode) {
+    summaryCopyNode.textContent =
+      `Session ${summary.session_id} is currently recorded as ${summary.state} with ${summary.point_count} points.`;
+  }
+}
+
+function renderWorkspaceCurve(detail) {
+  if (!workspaceCurveNode || !workspaceCurvePointsNode || !workspaceCurveEmptyNode || !workspaceAf95LineNode) {
+    return;
+  }
+
+  const points = detail.points || [];
+  if (!points.length) {
+    workspaceCurveNode.setAttribute("points", "");
+    workspaceCurvePointsNode.innerHTML = "";
+    workspaceAf95LineNode.setAttribute("x1", "0");
+    workspaceAf95LineNode.setAttribute("x2", "0");
+    workspaceAf95LineNode.setAttribute("y1", "0");
+    workspaceAf95LineNode.setAttribute("y2", "0");
+    workspaceCurveEmptyNode.textContent = "No replay detail available.";
+    workspaceCurveEmptyNode.hidden = false;
+    return;
+  }
+
+  const width = 640;
+  const height = 260;
+  const padding = 28;
+  const xValues = points.map((point) => point.celsius);
+  const yValues = points.map((point) => point.metric_raw);
+  const minX = Math.min(...xValues);
+  const maxX = Math.max(...xValues);
+  const minY = Math.min(...yValues);
+  const maxY = Math.max(...yValues);
+  const xSpan = Math.max(maxX - minX, 1);
+  const ySpan = Math.max(maxY - minY, 1);
+
+  const scaledPoints = points.map((point, index) => {
+    const x = padding + ((point.celsius - minX) / xSpan) * (width - padding * 2);
+    const y = height - padding - ((point.metric_raw - minY) / ySpan) * (height - padding * 2);
+    return { ...point, x, y, index };
+  });
+
+  workspaceCurveNode.setAttribute(
+    "points",
+    scaledPoints.map((point) => `${point.x},${point.y}`).join(" "),
+  );
+  workspaceCurvePointsNode.innerHTML = scaledPoints
+    .map(
+      (point) =>
+        `<circle class="workspace-curve-point" data-point-index="${point.index}" cx="${point.x}" cy="${point.y}" r="6"></circle>`,
+    )
+    .join("");
+
+  if (detail.af95 === null) {
+    workspaceAf95LineNode.setAttribute("x1", "0");
+    workspaceAf95LineNode.setAttribute("x2", "0");
+    workspaceAf95LineNode.setAttribute("y1", "0");
+    workspaceAf95LineNode.setAttribute("y2", "0");
+  } else {
+    const af95X = padding + ((detail.af95 - minX) / xSpan) * (width - padding * 2);
+    workspaceAf95LineNode.setAttribute("x1", String(af95X));
+    workspaceAf95LineNode.setAttribute("x2", String(af95X));
+    workspaceAf95LineNode.setAttribute("y1", String(padding));
+    workspaceAf95LineNode.setAttribute("y2", String(height - padding));
+  }
+
+  workspaceCurveEmptyNode.hidden = true;
+}
+
+function setActiveWorkspacePoint(index) {
+  if (!workspaceCurvePointsNode || !workspaceKeyframesNode) {
+    return;
+  }
+  workspaceCurvePointsNode.querySelectorAll(".workspace-curve-point").forEach((node) => {
+    node.classList.toggle("workspace-curve-point--active", node.dataset.pointIndex === String(index));
+  });
+  workspaceKeyframesNode.querySelectorAll(".key-frame-card").forEach((node) => {
+    node.classList.toggle("workspace-keyframe-card--active", node.dataset.pointIndex === String(index));
+  });
+}
+
+function renderWorkspaceKeyframes(detail) {
+  if (!workspaceKeyframesNode) {
+    return;
+  }
+  const keyFrames = detail.key_frames || [];
+  if (!keyFrames.length) {
+    workspaceKeyframesNode.innerHTML = '<p class="session-item--empty">No replay detail available.</p>';
+    return;
+  }
+
+  const pointIndexByTimestamp = new Map((detail.points || []).map((point, index) => [point.timestamp_ms, index]));
+  workspaceKeyframesNode.innerHTML = keyFrames
+    .map((frame, index) => {
+      const pointIndex = pointIndexByTimestamp.get(frame.timestamp_ms) ?? index;
+      return `
+        <article class="key-frame-card" data-point-index="${pointIndex}" data-testid="workspace-keyframe-card">
+          <h3>${escapeHtml(frame.label)}</h3>
+          <canvas id="workspace-keyframe-canvas-${index}" class="key-frame-canvas"></canvas>
+          <p>timestamp=${frame.timestamp_ms}</p>
+          <p>metric_raw=${frame.metric_raw === null ? "n/a" : frame.metric_raw}</p>
+          <p>feature_point=${frame.feature_point_px === null ? "n/a" : frame.feature_point_px.join(", ")}</p>
+        </article>
+      `;
+    })
+    .join("");
+
+  keyFrames.forEach((frame, index) => {
+    const canvas = document.getElementById(`workspace-keyframe-canvas-${index}`);
+    if (canvas) {
+      drawFrameImage(canvas, frame.image, frame.feature_point_px);
+    }
+  });
+
+  workspaceKeyframesNode.querySelectorAll(".key-frame-card").forEach((node) => {
+    node.addEventListener("click", () => {
+      const pointIndex = Number(node.dataset.pointIndex || "0");
+      setActiveWorkspacePoint(pointIndex);
+    });
+  });
+
+  setActiveWorkspacePoint(Number(workspaceKeyframesNode.querySelector(".key-frame-card")?.dataset.pointIndex || "0"));
+}
+
+function renderWorkspaceDetail(detail) {
+  if (workspaceSourceNode) {
+    workspaceSourceNode.textContent = detail.source || "n/a";
+  }
+  if (workspaceDetailPointCountNode) {
+    workspaceDetailPointCountNode.textContent = String((detail.points || []).length);
+  }
+  if (workspaceKeyframeCountNode) {
+    workspaceKeyframeCountNode.textContent = String((detail.key_frames || []).length);
+  }
+  if (workspaceAf95Node) {
+    workspaceAf95Node.textContent = detail.af95 === null ? "n/a" : String(detail.af95);
+  }
+  renderWorkspaceCurve(detail);
+  renderWorkspaceKeyframes(detail);
+}
+
 function renderReplayDetail(detail) {
   if (!detailAf95Node || !detailPointCountNode) {
     return;
@@ -275,20 +459,28 @@ async function bootstrapWorkspace() {
     return;
   }
 
-  const summaryResponse = await fetch(`/api/session/${sessionId}`);
-  if (!summaryResponse.ok) {
+  const [summaryResponse, detailResponse] = await Promise.allSettled([
+    fetch(`/api/session/${sessionId}`),
+    fetch(`/api/session/${sessionId}/detail`),
+  ]);
+
+  if (summaryResponse.status !== "fulfilled" || !summaryResponse.value.ok) {
     return;
   }
-  const summary = await summaryResponse.json();
-  const summaryCopyNode = document.getElementById("workspace-summary-copy");
-  const summaryStateNode = document.getElementById("workspace-summary-state");
-  if (summaryCopyNode) {
-    summaryCopyNode.textContent =
-      `Session ${summary.session_id} is currently recorded as ${summary.state} with ${summary.point_count} points.`;
-  }
-  if (summaryStateNode) {
-    summaryStateNode.textContent = summary.state;
-    summaryStateNode.className = `status-pill status-${summary.state === "completed" ? "ok" : "warn"}`;
+
+  const summary = await summaryResponse.value.json();
+  renderWorkspaceSummary(summary);
+
+  if (detailResponse.status === "fulfilled" && detailResponse.value.ok) {
+    const detail = await detailResponse.value.json();
+    renderWorkspaceDetail(detail);
+  } else {
+    renderWorkspaceDetail({
+      source: "n/a",
+      af95: summary.af95,
+      points: [],
+      key_frames: [],
+    });
   }
 }
 

@@ -48,3 +48,4 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/session/run-replay" in response.text
     assert "/api/session/${sessionId}/detail" in response.text
     assert "/workspace/" in response.text
+    assert 'workspace-keyframe-card' in response.text

@@ -16,7 +16,7 @@
         <div class="workspace-topbar-meta">
           <span class="status-pill status-ok">session</span>
           <strong id="workspace-session-id">{{ session_id }}</strong>
-          <span id="workspace-summary-state" class="status-pill status-warn">{{ summary.state }}</span>
+          <span id="workspace-session-state" class="status-pill status-warn">{{ summary.state }}</span>
         </div>
       </header>
 
@@ -35,15 +35,32 @@
 
         <section id="workspace-main" class="workspace-main" data-testid="workspace-main">
           <article class="panel workspace-card">
-            <h2>Primary Work Area</h2>
-            <p>Reserved for image, curve, and operator-focused workspace interactions.</p>
-            <div class="workspace-placeholder">Workspace canvas placeholder</div>
+            <div class="workspace-section-head">
+              <div>
+                <h2>Replay Curve</h2>
+                <p>Metric raw vs. celsius from the replay detail artifact.</p>
+              </div>
+            </div>
+            <svg id="workspace-curve" data-testid="workspace-curve" viewBox="0 0 640 260" class="curve-svg workspace-curve-svg" role="img" aria-label="Workspace replay curve">
+              <rect x="0" y="0" width="640" height="260" class="curve-bg"></rect>
+              <line id="workspace-af95-line" x1="0" y1="0" x2="0" y2="0" class="workspace-af95-line"></line>
+              <polyline id="workspace-curve-line" fill="none" points=""></polyline>
+              <g id="workspace-curve-points"></g>
+            </svg>
+            <p id="workspace-curve-empty" data-testid="workspace-curve-empty" class="session-item--empty">
+              No replay detail available.
+            </p>
           </article>
           <article class="panel workspace-card">
-            <h2>Current Session</h2>
-            <p id="workspace-summary-copy">
-              Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
-            </p>
+            <div class="workspace-section-head">
+              <div>
+                <h2>Key Frames</h2>
+                <p>First, middle, and last replay frames when detail is available.</p>
+              </div>
+            </div>
+            <div id="workspace-keyframes" class="key-frame-grid" data-testid="workspace-keyframes">
+              <p class="session-item--empty">No replay detail available.</p>
+            </div>
           </article>
         </section>
 
@@ -52,20 +69,36 @@
           <dl class="facts">
             <div>
               <dt>State</dt>
-              <dd>{{ summary.state }}</dd>
+              <dd id="workspace-side-state">{{ summary.state }}</dd>
             </div>
             <div>
               <dt>Point Count</dt>
-              <dd>{{ summary.point_count }}</dd>
+              <dd id="workspace-point-count">{{ summary.point_count }}</dd>
             </div>
             <div>
               <dt>Af95</dt>
-              <dd>{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
+              <dd id="workspace-af95">{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd id="workspace-source">loading</dd>
+            </div>
+            <div>
+              <dt>Detail Points</dt>
+              <dd id="workspace-detail-point-count">0</dd>
+            </div>
+            <div>
+              <dt>Key Frames</dt>
+              <dd id="workspace-keyframe-count">0</dd>
             </div>
           </dl>
+          <p id="workspace-summary-copy">
+            Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
+          </p>
           <div class="workspace-links">
             <a class="workspace-link" href="/">Back to Home</a>
             <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
+            <a class="workspace-link" id="workspace-detail-link" href="/api/session/{{ session_id }}/detail">Open Detail API</a>
           </div>
         </aside>
       </div>
