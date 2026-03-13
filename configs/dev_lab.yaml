@@ -9,4 +9,5 @@ adapters:
   temp: modbus_temp
   plc: mock
 storage:
-  sqlite_path: data/dev_lab.sqlite3
+  sqlite_path: examples/runtime/dev_lab.sqlite3
+  artifact_dir: examples/runtime/artifacts

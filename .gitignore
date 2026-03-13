@@ -2,3 +2,5 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+examples/runtime/*.sqlite3
+examples/runtime/artifacts/
