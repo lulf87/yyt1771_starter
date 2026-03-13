@@ -42,7 +42,7 @@
           <article class="panel workspace-card">
             <div class="workspace-section-head">
               <div>
-                <h2>Replay Curve</h2>
+                <h2 id="workspace-curve-title">Replay Curve</h2>
                 <p>Metric raw vs. celsius from the replay detail artifact.</p>
               </div>
             </div>
@@ -54,6 +54,13 @@
             </svg>
             <p id="workspace-curve-empty" data-testid="workspace-curve-empty" class="session-item--empty">
               No replay detail available.
+            </p>
+            <div class="workspace-curve-meta">
+              <span class="workspace-axis-label">X: Temperature (°C)</span>
+              <span class="workspace-axis-label">Y: metric_raw</span>
+            </div>
+            <p id="workspace-active-point" data-testid="workspace-active-point" class="workspace-active-point">
+              No point selected.
             </p>
           </article>
           <article class="panel workspace-card">
@@ -101,8 +108,42 @@
                 <dd id="workspace-point-count">{{ summary.point_count }}</dd>
               </div>
               <div>
-                <dt>Af95</dt>
-                <dd id="workspace-af95">{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
+                <dt>Af95 (°C)</dt>
+                <dd id="workspace-af95" class="workspace-af95-emphasis">{{ summary.af95 if summary.af95 is not none else "N/A" }}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div id="workspace-active-selection" class="workspace-summary-card" data-testid="workspace-active-selection">
+            <h2>Active Selection</h2>
+            <dl class="facts workspace-side-facts">
+              <div>
+                <dt>Label</dt>
+                <dd id="workspace-active-label">N/A</dd>
+              </div>
+              <div>
+                <dt>Timestamp</dt>
+                <dd id="workspace-active-timestamp">N/A</dd>
+              </div>
+              <div>
+                <dt>Celsius</dt>
+                <dd id="workspace-active-celsius">N/A</dd>
+              </div>
+              <div>
+                <dt>metric_raw</dt>
+                <dd id="workspace-active-metric-raw">N/A</dd>
+              </div>
+              <div>
+                <dt>metric_norm</dt>
+                <dd id="workspace-active-metric-norm">N/A</dd>
+              </div>
+              <div>
+                <dt>feature_point_px</dt>
+                <dd id="workspace-active-feature-point">N/A</dd>
+              </div>
+              <div>
+                <dt>quality</dt>
+                <dd id="workspace-active-quality">N/A</dd>
               </div>
             </dl>
           </div>

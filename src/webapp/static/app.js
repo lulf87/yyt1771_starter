@@ -31,9 +31,18 @@ const workspaceCurrentStageNode = document.getElementById("workspace-current-sta
 const workspaceStageDescriptionNode = document.getElementById("workspace-stage-description");
 const workspaceDetailStatusNode = document.getElementById("workspace-detail-status");
 const workspaceRefreshButton = document.getElementById("workspace-refresh-btn");
+const workspaceActivePointNode = document.getElementById("workspace-active-point");
+const workspaceActiveLabelNode = document.getElementById("workspace-active-label");
+const workspaceActiveTimestampNode = document.getElementById("workspace-active-timestamp");
+const workspaceActiveCelsiusNode = document.getElementById("workspace-active-celsius");
+const workspaceActiveMetricRawNode = document.getElementById("workspace-active-metric-raw");
+const workspaceActiveMetricNormNode = document.getElementById("workspace-active-metric-norm");
+const workspaceActiveFeaturePointNode = document.getElementById("workspace-active-feature-point");
+const workspaceActiveQualityNode = document.getElementById("workspace-active-quality");
 const workspaceStepNodes = Array.from(document.querySelectorAll("[data-testid='workspace-step']"));
 
 const WORKSPACE_STEPS = ["准备", "采集", "处理", "计算", "调整", "存储"];
+let workspaceDetailState = null;
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -237,13 +246,50 @@ function renderWorkspaceSummary(summary) {
     workspacePointCountNode.textContent = String(summary.point_count);
   }
   if (workspaceAf95Node) {
-    workspaceAf95Node.textContent = summary.af95 === null ? "n/a" : String(summary.af95);
+    workspaceAf95Node.textContent = summary.af95 === null ? "N/A" : `${summary.af95} °C`;
   }
   const summaryCopyNode = document.getElementById("workspace-summary-copy");
   if (summaryCopyNode) {
     summaryCopyNode.textContent =
       `Session ${summary.session_id} is currently recorded as ${summary.state} with ${summary.point_count} points.`;
   }
+}
+
+function renderActiveSelection(selection) {
+  if (
+    !workspaceActiveLabelNode ||
+    !workspaceActiveTimestampNode ||
+    !workspaceActiveCelsiusNode ||
+    !workspaceActiveMetricRawNode ||
+    !workspaceActiveMetricNormNode ||
+    !workspaceActiveFeaturePointNode ||
+    !workspaceActiveQualityNode ||
+    !workspaceActivePointNode
+  ) {
+    return;
+  }
+
+  if (!selection) {
+    workspaceActiveLabelNode.textContent = "N/A";
+    workspaceActiveTimestampNode.textContent = "N/A";
+    workspaceActiveCelsiusNode.textContent = "N/A";
+    workspaceActiveMetricRawNode.textContent = "N/A";
+    workspaceActiveMetricNormNode.textContent = "N/A";
+    workspaceActiveFeaturePointNode.textContent = "N/A";
+    workspaceActiveQualityNode.textContent = "N/A";
+    workspaceActivePointNode.textContent = "No point selected.";
+    return;
+  }
+
+  workspaceActiveLabelNode.textContent = selection.label || "point";
+  workspaceActiveTimestampNode.textContent = String(selection.timestamp_ms ?? "N/A");
+  workspaceActiveCelsiusNode.textContent = selection.celsius ?? "N/A";
+  workspaceActiveMetricRawNode.textContent = selection.metric_raw ?? "N/A";
+  workspaceActiveMetricNormNode.textContent = selection.metric_norm ?? "N/A";
+  workspaceActiveFeaturePointNode.textContent = selection.feature_point_px ? selection.feature_point_px.join(", ") : "N/A";
+  workspaceActiveQualityNode.textContent = selection.quality ?? "N/A";
+  workspaceActivePointNode.textContent =
+    `Selected ${selection.label || "point"} at ${selection.timestamp_ms} ms, metric_raw=${selection.metric_raw ?? "N/A"}.`;
 }
 
 function mapWorkspaceStages(summary, detail) {
@@ -350,6 +396,12 @@ function renderWorkspaceCurve(detail) {
         `<circle class="workspace-curve-point" data-point-index="${point.index}" cx="${point.x}" cy="${point.y}" r="6"></circle>`,
     )
     .join("");
+  workspaceCurvePointsNode.querySelectorAll(".workspace-curve-point").forEach((node) => {
+    node.addEventListener("click", () => {
+      const pointIndex = Number(node.dataset.pointIndex || "0");
+      setActiveWorkspacePoint(pointIndex);
+    });
+  });
 
   if (detail.af95 === null) {
     workspaceAf95LineNode.setAttribute("x1", "0");
@@ -376,6 +428,23 @@ function setActiveWorkspacePoint(index) {
   });
   workspaceKeyframesNode.querySelectorAll(".key-frame-card").forEach((node) => {
     node.classList.toggle("workspace-keyframe-card--active", node.dataset.pointIndex === String(index));
+  });
+
+  if (!workspaceDetailState) {
+    renderActiveSelection(null);
+    return;
+  }
+
+  const point = workspaceDetailState.points?.[index] || null;
+  const frame = (workspaceDetailState.key_frames || []).find((item) => item.timestamp_ms === point?.timestamp_ms) || null;
+  renderActiveSelection({
+    label: frame?.label || `point-${index + 1}`,
+    timestamp_ms: point?.timestamp_ms ?? frame?.timestamp_ms ?? null,
+    celsius: point?.celsius ?? null,
+    metric_raw: point?.metric_raw ?? frame?.metric_raw ?? null,
+    metric_norm: point?.metric_norm ?? null,
+    feature_point_px: frame?.feature_point_px ?? null,
+    quality: point?.quality ?? null,
   });
 }
 
@@ -423,6 +492,7 @@ function renderWorkspaceKeyframes(detail) {
 }
 
 function renderWorkspaceDetail(detail) {
+  workspaceDetailState = detail;
   if (workspaceSourceNode) {
     workspaceSourceNode.textContent = detail.source || "n/a";
   }
@@ -436,10 +506,13 @@ function renderWorkspaceDetail(detail) {
     workspaceDetailStatusNode.textContent = (detail.points || []).length ? "available" : "missing";
   }
   if (workspaceAf95Node) {
-    workspaceAf95Node.textContent = detail.af95 === null ? "n/a" : String(detail.af95);
+    workspaceAf95Node.textContent = detail.af95 === null ? "N/A" : `${detail.af95} °C`;
   }
   renderWorkspaceCurve(detail);
   renderWorkspaceKeyframes(detail);
+  if (!(detail.key_frames || []).length) {
+    renderActiveSelection(null);
+  }
 }
 
 function renderReplayDetail(detail) {

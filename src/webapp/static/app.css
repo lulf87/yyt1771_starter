@@ -386,6 +386,26 @@ pre {
   gap: 10px;
 }
 
+.workspace-curve-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  color: #52606d;
+  font-size: 0.9rem;
+}
+
+.workspace-axis-label {
+  font-weight: 600;
+}
+
+.workspace-active-point {
+  margin: 0;
+  color: #52606d;
+  font-size: 0.95rem;
+}
+
 .workspace-summary-card {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(139, 94, 60, 0.12);
@@ -405,6 +425,12 @@ pre {
 .workspace-action-btn {
   width: 100%;
   justify-content: center;
+}
+
+.workspace-af95-emphasis {
+  color: #b45309;
+  font-size: 1.4rem;
+  font-weight: 800;
 }
 
 .workspace-curve-svg {
@@ -435,6 +461,7 @@ pre {
   fill: #cf1124;
   stroke: #fff7ed;
   stroke-width: 3;
+  filter: drop-shadow(0 0 10px rgba(207, 17, 36, 0.32));
 }
 
 .workspace-keyframe-card--active {
