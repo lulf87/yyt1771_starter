@@ -27,6 +27,13 @@ const workspaceCurvePointsNode = document.getElementById("workspace-curve-points
 const workspaceCurveEmptyNode = document.getElementById("workspace-curve-empty");
 const workspaceAf95LineNode = document.getElementById("workspace-af95-line");
 const workspaceKeyframesNode = document.getElementById("workspace-keyframes");
+const workspaceCurrentStageNode = document.getElementById("workspace-current-stage");
+const workspaceStageDescriptionNode = document.getElementById("workspace-stage-description");
+const workspaceDetailStatusNode = document.getElementById("workspace-detail-status");
+const workspaceRefreshButton = document.getElementById("workspace-refresh-btn");
+const workspaceStepNodes = Array.from(document.querySelectorAll("[data-testid='workspace-step']"));
+
+const WORKSPACE_STEPS = ["准备", "采集", "处理", "计算", "调整", "存储"];
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -239,6 +246,64 @@ function renderWorkspaceSummary(summary) {
   }
 }
 
+function mapWorkspaceStages(summary, detail) {
+  const hasSummary = Boolean(summary);
+  const hasDetail = Boolean(detail && (detail.points || []).length);
+  const hasKeyframes = Boolean(detail && (detail.key_frames || []).length);
+  const isFailed = summary && summary.state === "failed";
+  const source = detail && detail.source ? detail.source : "mock";
+
+  const statuses = WORKSPACE_STEPS.map((name) => ({ name, status: "todo" }));
+  if (!hasSummary) {
+    return {
+      currentStage: "准备",
+      statuses,
+      mode: source,
+      description: "No session summary available yet.",
+    };
+  }
+
+  statuses[0].status = "done";
+  statuses[1].status = "done";
+  statuses[2].status = hasDetail ? "done" : "done";
+  statuses[3].status = isFailed ? "error" : "active";
+  statuses[4].status = "todo";
+  statuses[5].status = summary.state === "completed" ? "done" : isFailed ? "todo" : "done";
+
+  return {
+    currentStage: isFailed ? "计算" : "计算",
+    statuses,
+    mode: source,
+    description: hasDetail
+      ? `${source} detail is loaded; the workspace is focused on processing and calculation review.`
+      : `${source} detail is not available; summary-only workspace view is active.`,
+  };
+}
+
+function renderWorkspaceStages(stageView, sessionState) {
+  if (workspaceCurrentStageNode) {
+    workspaceCurrentStageNode.textContent = stageView.currentStage;
+  }
+  if (workspaceStageDescriptionNode) {
+    workspaceStageDescriptionNode.textContent = stageView.description;
+  }
+  workspaceStepNodes.forEach((node, index) => {
+    const stage = stageView.statuses[index];
+    if (!stage) {
+      return;
+    }
+    node.classList.remove("workspace-step--done", "workspace-step--active", "workspace-step--todo", "workspace-step--error");
+    node.classList.add(`workspace-step--${stage.status}`);
+    const statusNode = node.querySelector("[data-testid='workspace-step-status']");
+    if (statusNode) {
+      statusNode.textContent = stage.status;
+    }
+  });
+  if (workspaceSessionStateNode) {
+    workspaceSessionStateNode.className = `status-pill status-${sessionState === "completed" ? "ok" : sessionState === "failed" ? "fail" : "warn"}`;
+  }
+}
+
 function renderWorkspaceCurve(detail) {
   if (!workspaceCurveNode || !workspaceCurvePointsNode || !workspaceCurveEmptyNode || !workspaceAf95LineNode) {
     return;
@@ -367,6 +432,9 @@ function renderWorkspaceDetail(detail) {
   if (workspaceKeyframeCountNode) {
     workspaceKeyframeCountNode.textContent = String((detail.key_frames || []).length);
   }
+  if (workspaceDetailStatusNode) {
+    workspaceDetailStatusNode.textContent = (detail.points || []).length ? "available" : "missing";
+  }
   if (workspaceAf95Node) {
     workspaceAf95Node.textContent = detail.af95 === null ? "n/a" : String(detail.af95);
   }
@@ -474,13 +542,16 @@ async function bootstrapWorkspace() {
   if (detailResponse.status === "fulfilled" && detailResponse.value.ok) {
     const detail = await detailResponse.value.json();
     renderWorkspaceDetail(detail);
+    renderWorkspaceStages(mapWorkspaceStages(summary, detail), summary.state);
   } else {
-    renderWorkspaceDetail({
+    const emptyDetail = {
       source: "n/a",
       af95: summary.af95,
       points: [],
       key_frames: [],
-    });
+    };
+    renderWorkspaceDetail(emptyDetail);
+    renderWorkspaceStages(mapWorkspaceStages(summary, null), summary.state);
   }
 }
 
@@ -492,6 +563,9 @@ if (runReplayButton) {
 }
 if (refreshPrecheckButton) {
   refreshPrecheckButton.addEventListener("click", loadPrecheck);
+}
+if (workspaceRefreshButton) {
+  workspaceRefreshButton.addEventListener("click", bootstrapWorkspace);
 }
 if (document.body.dataset.page === "home") {
   bootstrap();

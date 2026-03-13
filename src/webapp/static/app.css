@@ -298,12 +298,6 @@ pre {
   color: #52606d;
 }
 
-.workspace-step--active {
-  background: rgba(139, 94, 60, 0.12);
-  color: #1f2933;
-  border-color: rgba(139, 94, 60, 0.28);
-}
-
 .workspace-step-index {
   width: 28px;
   height: 28px;
@@ -313,6 +307,40 @@ pre {
   justify-content: center;
   background: rgba(24, 32, 44, 0.1);
   font-weight: 700;
+}
+
+.workspace-step-label {
+  flex: 1;
+}
+
+.workspace-step-status {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-step--done {
+  background: rgba(16, 185, 129, 0.12);
+  color: #14532d;
+  border-color: rgba(16, 185, 129, 0.26);
+}
+
+.workspace-step--active {
+  background: rgba(139, 94, 60, 0.18);
+  color: #1f2933;
+  border-color: rgba(139, 94, 60, 0.32);
+}
+
+.workspace-step--todo {
+  background: rgba(250, 247, 240, 0.9);
+  color: #52606d;
+}
+
+.workspace-step--error {
+  background: rgba(207, 17, 36, 0.12);
+  color: #991b1b;
+  border-color: rgba(207, 17, 36, 0.28);
 }
 
 .workspace-main {
@@ -356,6 +384,27 @@ pre {
   margin-top: 18px;
   display: grid;
   gap: 10px;
+}
+
+.workspace-summary-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(139, 94, 60, 0.12);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.workspace-summary-card:last-child {
+  margin-bottom: 0;
+}
+
+.workspace-side-facts {
+  grid-template-columns: 1fr;
+}
+
+.workspace-action-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .workspace-curve-svg {

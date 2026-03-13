@@ -25,9 +25,14 @@
           <h2>Flow</h2>
           <ol class="workspace-steps">
             {% for step in steps %}
-            <li class="workspace-step{% if loop.first %} workspace-step--active{% endif %}">
+            <li
+              class="workspace-step{% if loop.first %} workspace-step--active{% endif %}"
+              data-testid="workspace-step"
+              data-step-name="{{ step }}"
+            >
               <span class="workspace-step-index">{{ loop.index }}</span>
-              <span>{{ step }}</span>
+              <span class="workspace-step-label">{{ step }}</span>
+              <span class="workspace-step-status" data-testid="workspace-step-status">todo</span>
             </li>
             {% endfor %}
           </ol>
@@ -65,40 +70,72 @@
         </section>
 
         <aside id="workspace-sidepanel" class="workspace-sidepanel panel" data-testid="workspace-sidepanel">
-          <h2>Session Snapshot</h2>
-          <dl class="facts">
-            <div>
-              <dt>State</dt>
-              <dd id="workspace-side-state">{{ summary.state }}</dd>
+          <div id="workspace-stage-card" class="workspace-summary-card" data-testid="workspace-stage-card">
+            <h2>Workflow Stage</h2>
+            <dl class="facts workspace-side-facts">
+              <div>
+                <dt>Current Stage</dt>
+                <dd id="workspace-current-stage">计算</dd>
+              </div>
+              <div>
+                <dt>Session State</dt>
+                <dd id="workspace-side-state">{{ summary.state }}</dd>
+              </div>
+              <div>
+                <dt>Mode / Source</dt>
+                <dd id="workspace-source">loading</dd>
+              </div>
+            </dl>
+            <p id="workspace-stage-description">Stage mapping is derived from summary/detail and remains read-only in this phase.</p>
+          </div>
+
+          <div id="workspace-session-summary-card" class="workspace-summary-card" data-testid="workspace-session-summary-card">
+            <h2>Session Summary</h2>
+            <dl class="facts workspace-side-facts">
+              <div>
+                <dt>Session ID</dt>
+                <dd id="workspace-side-session-id">{{ session_id }}</dd>
+              </div>
+              <div>
+                <dt>Point Count</dt>
+                <dd id="workspace-point-count">{{ summary.point_count }}</dd>
+              </div>
+              <div>
+                <dt>Af95</dt>
+                <dd id="workspace-af95">{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div id="workspace-detail-summary-card" class="workspace-summary-card" data-testid="workspace-detail-summary-card">
+            <h2>Detail Snapshot</h2>
+            <dl class="facts workspace-side-facts">
+              <div>
+                <dt>Detail Status</dt>
+                <dd id="workspace-detail-status">loading</dd>
+              </div>
+              <div>
+                <dt>Detail Points</dt>
+                <dd id="workspace-detail-point-count">0</dd>
+              </div>
+              <div>
+                <dt>Key Frames</dt>
+                <dd id="workspace-keyframe-count">0</dd>
+              </div>
+            </dl>
+            <p id="workspace-summary-copy">
+              Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
+            </p>
+          </div>
+
+          <div id="workspace-actions-card" class="workspace-summary-card" data-testid="workspace-actions-card">
+            <h2>Quick Actions</h2>
+            <div class="workspace-links">
+              <a class="workspace-link" href="/">Return Home</a>
+              <button id="workspace-refresh-btn" type="button" class="workspace-action-btn">Refresh Workspace</button>
+              <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
+              <a class="workspace-link" id="workspace-detail-link" href="/api/session/{{ session_id }}/detail">Open Detail API</a>
             </div>
-            <div>
-              <dt>Point Count</dt>
-              <dd id="workspace-point-count">{{ summary.point_count }}</dd>
-            </div>
-            <div>
-              <dt>Af95</dt>
-              <dd id="workspace-af95">{{ summary.af95 if summary.af95 is not none else "n/a" }}</dd>
-            </div>
-            <div>
-              <dt>Source</dt>
-              <dd id="workspace-source">loading</dd>
-            </div>
-            <div>
-              <dt>Detail Points</dt>
-              <dd id="workspace-detail-point-count">0</dd>
-            </div>
-            <div>
-              <dt>Key Frames</dt>
-              <dd id="workspace-keyframe-count">0</dd>
-            </div>
-          </dl>
-          <p id="workspace-summary-copy">
-            Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
-          </p>
-          <div class="workspace-links">
-            <a class="workspace-link" href="/">Back to Home</a>
-            <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
-            <a class="workspace-link" id="workspace-detail-link" href="/api/session/{{ session_id }}/detail">Open Detail API</a>
           </div>
         </aside>
       </div>

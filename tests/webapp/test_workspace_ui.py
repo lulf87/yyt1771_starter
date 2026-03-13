@@ -25,9 +25,18 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-sidepanel"' in response.text
     assert 'id="workspace-curve"' in response.text
     assert 'id="workspace-keyframes"' in response.text
+    assert 'data-testid="workspace-step"' in response.text
+    assert 'data-testid="workspace-step-status"' in response.text
+    assert 'id="workspace-current-stage"' in response.text
+    assert 'id="workspace-stage-description"' in response.text
     assert 'id="workspace-af95"' in response.text
     assert 'id="workspace-source"' in response.text
     assert 'id="workspace-keyframe-count"' in response.text
+    assert 'id="workspace-stage-card"' in response.text
+    assert 'id="workspace-session-summary-card"' in response.text
+    assert 'id="workspace-detail-summary-card"' in response.text
+    assert 'id="workspace-actions-card"' in response.text
+    assert 'id="workspace-refresh-btn"' in response.text
     assert session_id in response.text
 
 
@@ -39,6 +48,7 @@ def test_workspace_route_keeps_empty_state_when_detail_is_missing(tmp_path: Path
 
     assert response.status_code == 200
     assert "No replay detail available." in response.text
+    assert 'id="workspace-detail-status"' in response.text
 
 
 def test_workspace_route_returns_404_for_missing_session(tmp_path: Path) -> None:
