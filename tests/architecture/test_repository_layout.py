@@ -47,7 +47,7 @@ def test_top_level_directories_match_frozen_layout() -> None:
     top_level_dirs = {
         path.name
         for path in PROJECT_ROOT.iterdir()
-        if path.is_dir() and path.name not in IGNORED_TOP_LEVEL_DIRS and not path.name.startswith(".")
+        if path.is_dir() and not _is_ignored_top_level_dir(path)
     }
 
     assert DISALLOWED_TOP_LEVEL_DIRS.isdisjoint(top_level_dirs), (
@@ -104,3 +104,11 @@ def _is_allowed_root_file(path: Path) -> bool:
     if path.name.startswith("."):
         return True
     return path.suffix in ALLOWED_TOOL_CONFIG_SUFFIXES
+
+
+def _is_ignored_top_level_dir(path: Path) -> bool:
+    if path.name in IGNORED_TOP_LEVEL_DIRS:
+        return True
+    if path.name.startswith("."):
+        return True
+    return path.name.endswith(".egg-info")
