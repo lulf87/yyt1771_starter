@@ -1,10 +1,15 @@
 # yyt1771_starter
 
-Task-000 scaffold freeze for the austenite transformation project.
+YY/T 1771 visual-analysis workstation baseline with:
 
-The current focus is to align directory boundaries, placeholder modules, and
-mirrored tests. Real hardware adapters and production algorithms are deferred
-to later tasks.
+- offline mock and replay session flows
+- Web API and browser workspace as the primary interaction route
+- replay detail visualization and workspace analysis views
+- adjustment contract and Adjustment MVP state flow
+
+The repository is no longer at the Task-000 scaffold stage. It now reflects the
+current Web / workspace / replay / adjustment MVP baseline while keeping live
+hardware orchestration and deeper algorithm expansion out of scope for now.
 
 ## Requirements Entry
 

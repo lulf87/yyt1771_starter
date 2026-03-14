@@ -73,6 +73,8 @@ src/
 ```text
 project-root/
   README.md
+  pyproject.toml
+  .gitignore
   configs/
     recipe_example.yaml
     dev_mock.yaml
@@ -82,11 +84,15 @@ project-root/
     architecture_lock.md
     module_map.md
     master_control_plan.md
+    requirements_overview.md
     codex_task_000_scaffold_freeze.md
     codex_response_contract.md
   examples/
     __init__.py
     offline_demo.py
+    replay/
+    runtime/
+      README.md
   src/
     __init__.py
     core/
@@ -128,12 +134,15 @@ project-root/
     workflow/
       __init__.py
       README.md
+      adjustments.py
       session.py
       state_machine.py
       precheck.py
     storage/
       __init__.py
       README.md
+      session_artifacts.py
+      session_adjustments.py
       sqlite_repo.py
       csv_exporter.py
       session_store.py
@@ -145,29 +154,60 @@ project-root/
     webapp/
       __init__.py
       app.py
+      config.py
       deps.py
       schemas.py
+      serve.py
       routes/
         __init__.py
         health.py
+        profile.py
+        session.py
+        ui.py
+      static/
+      templates/
   tests/
     conftest.py
     architecture/
       test_import_rules.py
+      test_model_contracts.py
+      test_repository_layout.py
+    camera/
+      test_hik_rtsp_opencv.py
     curve/
+      test_af95.py
       test_curve_buffer.py
+    plc/
+      test_modbus_tcp.py
+    storage/
+      test_session_adjustments.py
+      test_session_artifacts.py
+      test_sqlite_repo.py
     sync/
       test_sync_hub.py
+    temp/
+      test_modbus_temp.py
     vision/
       test_vision_end_displacement.py
     webapp/
+      test_adjustment_api.py
+      test_config_loader.py
       test_health.py
+      test_precheck_api.py
+      test_profile_api.py
+      test_session_api.py
+      test_ui_shell.py
+      test_workspace_ui.py
+    workflow/
+      test_adjustments.py
+      test_precheck.py
+      test_session.py
 ```
 
 说明：
 
-- 其中很多文件第一阶段可以只放占位实现、文档注释或 `NotImplementedError`。
-- 当前阶段**最重要的是层级与边界先统一**，不是把所有文件都实现完成。
+- 这棵树反映当前已经落地的仓库基线，而不再只是 Task-000 初始骨架。
+- 其中仍有部分文件保留最小实现或占位行为，但它们已经属于当前受保护的目录结构。
 
 ---
 
@@ -304,19 +344,22 @@ from src.sync.hub import SyncHub
 ```text
 tests/
   architecture/
+  camera/
   curve/
+  plc/
+  storage/
   sync/
+  temp/
   vision/
   webapp/
+  workflow/
 ```
 
-后续若新增 `workflow` 测试，则使用：
+要求：
 
-```text
-tests/workflow/
-```
-
-不要继续往根目录下新增大量平铺 `test_xxx.py`。
+- `tests/` 根目录下除 `conftest.py` 外，不应继续新增平铺 `test_*.py`。
+- 新测试应优先进入对应的镜像子目录。
+- `tests/architecture/` 负责结构守卫、导入守卫、契约守卫。
 
 ---
 
@@ -345,13 +388,11 @@ Codex 在任何任务中：
 
 ## 11. 当前阶段的执行顺序
 
-按下面顺序推进：
+按下面顺序推进并在当前基线上继续扩展：
 
-1. **Task-000：目录结构冻结与对齐**
-2. **Task-001：架构守卫测试（禁止错误跨模块导入）**
-3. **Task-002：vision.metric_end_displacement**
-4. **Task-003：curve.normalizer / af95**
-5. **Task-004：workflow.session + storage.sqlite_repo**
-6. **Task-005：camera/temp/plc 真实适配器接入**
+1. **Task-000 ~ Task-007：离线主链与设备适配器最小实现**
+2. **Task-008 ~ Task-015：Web 架构冻结、profile、session、replay、precheck**
+3. **Task-016 ~ Task-021 / WP-A：workspace、adjustment contract、Adjustment MVP**
+4. **后续任务：在当前 Web/workspace 基线上继续增强，不回退到早期骨架叙事**
 
-当前不要跳过前两步，直接冲硬件或 GUI。
+当前仓库已经到达 Web/workspace/replay/adjustment MVP 基线，不应再把结构文档描述回退到 Task-000 阶段。

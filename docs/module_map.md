@@ -81,12 +81,15 @@
 
 ### `src/workflow/`
 
+- `adjustments.py`：adjustment state 组装、draft 保存、apply 版本推进
 - `session.py`：测试会话上下文
 - `state_machine.py`：状态流转
 - `precheck.py`：开测前检查
 
 ### `src/storage/`
 
+- `session_artifacts.py`：replay detail 等 JSON artifact 持久化
+- `session_adjustments.py`：adjustment draft / applied version JSON 持久化
 - `session_store.py`：会话索引
 - `sqlite_repo.py`：SQLite 持久化
 - `csv_exporter.py`：曲线导出
@@ -99,9 +102,14 @@
 ### `src/webapp/`
 
 - `app.py`：FastAPI app factory
+- `config.py`：运行时 profile 配置加载与装配
 - `deps.py`：Web 层依赖注入
 - `schemas.py`：请求/响应模型
+- `serve.py`：Web 启动入口
 - `routes/health.py`：健康检查路由
+- `routes/profile.py`：profile 与 precheck 路由
+- `routes/session.py`：session / replay / adjustment API 路由
+- `routes/ui.py`：页面路由与 workspace 页面入口
 
 ## 4. 导入规则
 
@@ -158,6 +166,7 @@ workflow / storage / report
 - 真正的设备控制命令后置，先把离线主链打通。
 - GUI 不是当前主链的一部分，浏览器是正式交互入口。
 - `workflow` 只负责编排，不替代 `vision` 或 `curve`。
+- `webapp` 负责 HTTP / HTML 交互壳、配置装配和服务依赖注入，不直接连接相机、温度、PLC 或算法实现。
 
 ## 6. 约束提醒
 
