@@ -75,3 +75,11 @@ http://127.0.0.1:8000/
 - `Protocol Any` 允许在 `serial_number` / `ip` 为空时按协议优先探测第一台可用设备。
 - `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
 - 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
+
+## Mac 本机联机准备
+
+1. [dev_lab.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.yaml) 仍然是仓库跟踪基线，不直接提交本机联机参数。
+2. 复制 [dev_lab.local.example.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.local.example.yaml) 为 `configs/dev_lab.local.yaml`。
+3. 在本机 local 文件里切到 `hik_gige_mvs + protocol_any`，不要把真实 `serial_number` / `ip` 提交回仓库。
+4. 即使相机未上电，也可以先看首页 precheck 里的 `camera_sdk_runtime`，确认本机 MVS Python/SDK import readiness 是否就绪。
+5. 真的要试一次受控探测时，再在首页点 `Probe Camera`。

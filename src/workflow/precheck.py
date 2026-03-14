@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.camera.hik_gige_mvs import import_hik_mvs_sdk_module
 from src.workflow.camera_probe import (
     EXPECTED_SDK,
     EXPECTED_TRANSPORT,
@@ -131,6 +132,7 @@ def _check_hik_gige_camera_config(profile_name: str, camera: dict[str, Any]) -> 
         _check_camera_transport(probe_policy["transport"]),
         _check_camera_identity(probe_policy),
         _check_camera_sdk(probe_policy["sdk"]),
+        _check_camera_sdk_runtime(probe_policy["sdk"]),
     ]
     return items
 
@@ -227,6 +229,35 @@ def _check_camera_sdk(sdk_name: str) -> dict[str, str]:
         "name": "camera_sdk",
         "status": "pending",
         "detail": "hik_mvs configured; precheck validates config only and does not import or connect the live SDK",
+    }
+
+
+def _check_camera_sdk_runtime(sdk_name: str) -> dict[str, str]:
+    if not sdk_name:
+        return {"name": "camera_sdk_runtime", "status": "fail", "detail": "camera.sdk is not configured"}
+    if sdk_name != EXPECTED_SDK:
+        return {
+            "name": "camera_sdk_runtime",
+            "status": "fail",
+            "detail": f"{sdk_name} does not match the required {EXPECTED_SDK} SDK runtime contract",
+        }
+
+    try:
+        import_hik_mvs_sdk_module()
+    except Exception as exc:
+        return {
+            "name": "camera_sdk_runtime",
+            "status": "warn",
+            "detail": (
+                "hik_mvs is configured, but local SDK/Python import readiness is not complete: "
+                f"{exc}. Precheck only verifies SDK import readiness and does not attempt live device access."
+            ),
+        }
+
+    return {
+        "name": "camera_sdk_runtime",
+        "status": "ok",
+        "detail": "hik_mvs Python binding is importable on this machine. Precheck only verifies SDK import readiness and does not attempt live device access.",
     }
 
 

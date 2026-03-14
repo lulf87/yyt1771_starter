@@ -41,13 +41,13 @@ class RuntimeConfig:
 
 
 def load_runtime_config(profile: str) -> RuntimeConfig:
-    config_path = _project_root() / "configs" / f"{profile}.yaml"
-    if not config_path.exists():
-        raise FileNotFoundError(f"Profile config not found: {config_path}")
-
-    raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if not isinstance(raw_config, dict):
-        raise ValueError(f"Invalid profile config format: {config_path}")
+    config_root = _project_root() / "configs"
+    config_path = config_root / f"{profile}.yaml"
+    raw_config = _load_config_mapping(config_path)
+    local_override_path = config_root / f"{profile}.local.yaml"
+    if local_override_path.exists():
+        local_override = _load_config_mapping(local_override_path)
+        raw_config = _deep_merge_mapping(raw_config, local_override)
 
     webapp = raw_config.get("webapp")
     adapters = raw_config.get("adapters")
@@ -72,6 +72,27 @@ def load_runtime_config(profile: str) -> RuntimeConfig:
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _load_config_mapping(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Profile config not found: {path}")
+
+    raw_config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw_config, dict):
+        raise ValueError(f"Invalid profile config format: {path}")
+    return raw_config
+
+
+def _deep_merge_mapping(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, override_value in override.items():
+        base_value = merged.get(key)
+        if isinstance(base_value, dict) and isinstance(override_value, dict):
+            merged[key] = _deep_merge_mapping(base_value, override_value)
+        else:
+            merged[key] = override_value
+    return merged
 
 
 def _normalize_mapping(value: Any) -> dict[str, Any]:

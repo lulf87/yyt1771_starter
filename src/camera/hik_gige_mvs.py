@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+import importlib
 import time
 from collections.abc import Callable
 from typing import Any
 
 from src.core.contracts import CameraPort
 from src.core.models import FramePacket
+
+
+HIK_MVS_PYTHON_MODULE = "MvCameraControl_class"
+
+
+def import_hik_mvs_sdk_module() -> Any:
+    try:
+        return importlib.import_module(HIK_MVS_PYTHON_MODULE)
+    except ImportError as exc:
+        raise RuntimeError(
+            "Hik MVS SDK Python binding MvCameraControl_class is not importable on this machine."
+        ) from exc
 
 
 class HikGigeMvsCamera(CameraPort):
@@ -132,10 +145,7 @@ class HikGigeMvsCamera(CameraPort):
         self._camera = None
 
     def _default_camera_factory(self) -> Callable[[], Any]:
-        try:
-            import MvCameraControl_class as hik_mvs  # type: ignore
-        except ImportError as exc:  # pragma: no cover - tests inject fake handles
-            raise RuntimeError("Hik MVS SDK is required when camera_factory is not provided") from exc
+        hik_mvs = import_hik_mvs_sdk_module()
 
         create_handle = getattr(hik_mvs, "create_camera_handle", None)
         if callable(create_handle):

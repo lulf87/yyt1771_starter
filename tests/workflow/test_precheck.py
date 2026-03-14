@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from src.workflow import precheck as precheck_module
 from src.workflow.precheck import build_system_precheck
 
 
@@ -96,7 +97,11 @@ def test_build_system_precheck_fails_when_gige_transport_is_wrong(tmp_path: Path
     assert items["camera_transport"]["status"] == "fail"
 
 
-def test_build_system_precheck_protocol_any_keeps_identity_optional(tmp_path: Path) -> None:
+def test_build_system_precheck_protocol_any_keeps_identity_optional(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
     report = build_system_precheck(
         profile_name="dev_lab",
         storage={
@@ -121,3 +126,39 @@ def test_build_system_precheck_protocol_any_keeps_identity_optional(tmp_path: Pa
     assert items["camera_probe_mode"]["status"] == "ok"
     assert items["camera_model_policy"]["status"] == "pending"
     assert items["camera_identity"]["status"] == "pending"
+    assert items["camera_sdk_runtime"]["status"] == "ok"
+    assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_build_system_precheck_warns_when_sdk_runtime_is_not_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def fake_import() -> object:
+        raise RuntimeError("Hik MVS SDK Python binding MvCameraControl_class is not importable on this machine.")
+
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", fake_import)
+
+    report = build_system_precheck(
+        profile_name="dev_lab",
+        storage={
+            "sqlite_path": str(tmp_path / "lab.sqlite3"),
+            "artifact_dir": str(tmp_path / "artifacts"),
+        },
+        replay={"dataset_path": "examples/replay"},
+        adapters={"camera": "hik_gige_mvs", "temp": "modbus_temp", "plc": "mock"},
+        camera={
+            "transport": "gige_vision",
+            "sdk": "hik_mvs",
+            "probe_mode": "protocol_any",
+            "allowed_models": [],
+            "serial_number": "",
+            "ip": "",
+        },
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    items = {item["name"]: item for item in report["items"]}
+    assert report["status"] == "warn"
+    assert items["camera_sdk_runtime"]["status"] == "warn"
+    assert "import readiness" in items["camera_sdk_runtime"]["detail"]

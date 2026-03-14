@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from src.workflow import precheck as precheck_module
 from src.webapp.app import create_app
 
 
@@ -88,3 +89,45 @@ def test_precheck_api_protocol_any_marks_identity_as_pending(tmp_path: Path) -> 
     assert items["camera_probe_mode"]["status"] == "ok"
     assert items["camera_model_policy"]["status"] == "pending"
     assert items["camera_identity"]["status"] == "pending"
+
+
+def test_precheck_api_reports_sdk_runtime_warn_when_import_is_not_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+
+    def fake_import() -> object:
+        raise RuntimeError("Hik MVS SDK Python binding MvCameraControl_class is not importable on this machine.")
+
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", fake_import)
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_sdk_runtime"]["status"] == "warn"
+    assert "import readiness" in items["camera_sdk_runtime"]["detail"]
+    assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_precheck_api_reports_sdk_runtime_ok_when_import_is_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_sdk_runtime"]["status"] == "ok"
+    assert "importable on this machine" in items["camera_sdk_runtime"]["detail"]
+    assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]

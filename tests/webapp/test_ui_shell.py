@@ -29,6 +29,8 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="probe-allowed-models-input"' in response.text
     assert 'id="probe-serial-number-input"' in response.text
     assert 'id="probe-ip-input"' in response.text
+    assert 'id="probe-local-override-hint"' in response.text
+    assert "camera_sdk_runtime" in response.text
     assert 'id="camera-probe-result"' in response.text
     assert 'id="run-mock-btn"' in response.text
     assert 'id="run-replay-btn"' in response.text

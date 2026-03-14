@@ -1,0 +1,15 @@
+adapters:
+  camera: hik_gige_mvs
+
+camera:
+  transport: gige_vision
+  sdk: hik_mvs
+  probe_mode: protocol_any
+  allowed_models: []
+  serial_number: ""
+  ip: ""
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 0.0
+  timeout_ms: 1000
