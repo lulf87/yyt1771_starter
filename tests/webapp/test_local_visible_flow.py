@@ -22,6 +22,7 @@ def test_local_visible_flow_from_home_to_workspace(tmp_path: Path) -> None:
 
     assert home_response.status_code == 200
     assert "YYT1771 Web Console" in home_response.text
+    assert "Probe Camera" in home_response.text
     assert "Run Replay Session" in home_response.text
     assert "Open Workspace" in home_response.text
     assert health_response.status_code == 200

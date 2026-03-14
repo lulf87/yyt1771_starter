@@ -24,6 +24,8 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="precheck-status"' in response.text
     assert 'id="precheck-items"' in response.text
     assert 'id="refresh-precheck-btn"' in response.text
+    assert 'id="probe-camera-btn"' in response.text
+    assert 'id="camera-probe-result"' in response.text
     assert 'id="run-mock-btn"' in response.text
     assert 'id="run-replay-btn"' in response.text
     assert 'id="session-workspace-link"' in response.text
@@ -43,6 +45,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "/api/system/profile" in response.text
     assert "/api/system/precheck" in response.text
+    assert "/api/system/camera/probe" in response.text
     assert "/api/session" in response.text
     assert "/api/session/run-mock" in response.text
     assert "/api/session/run-replay" in response.text

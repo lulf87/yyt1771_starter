@@ -66,3 +66,9 @@ http://127.0.0.1:8000/
 - 当前可见的是 offline mock/replay/workspace 最小链路。
 - 当前不包含 live camera / live temp / live plc orchestration。
 - 这不是“真机全流程”，而是当前 scope 内的最小浏览器闭环。
+
+### 6. Camera Probe（受控单帧）
+
+- 首页现在有 `Probe Camera` 按钮，对应 `POST /api/system/camera/probe`。
+- 这个入口只做一次受控单帧探测，不会进入 workspace live。
+- 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然把 `serial_number` 和 `ip` 留空；要做真实探测时，请只在本机本地填写其中一项，不要把现场身份信息提交回仓库。

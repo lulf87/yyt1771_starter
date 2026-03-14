@@ -5,9 +5,11 @@ const sessionResultNode = document.getElementById("session-result");
 const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 const runReplayButton = document.getElementById("run-replay-btn");
+const probeCameraButton = document.getElementById("probe-camera-btn");
 const refreshPrecheckButton = document.getElementById("refresh-precheck-btn");
 const precheckStatusNode = document.getElementById("precheck-status");
 const precheckItemsNode = document.getElementById("precheck-items");
+const cameraProbeResultNode = document.getElementById("camera-probe-result");
 const detailAf95Node = document.getElementById("detail-af95");
 const detailPointCountNode = document.getElementById("detail-point-count");
 const detailCurveNode = document.getElementById("detail-curve-line");
@@ -105,6 +107,13 @@ function renderSessionResult(payload) {
   }
 }
 
+function renderCameraProbeResult(payload) {
+  if (!cameraProbeResultNode) {
+    return;
+  }
+  cameraProbeResultNode.textContent = JSON.stringify(payload, null, 2);
+}
+
 async function loadHealth() {
   const response = await fetch("/health");
   const payload = await response.json();
@@ -144,6 +153,24 @@ async function loadPrecheck() {
   const response = await fetch("/api/system/precheck");
   const payload = await response.json();
   renderPrecheck(payload);
+}
+
+async function runCameraProbe() {
+  if (!probeCameraButton) {
+    return;
+  }
+  probeCameraButton.disabled = true;
+  probeCameraButton.textContent = "Probing...";
+  try {
+    const response = await fetch("/api/system/camera/probe", { method: "POST" });
+    const payload = await response.json();
+    renderCameraProbeResult(payload);
+  } catch (error) {
+    renderCameraProbeResult({ status: "fail", detail: String(error) });
+  } finally {
+    probeCameraButton.disabled = false;
+    probeCameraButton.textContent = "Probe Camera";
+  }
 }
 
 function renderRecentSessions(items) {
@@ -971,6 +998,9 @@ if (runReplayButton) {
 }
 if (refreshPrecheckButton) {
   refreshPrecheckButton.addEventListener("click", loadPrecheck);
+}
+if (probeCameraButton) {
+  probeCameraButton.addEventListener("click", runCameraProbe);
 }
 if (workspaceRefreshButton) {
   workspaceRefreshButton.addEventListener("click", bootstrapWorkspace);

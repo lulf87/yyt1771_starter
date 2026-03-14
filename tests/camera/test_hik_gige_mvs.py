@@ -80,6 +80,69 @@ def test_open_raises_clear_error_when_factory_cannot_create_handle() -> None:
         camera.open()
 
 
+def test_probe_once_prefers_serial_number_as_identity() -> None:
+    camera = HikGigeMvsCamera(
+        model="MV-CU060-10GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        serial_number="MV-SERIAL-001",
+        ip="192.168.1.10",
+        pixel_format="mono8",
+        timeout_ms=750,
+        camera_factory=lambda: FakeMvsHandle(frames=[[[0, 255], [255, 0]]]),
+    )
+
+    payload = camera.probe_once()
+
+    assert payload["identity"] == "MV-SERIAL-001"
+    assert payload["frame_shape"] == {"width": 2, "height": 2}
+    assert payload["pixel_format"] == "mono8"
+
+
+def test_probe_once_falls_back_to_ip_identity() -> None:
+    camera = HikGigeMvsCamera(
+        model="MV-CU060-10GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        serial_number="",
+        ip="192.168.1.10",
+        timeout_ms=750,
+        camera_factory=lambda: FakeMvsHandle(frames=[[[1, 2, 3]]]),
+    )
+
+    payload = camera.probe_once()
+
+    assert payload["identity"] == "192.168.1.10"
+    assert payload["frame_shape"] == {"width": 3, "height": 1}
+
+
+def test_probe_once_rejects_missing_identity() -> None:
+    camera = HikGigeMvsCamera(
+        model="MV-CU060-10GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        timeout_ms=750,
+        camera_factory=lambda: FakeMvsHandle(frames=[[[0]]]),
+    )
+
+    with pytest.raises(ValueError, match="serial_number or ip"):
+        camera.probe_once()
+
+
+def test_probe_once_surfaces_factory_failures_clearly() -> None:
+    camera = HikGigeMvsCamera(
+        model="MV-CU060-10GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        serial_number="MV-SERIAL-001",
+        timeout_ms=750,
+        camera_factory=lambda: (_ for _ in ()).throw(RuntimeError("sdk missing")),
+    )
+
+    with pytest.raises(RuntimeError, match="create Hik MVS camera handle"):
+        camera.probe_once()
+
+
 def test_close_is_idempotent() -> None:
     fake_handle = FakeMvsHandle(frames=[{"frame": 1}])
     camera = _build_camera(lambda: fake_handle)

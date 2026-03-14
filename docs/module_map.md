@@ -83,6 +83,7 @@
 ### `src/workflow/`
 
 - `adjustments.py`：adjustment state 组装、draft 保存、apply 版本推进
+- `camera_probe.py`：受控真实相机单帧探测编排与错误归一化
 - `session.py`：测试会话上下文
 - `state_machine.py`：状态流转
 - `precheck.py`：开测前检查
@@ -108,7 +109,7 @@
 - `schemas.py`：请求/响应模型
 - `serve.py`：Web 启动入口
 - `routes/health.py`：健康检查路由
-- `routes/profile.py`：profile 与 precheck 路由
+- `routes/profile.py`：profile / precheck / camera probe 路由
 - `routes/session.py`：session / replay / adjustment API 路由
 - `routes/ui.py`：页面路由与 workspace 页面入口
 
@@ -167,6 +168,7 @@ workflow / storage / report
 - 真正的设备控制命令后置，先把离线主链打通。
 - GUI 不是当前主链的一部分，浏览器是正式交互入口。
 - `workflow` 只负责编排，不替代 `vision` 或 `curve`。
+- `workflow.camera_probe` 只负责编排受控单帧探测，不替代 `camera` 层 SDK 访问实现。
 - `webapp` 负责 HTTP / HTML 交互壳、配置装配和服务依赖注入，不直接连接相机、温度、PLC 或算法实现。
 
 ## 6. 约束提醒

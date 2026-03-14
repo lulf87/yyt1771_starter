@@ -98,6 +98,28 @@ class HikGigeMvsCamera(CameraPort):
             },
         )
 
+    def probe_once(self) -> dict[str, Any]:
+        identity = self._resolve_identity()
+        try:
+            packet = self.read_frame()
+        finally:
+            self.close()
+        width, height = self._frame_dimensions(packet.image)
+        return {
+            "backend": self.backend_name,
+            "model": self.model,
+            "transport": self.transport,
+            "sdk": self.sdk_name,
+            "identity": identity,
+            "frame_shape": {
+                "width": width,
+                "height": height,
+            },
+            "pixel_format": self.pixel_format,
+            "frame_id": packet.frame_id,
+            "timestamp_ms": packet.timestamp_ms,
+        }
+
     def close(self) -> None:
         if self._camera is None:
             return
@@ -158,6 +180,31 @@ class HikGigeMvsCamera(CameraPort):
             ok, frame = result
             return frame if ok else None
         return result
+
+    def _resolve_identity(self) -> str:
+        serial_number = self.serial_number.strip()
+        if serial_number:
+            return serial_number
+        ip = self.ip.strip()
+        if ip:
+            return ip
+        raise ValueError("Camera identity is missing. Configure serial_number or ip before probing.")
+
+    @staticmethod
+    def _frame_dimensions(image: Any) -> tuple[int, int]:
+        if hasattr(image, "shape"):
+            shape = getattr(image, "shape")
+            if len(shape) >= 2:
+                return int(shape[1]), int(shape[0])
+        if isinstance(image, (list, tuple)):
+            height = len(image)
+            if height == 0:
+                return (0, 0)
+            first_row = image[0]
+            if isinstance(first_row, (list, tuple)):
+                return (len(first_row), height)
+            return (height, 1)
+        raise RuntimeError("Unable to determine frame dimensions from probe image")
 
     @staticmethod
     def _handle_is_opened(camera: Any) -> bool:

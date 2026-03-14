@@ -1,6 +1,8 @@
 """Dependency helpers for the web application layer."""
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, Request
 
@@ -9,6 +11,7 @@ from src.storage.session_adjustments import SessionAdjustmentStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.webapp.config import RuntimeConfig
 from src.workflow.adjustments import AdjustmentService
+from src.workflow.camera_probe import run_camera_probe
 from src.workflow.session import WorkflowSessionRunner
 
 
@@ -58,3 +61,7 @@ def get_adjustment_service(
     store: SessionAdjustmentStore = Depends(get_session_adjustment_store),
 ) -> AdjustmentService:
     return AdjustmentService(repo=repo, store=store)
+
+
+def get_camera_probe_runner() -> Callable[[RuntimeConfig], dict[str, Any]]:
+    return run_camera_probe

@@ -136,6 +136,7 @@ project-root/
       __init__.py
       README.md
       adjustments.py
+      camera_probe.py
       session.py
       state_machine.py
       precheck.py
@@ -193,6 +194,7 @@ project-root/
       test_vision_end_displacement.py
     webapp/
       test_adjustment_api.py
+      test_camera_probe_api.py
       test_config_loader.py
       test_health.py
       test_precheck_api.py

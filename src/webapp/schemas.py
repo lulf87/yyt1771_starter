@@ -105,5 +105,29 @@ class PrecheckResponse(BaseModel):
     items: list[PrecheckItemResponse]
 
 
+class CameraProbeIdentityResponse(BaseModel):
+    serial_number: str = ""
+    ip: str = ""
+
+
+class CameraProbeFrameResponse(BaseModel):
+    width: int
+    height: int
+    pixel_format: str
+    frame_id: int | None = None
+    timestamp_ms: int | None = None
+
+
+class CameraProbeResponse(BaseModel):
+    status: str
+    backend: str = ""
+    model: str = ""
+    transport: str = ""
+    sdk: str = ""
+    identity: CameraProbeIdentityResponse
+    frame: CameraProbeFrameResponse | None = None
+    detail: str
+
+
 class ErrorResponse(BaseModel):
     detail: str
