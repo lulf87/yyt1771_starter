@@ -51,7 +51,8 @@
 ### `src/camera/`
 
 - `mock_camera.py`：离线/测试输入
-- `hik_rtsp_opencv.py`：海康 RTSP 适配器
+- `hik_rtsp_opencv.py`：海康 RTSP 路线适配器
+- `hik_gige_mvs.py`：海康 GigE / MVS 路线适配器
 
 ### `src/temp/`
 
@@ -134,7 +135,7 @@ from src.vision.metric_end_displacement import ...  # 在 camera/temp/plc 中引
 当前按离线最小主链推进：
 
 ```text
-MockCamera / HikRtspCamera
+MockCamera / HikRtspCamera / HikGigeMvsCamera
         ↓
     FramePacket
         ↓

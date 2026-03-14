@@ -5,10 +5,22 @@ webapp:
   host: 0.0.0.0
   port: 8080
 adapters:
-  camera: hik_rtsp_opencv
+  camera: hik_gige_mvs
   temp: modbus_temp
   plc: modbus_tcp
+camera:
+  model: MV-CU060-10GM
+  transport: gige_vision
+  sdk: hik_mvs
+  serial_number: ""
+  ip: ""
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 0.0
+  timeout_ms: 1000
 storage:
   sqlite_path: C:/yyt1771/data/prod.sqlite3
+  artifact_dir: C:/yyt1771/artifacts
 logging:
   dir: C:/yyt1771/logs

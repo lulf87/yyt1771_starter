@@ -5,10 +5,11 @@ from fastapi.testclient import TestClient
 from src.webapp.app import create_app
 
 
-def _make_client(tmp_path: Path) -> TestClient:
-    app = create_app(profile="dev_mock")
+def _make_client(tmp_path: Path, profile: str = "dev_mock") -> TestClient:
+    app = create_app(profile=profile)
     app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
     app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.runtime_config.replay["dataset_path"] = "examples/replay"
     return TestClient(app)
 
 
@@ -25,7 +26,7 @@ def test_precheck_api_returns_ready_status_for_dev_mock(tmp_path: Path) -> None:
     assert items["sqlite_path"]["status"] == "ok"
     assert items["artifact_dir"]["status"] == "ok"
     assert items["replay_dataset"]["status"] == "ok"
-    assert items["camera_adapter"]["status"] == "pending"
+    assert items["camera_backend"]["status"] == "ok"
     assert items["temp_adapter"]["status"] == "pending"
     assert items["plc_adapter"]["status"] == "pending"
 
@@ -41,3 +42,32 @@ def test_precheck_api_reports_fail_for_missing_replay_dataset(tmp_path: Path) ->
     assert payload["status"] == "fail"
     items = {item["name"]: item for item in payload["items"]}
     assert items["replay_dataset"]["status"] == "fail"
+
+
+def test_precheck_api_reports_gige_camera_contract_items_for_prod_win(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "warn"
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_backend"]["status"] == "ok"
+    assert items["camera_model"]["status"] == "ok"
+    assert items["camera_transport"]["status"] == "ok"
+    assert items["camera_identity"]["status"] == "warn"
+    assert items["camera_sdk"]["status"] == "pending"
+
+
+def test_precheck_api_returns_fail_when_gige_transport_is_invalid(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["transport"] = "rtsp"
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_transport"]["status"] == "fail"

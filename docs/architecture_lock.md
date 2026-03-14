@@ -106,6 +106,7 @@ project-root/
       __init__.py
       README.md
       mock_camera.py
+      hik_gige_mvs.py
       hik_rtsp_opencv.py
     temp/
       __init__.py
@@ -173,6 +174,7 @@ project-root/
       test_model_contracts.py
       test_repository_layout.py
     camera/
+      test_hik_gige_mvs.py
       test_hik_rtsp_opencv.py
     curve/
       test_af95.py

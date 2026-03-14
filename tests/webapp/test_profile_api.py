@@ -18,7 +18,7 @@ def test_profile_api_returns_runtime_profile_payload() -> None:
             "port": 8080,
         },
         "adapters": {
-            "camera": "hik_rtsp_opencv",
+            "camera": "hik_gige_mvs",
             "temp": "modbus_temp",
             "plc": "modbus_tcp",
         },

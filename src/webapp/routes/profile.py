@@ -24,5 +24,6 @@ def get_precheck(runtime_config: RuntimeConfig = Depends(get_runtime_config)) ->
         storage=runtime_config.storage,
         replay=runtime_config.replay,
         adapters=runtime_config.adapters,
+        camera=runtime_config.camera,
         project_root=Path(__file__).resolve().parents[3],
     )

@@ -22,6 +22,7 @@ class RuntimeConfig:
     mode: str
     webapp: WebAppConfig
     adapters: dict[str, str]
+    camera: dict[str, Any] = field(default_factory=dict)
     storage: dict[str, Any] = field(default_factory=dict)
     replay: dict[str, Any] = field(default_factory=dict)
     logging: dict[str, Any] = field(default_factory=dict)
@@ -62,6 +63,7 @@ def load_runtime_config(profile: str) -> RuntimeConfig:
             port=int(webapp["port"]),
         ),
         adapters={str(name): str(value) for name, value in adapters.items()},
+        camera=_normalize_mapping(raw_config.get("camera")),
         storage=_normalize_mapping(raw_config.get("storage")),
         replay=_normalize_mapping(raw_config.get("replay")),
         logging=_normalize_mapping(raw_config.get("logging")),
