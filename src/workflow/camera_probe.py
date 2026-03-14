@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from src.camera.hik_gige_mvs import HikGigeMvsCamera
+from src.camera.hik_gige_mvs import HikGigeMvsCamera, import_hik_mvs_sdk_module
 
 EXPECTED_BACKEND = "hik_gige_mvs"
 EXPECTED_TRANSPORT = "gige_vision"
@@ -13,6 +13,11 @@ EXPECTED_SDK = "hik_mvs"
 PROBE_MODE_PROTOCOL_ANY = "protocol_any"
 PROBE_MODE_PINNED = "pinned"
 SUPPORTED_PROBE_MODES = {PROBE_MODE_PROTOCOL_ANY, PROBE_MODE_PINNED}
+ERROR_STAGE_CONFIG = "config_contract"
+ERROR_STAGE_SDK_RUNTIME = "sdk_runtime"
+ERROR_STAGE_DEVICE_DISCOVERY = "device_discovery"
+ERROR_STAGE_FRAME_READ = "frame_read"
+ERROR_STAGE_DEVICE_VALIDATION = "device_validation"
 
 
 def run_camera_probe(
@@ -27,8 +32,12 @@ def run_camera_probe(
 
     contract_error = _validate_probe_contract(backend=backend, policy=policy)
     if contract_error is not None:
-        response["detail"] = contract_error
-        return response
+        return _apply_failure(response, contract_error)
+
+    if camera_factory is None:
+        sdk_runtime_error = _validate_sdk_runtime_import()
+        if sdk_runtime_error is not None:
+            return _apply_failure(response, sdk_runtime_error)
 
     selection_mode = _resolve_selection_mode(policy)
     camera = HikGigeMvsCamera(
@@ -47,8 +56,7 @@ def run_camera_probe(
     try:
         probe_payload = camera.probe_once(selection_mode=selection_mode)
     except Exception as exc:
-        response["detail"] = _normalize_probe_error(exc)
-        return response
+        return _apply_failure(response, _classify_probe_exception(exc))
 
     response["matched_by"] = _normalize_matched_by(policy["probe_mode"], str(probe_payload.get("matched_by", "")))
     response["identity"] = {
@@ -69,10 +77,11 @@ def run_camera_probe(
 
     detected_error = _validate_detected_device(policy=policy, payload=response)
     if detected_error is not None:
-        response["detail"] = detected_error
-        return response
+        return _apply_failure(response, detected_error)
 
     response["status"] = "ok"
+    response["error_code"] = None
+    response["error_stage"] = None
     response["detail"] = "Camera probe succeeded with one frame capture."
     return response
 
@@ -149,35 +158,69 @@ def _build_probe_response(backend: str, policy: dict[str, Any]) -> dict[str, Any
             "model": policy["configured_model"],
         },
         "frame": None,
+        "error_code": None,
+        "error_stage": None,
         "detail": "",
     }
 
 
-def _validate_probe_contract(backend: str, policy: dict[str, Any]) -> str | None:
+def _validate_probe_contract(backend: str, policy: dict[str, Any]) -> dict[str, str] | None:
     if backend != EXPECTED_BACKEND:
-        return (
-            f"{backend or 'missing'} backend does not support real GigE probe. "
-            f"Use {EXPECTED_BACKEND} with the production profile."
+        return _failure(
+            "BACKEND_NOT_SUPPORTED",
+            ERROR_STAGE_CONFIG,
+            f"{backend or 'missing'} backend does not support real GigE probe. Use {EXPECTED_BACKEND} with the production profile.",
         )
     if policy["probe_mode"] not in SUPPORTED_PROBE_MODES:
-        return f"Unsupported probe_mode {policy['probe_mode']}. Expected one of: {sorted(SUPPORTED_PROBE_MODES)}."
+        return _failure(
+            "PROBE_MODE_INVALID",
+            ERROR_STAGE_CONFIG,
+            f"Unsupported probe_mode {policy['probe_mode']}. Expected one of: {sorted(SUPPORTED_PROBE_MODES)}.",
+        )
     if policy["transport"] != EXPECTED_TRANSPORT:
-        return (
+        return _failure(
+            "TRANSPORT_CONTRACT_INVALID",
+            ERROR_STAGE_CONFIG,
             "camera.transport is not configured."
             if not policy["transport"]
-            else f"{policy['transport']} does not match the required {EXPECTED_TRANSPORT} transport."
+            else f"{policy['transport']} does not match the required {EXPECTED_TRANSPORT} transport.",
         )
     if policy["sdk"] != EXPECTED_SDK:
-        return (
+        return _failure(
+            "SDK_CONTRACT_INVALID",
+            ERROR_STAGE_CONFIG,
             "camera.sdk is not configured."
             if not policy["sdk"]
-            else f"{policy['sdk']} does not match the required {EXPECTED_SDK} SDK."
+            else f"{policy['sdk']} does not match the required {EXPECTED_SDK} SDK.",
         )
     if policy["probe_mode"] == PROBE_MODE_PINNED:
         if not policy["allowed_models"]:
-            return "Pinned probe mode requires camera.allowed_models to be configured."
+            return _failure(
+                "ALLOWED_MODELS_MISSING",
+                ERROR_STAGE_CONFIG,
+                "Pinned probe mode requires camera.allowed_models to be configured.",
+            )
         if not policy["serial_number"] and not policy["ip"]:
-            return "Pinned probe mode requires serial_number or ip before probing."
+            return _failure(
+                "PINNED_IDENTITY_MISSING",
+                ERROR_STAGE_CONFIG,
+                "Pinned probe mode requires serial_number or ip before probing.",
+            )
+    return None
+
+
+def _validate_sdk_runtime_import() -> dict[str, str] | None:
+    try:
+        import_hik_mvs_sdk_module()
+    except Exception as exc:
+        return _failure(
+            "SDK_IMPORT_NOT_READY",
+            ERROR_STAGE_SDK_RUNTIME,
+            (
+                "hik_mvs is configured, but local SDK/Python import readiness is not complete: "
+                f"{_normalize_probe_error(exc)}. No live device access was attempted."
+            ),
+        )
     return None
 
 
@@ -193,7 +236,7 @@ def _normalize_matched_by(probe_mode: str, matched_by: str) -> str:
     return matched_by
 
 
-def _validate_detected_device(policy: dict[str, Any], payload: dict[str, Any]) -> str | None:
+def _validate_detected_device(policy: dict[str, Any], payload: dict[str, Any]) -> dict[str, str] | None:
     actual_model = str(payload["device"].get("model", "") or "").strip()
     actual_serial = str(payload["identity"].get("serial_number", "") or "").strip()
     actual_ip = str(payload["identity"].get("ip", "") or "").strip()
@@ -202,13 +245,29 @@ def _validate_detected_device(policy: dict[str, Any], payload: dict[str, Any]) -
     if policy["probe_mode"] != PROBE_MODE_PINNED:
         return None
     if not actual_model:
-        return "Pinned probe succeeded in transport access, but the detected device model could not be resolved."
+        return _failure(
+            "DETECTED_MODEL_NOT_ALLOWED",
+            ERROR_STAGE_DEVICE_VALIDATION,
+            "Pinned probe completed transport access, but the detected device model could not be resolved against allowed_models.",
+        )
     if actual_model not in allowed_models:
-        return f"Detected camera model {actual_model} is not in the allowed_models whitelist."
+        return _failure(
+            "DETECTED_MODEL_NOT_ALLOWED",
+            ERROR_STAGE_DEVICE_VALIDATION,
+            f"Detected camera model {actual_model} is not in the allowed_models whitelist.",
+        )
     if policy["serial_number"] and actual_serial and actual_serial != policy["serial_number"]:
-        return f"Detected camera serial_number {actual_serial} does not match the requested {policy['serial_number']}."
+        return _failure(
+            "DETECTED_IDENTITY_MISMATCH",
+            ERROR_STAGE_DEVICE_VALIDATION,
+            f"Detected camera serial_number {actual_serial} does not match the requested {policy['serial_number']}.",
+        )
     if policy["ip"] and actual_ip and actual_ip != policy["ip"]:
-        return f"Detected camera ip {actual_ip} does not match the requested {policy['ip']}."
+        return _failure(
+            "DETECTED_IDENTITY_MISMATCH",
+            ERROR_STAGE_DEVICE_VALIDATION,
+            f"Detected camera ip {actual_ip} does not match the requested {policy['ip']}.",
+        )
     return None
 
 
@@ -217,3 +276,34 @@ def _normalize_probe_error(exc: Exception) -> str:
     if message:
         return message
     return f"Camera probe failed with {exc.__class__.__name__}."
+
+
+def _classify_probe_exception(exc: Exception) -> dict[str, str]:
+    detail = _normalize_probe_error(exc)
+    if "not importable on this machine" in detail:
+        return _failure("SDK_IMPORT_NOT_READY", ERROR_STAGE_SDK_RUNTIME, detail)
+    if "Camera identity is missing" in detail:
+        return _failure("PINNED_IDENTITY_MISSING", ERROR_STAGE_CONFIG, detail)
+    if (
+        "Failed to read frame" in detail
+        or "supported frame read method" in detail
+        or "Unable to determine frame dimensions" in detail
+    ):
+        return _failure("FRAME_READ_FAILED", ERROR_STAGE_FRAME_READ, detail)
+    return _failure("DEVICE_DISCOVERY_FAILED", ERROR_STAGE_DEVICE_DISCOVERY, detail)
+
+
+def _apply_failure(response: dict[str, Any], failure: dict[str, str]) -> dict[str, Any]:
+    response["status"] = "fail"
+    response["error_code"] = failure["error_code"]
+    response["error_stage"] = failure["error_stage"]
+    response["detail"] = failure["detail"]
+    return response
+
+
+def _failure(error_code: str, error_stage: str, detail: str) -> dict[str, str]:
+    return {
+        "error_code": error_code,
+        "error_stage": error_stage,
+        "detail": detail,
+    }

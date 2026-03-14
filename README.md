@@ -76,6 +76,12 @@ http://127.0.0.1:8000/
 - `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
 - 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
 
+### 7. Probe 失败怎么看
+
+- `error_stage` 先告诉你失败落在哪一层，例如 `config_contract`、`sdk_runtime`、`device_discovery`、`frame_read`、`device_validation`。
+- `error_code` 再给出稳定分类，例如 `SDK_IMPORT_NOT_READY`、`PINNED_IDENTITY_MISSING`、`FRAME_READ_FAILED`。
+- `detail` 保留现场可读说明，但排障时优先看 `error_stage + error_code`，这样比自然语言字符串更稳定。
+
 ## Mac 本机联机准备
 
 1. [dev_lab.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.yaml) 仍然是仓库跟踪基线，不直接提交本机联机参数。

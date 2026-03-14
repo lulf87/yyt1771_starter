@@ -139,6 +139,8 @@ class CameraProbeResponse(BaseModel):
     identity: CameraProbeIdentityResponse
     device: CameraProbeDeviceResponse
     frame: CameraProbeFrameResponse | None = None
+    error_code: str | None = None
+    error_stage: str | None = None
     detail: str
 
 
