@@ -90,6 +90,7 @@
 
 ### `src/storage/`
 
+- `probe_diagnostics.py`：camera probe 轻量诊断 JSONL 留痕
 - `session_artifacts.py`：replay detail 等 JSON artifact 持久化
 - `session_adjustments.py`：adjustment draft / applied version JSON 持久化
 - `session_store.py`：会话索引

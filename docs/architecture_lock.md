@@ -143,6 +143,7 @@ project-root/
     storage/
       __init__.py
       README.md
+      probe_diagnostics.py
       session_artifacts.py
       session_adjustments.py
       sqlite_repo.py
@@ -183,6 +184,7 @@ project-root/
     plc/
       test_modbus_tcp.py
     storage/
+      test_probe_diagnostics.py
       test_session_adjustments.py
       test_session_artifacts.py
       test_sqlite_repo.py

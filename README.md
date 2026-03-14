@@ -82,6 +82,13 @@ http://127.0.0.1:8000/
 - `error_code` 再给出稳定分类，例如 `SDK_IMPORT_NOT_READY`、`PINNED_IDENTITY_MISSING`、`FRAME_READ_FAILED`。
 - `detail` 保留现场可读说明，但排障时优先看 `error_stage + error_code`，这样比自然语言字符串更稳定。
 
+### 8. Probe 轻量留痕
+
+- 每次 `POST /api/system/camera/probe` 成功或失败，都会追加一条轻量诊断记录。
+- 记录只保存摘要字段：时间、profile、probe_mode、matched_by、backend/transport/sdk、命中设备信息、frame 摘要、status、error_code、error_stage、detail。
+- 记录不会进入 session/workspace 业务链，也不会保存原始图像。
+- 默认文件名是 `probe_diagnostics/camera_probe.jsonl`。若 profile 配了 `logging.dir`，会落在那个目录下；否则会落在本地日志目录。
+
 ## Mac 本机联机准备
 
 1. [dev_lab.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.yaml) 仍然是仓库跟踪基线，不直接提交本机联机参数。

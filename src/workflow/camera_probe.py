@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -24,6 +25,7 @@ def run_camera_probe(
     runtime_config: Any,
     override: dict[str, Any] | None = None,
     camera_factory: Callable[[], Any] | None = None,
+    diagnostics_store: Any | None = None,
 ) -> dict[str, Any]:
     backend = str(runtime_config.adapters.get("camera", "") or "")
     camera_config = _merge_camera_override(runtime_config.camera, override)
@@ -32,12 +34,12 @@ def run_camera_probe(
 
     contract_error = _validate_probe_contract(backend=backend, policy=policy)
     if contract_error is not None:
-        return _apply_failure(response, contract_error)
+        return _finalize_probe_response(runtime_config, _apply_failure(response, contract_error), diagnostics_store)
 
     if camera_factory is None:
         sdk_runtime_error = _validate_sdk_runtime_import()
         if sdk_runtime_error is not None:
-            return _apply_failure(response, sdk_runtime_error)
+            return _finalize_probe_response(runtime_config, _apply_failure(response, sdk_runtime_error), diagnostics_store)
 
     selection_mode = _resolve_selection_mode(policy)
     camera = HikGigeMvsCamera(
@@ -56,7 +58,11 @@ def run_camera_probe(
     try:
         probe_payload = camera.probe_once(selection_mode=selection_mode)
     except Exception as exc:
-        return _apply_failure(response, _classify_probe_exception(exc))
+        return _finalize_probe_response(
+            runtime_config,
+            _apply_failure(response, _classify_probe_exception(exc)),
+            diagnostics_store,
+        )
 
     response["matched_by"] = _normalize_matched_by(policy["probe_mode"], str(probe_payload.get("matched_by", "")))
     response["identity"] = {
@@ -77,13 +83,13 @@ def run_camera_probe(
 
     detected_error = _validate_detected_device(policy=policy, payload=response)
     if detected_error is not None:
-        return _apply_failure(response, detected_error)
+        return _finalize_probe_response(runtime_config, _apply_failure(response, detected_error), diagnostics_store)
 
     response["status"] = "ok"
     response["error_code"] = None
     response["error_stage"] = None
     response["detail"] = "Camera probe succeeded with one frame capture."
-    return response
+    return _finalize_probe_response(runtime_config, response, diagnostics_store)
 
 
 def resolve_camera_probe_policy(
@@ -307,3 +313,42 @@ def _failure(error_code: str, error_stage: str, detail: str) -> dict[str, str]:
         "error_stage": error_stage,
         "detail": detail,
     }
+
+
+def _finalize_probe_response(
+    runtime_config: Any,
+    response: dict[str, Any],
+    diagnostics_store: Any | None,
+) -> dict[str, Any]:
+    if diagnostics_store is not None:
+        _persist_probe_diagnostic(runtime_config, response, diagnostics_store)
+    return response
+
+
+def _persist_probe_diagnostic(runtime_config: Any, response: dict[str, Any], diagnostics_store: Any) -> None:
+    record = {
+        "timestamp_ms": int(time.time() * 1000),
+        "profile": str(getattr(runtime_config, "profile", "")),
+        "status": str(response.get("status", "")),
+        "probe_mode": str(response.get("probe_mode", "")),
+        "matched_by": str(response.get("matched_by", "")),
+        "backend": str(response.get("backend", "")),
+        "transport": str(response.get("transport", "")),
+        "sdk": str(response.get("sdk", "")),
+        "device_model": str((response.get("device") or {}).get("model", "")),
+        "device_serial_number": str((response.get("identity") or {}).get("serial_number", "")),
+        "device_ip": str((response.get("identity") or {}).get("ip", "")),
+        "frame_width": int(((response.get("frame") or {}).get("width")) or 0),
+        "frame_height": int(((response.get("frame") or {}).get("height")) or 0),
+        "pixel_format": str((response.get("frame") or {}).get("pixel_format", "")),
+        "frame_id": int(((response.get("frame") or {}).get("frame_id")) or 0),
+        "frame_timestamp_ms": int(((response.get("frame") or {}).get("timestamp_ms")) or 0),
+        "error_code": response.get("error_code"),
+        "error_stage": response.get("error_stage"),
+        "detail": str(response.get("detail", "")),
+    }
+    try:
+        diagnostics_store.append(record)
+    except Exception:
+        # Probe diagnostics are best-effort and must not change the probe API outcome.
+        return

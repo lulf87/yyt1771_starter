@@ -1,11 +1,14 @@
 """Dependency helpers for the web application layer."""
 
 from collections.abc import Callable
+import os
 from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import Any
 
 from fastapi import Depends, Request
 
+from src.storage.probe_diagnostics import ProbeDiagnosticStore
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.session_adjustments import SessionAdjustmentStore
 from src.storage.sqlite_repo import SqliteSessionRepo
@@ -41,12 +44,34 @@ def get_session_adjustment_store(request: Request) -> SessionAdjustmentStore:
     return SessionAdjustmentStore(artifact_path)
 
 
+def get_probe_diagnostic_store(request: Request) -> ProbeDiagnosticStore:
+    diagnostic_path = _resolve_probe_diagnostic_path(get_runtime_config(request))
+    return ProbeDiagnosticStore(diagnostic_path)
+
+
 def _resolve_artifact_path(runtime_config: RuntimeConfig) -> Path:
     artifact_dir = runtime_config.storage.get("artifact_dir", "var/artifacts")
-    artifact_path = Path(artifact_dir)
-    if not artifact_path.is_absolute():
-        artifact_path = Path(__file__).resolve().parents[2] / artifact_path
-    return artifact_path
+    return _resolve_runtime_path(artifact_dir)
+
+
+def _resolve_probe_diagnostic_path(runtime_config: RuntimeConfig) -> Path:
+    logging_dir = runtime_config.logging.get("dir")
+    if logging_dir and not _is_non_native_windows_path(logging_dir):
+        return _resolve_runtime_path(logging_dir)
+    artifact_path = _resolve_artifact_path(runtime_config)
+    return artifact_path.parent / "logs"
+
+
+def _resolve_runtime_path(value: str | Path) -> Path:
+    runtime_path = Path(value)
+    if not runtime_path.is_absolute():
+        runtime_path = Path(__file__).resolve().parents[2] / runtime_path
+    return runtime_path
+
+
+def _is_non_native_windows_path(value: str | Path) -> bool:
+    text = str(value)
+    return os.name != "nt" and bool(PureWindowsPath(text).drive)
 
 
 def get_session_runner(
@@ -63,5 +88,10 @@ def get_adjustment_service(
     return AdjustmentService(repo=repo, store=store)
 
 
-def get_camera_probe_runner() -> Callable[[RuntimeConfig, dict[str, Any] | None], dict[str, Any]]:
-    return run_camera_probe
+def get_camera_probe_runner(
+    diagnostics_store: ProbeDiagnosticStore = Depends(get_probe_diagnostic_store),
+) -> Callable[[RuntimeConfig, dict[str, Any] | None], dict[str, Any]]:
+    def _runner(runtime_config: RuntimeConfig, override: dict[str, Any] | None = None) -> dict[str, Any]:
+        return run_camera_probe(runtime_config, override=override, diagnostics_store=diagnostics_store)
+
+    return _runner
