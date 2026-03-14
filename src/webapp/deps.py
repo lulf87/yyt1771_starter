@@ -63,5 +63,5 @@ def get_adjustment_service(
     return AdjustmentService(repo=repo, store=store)
 
 
-def get_camera_probe_runner() -> Callable[[RuntimeConfig], dict[str, Any]]:
+def get_camera_probe_runner() -> Callable[[RuntimeConfig, dict[str, Any] | None], dict[str, Any]]:
     return run_camera_probe

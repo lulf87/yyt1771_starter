@@ -43,6 +43,35 @@
             <button id="probe-camera-btn" type="button">Probe Camera</button>
           </div>
         </div>
+        <div class="facts detail-facts">
+          <div>
+            <label for="probe-mode-select">Probe Mode</label>
+            <select id="probe-mode-select" data-testid="probe-mode-select">
+              <option value="protocol_any">Protocol Any</option>
+              <option value="pinned">Pinned Device</option>
+            </select>
+          </div>
+          <div>
+            <label for="probe-allowed-models-input">Allowed Models</label>
+            <input
+              id="probe-allowed-models-input"
+              data-testid="probe-allowed-models-input"
+              type="text"
+              placeholder="MV-CU060-10GM, OTHER-MODEL"
+            />
+          </div>
+          <div>
+            <label for="probe-serial-number-input">Serial Number</label>
+            <input id="probe-serial-number-input" data-testid="probe-serial-number-input" type="text" placeholder="Optional" />
+          </div>
+          <div>
+            <label for="probe-ip-input">IP</label>
+            <input id="probe-ip-input" data-testid="probe-ip-input" type="text" placeholder="Optional" />
+          </div>
+        </div>
+        <p id="probe-mode-hint" class="session-meta" data-testid="probe-mode-hint">
+          Protocol Any allows first discovered probe when serial and IP are empty.
+        </p>
         <dl class="facts detail-facts">
           <div>
             <dt>Overall</dt>

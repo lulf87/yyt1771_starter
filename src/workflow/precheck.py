@@ -5,10 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.workflow.camera_probe import (
+    EXPECTED_SDK,
+    EXPECTED_TRANSPORT,
+    PROBE_MODE_PINNED,
+    PROBE_MODE_PROTOCOL_ANY,
+    SUPPORTED_PROBE_MODES,
+    resolve_camera_probe_policy,
+)
+
 SUPPORTED_CAMERA_BACKENDS = {"mock", "hik_rtsp_opencv", "hik_gige_mvs"}
-EXPECTED_GIGE_MODEL = "MV-CU060-10GM"
-EXPECTED_GIGE_TRANSPORT = "gige_vision"
-EXPECTED_GIGE_SDK = "hik_mvs"
 
 
 def build_system_precheck(
@@ -29,7 +35,7 @@ def build_system_precheck(
         _check_adapter("plc_adapter", adapters.get("plc")),
     ]
     if camera_backend == "hik_gige_mvs":
-        items.extend(_check_hik_gige_camera_config(camera))
+        items.extend(_check_hik_gige_camera_config(profile_name, camera))
     return {
         "profile": profile_name,
         "status": _aggregate_status(items),
@@ -117,51 +123,72 @@ def _check_adapter(name: str, adapter_name: str | None) -> dict[str, str]:
     }
 
 
-def _check_hik_gige_camera_config(camera: dict[str, Any]) -> list[dict[str, str]]:
-    model = str(camera.get("model", "")).strip()
-    transport = str(camera.get("transport", "")).strip()
-    serial_number = str(camera.get("serial_number", "")).strip()
-    ip = str(camera.get("ip", "")).strip()
-    sdk_name = str(camera.get("sdk", "")).strip()
-
-    items = [_check_camera_model(model), _check_camera_transport(transport), _check_camera_identity(serial_number, ip)]
-    items.append(_check_camera_sdk(sdk_name))
+def _check_hik_gige_camera_config(profile_name: str, camera: dict[str, Any]) -> list[dict[str, str]]:
+    probe_policy = resolve_camera_probe_policy(profile_name, camera)
+    items = [
+        _check_camera_probe_mode(probe_policy["probe_mode"]),
+        _check_camera_model_policy(probe_policy),
+        _check_camera_transport(probe_policy["transport"]),
+        _check_camera_identity(probe_policy),
+        _check_camera_sdk(probe_policy["sdk"]),
+    ]
     return items
 
 
-def _check_camera_model(model: str) -> dict[str, str]:
-    if not model:
-        return {"name": "camera_model", "status": "fail", "detail": "camera.model is not configured"}
-    if model == EXPECTED_GIGE_MODEL:
+def _check_camera_probe_mode(probe_mode: str) -> dict[str, str]:
+    if probe_mode in SUPPORTED_PROBE_MODES:
         return {
-            "name": "camera_model",
+            "name": "camera_probe_mode",
             "status": "ok",
-            "detail": f"{EXPECTED_GIGE_MODEL} configured as the production camera model",
+            "detail": f"{probe_mode} is a supported camera probe strategy",
         }
     return {
-        "name": "camera_model",
-        "status": "warn",
-        "detail": f"{model} configured, but the confirmed production model is {EXPECTED_GIGE_MODEL}",
+        "name": "camera_probe_mode",
+        "status": "fail",
+        "detail": f"{probe_mode or 'missing'} is not a supported camera probe strategy",
+    }
+
+
+def _check_camera_model_policy(probe_policy: dict[str, Any]) -> dict[str, str]:
+    allowed_models = probe_policy["allowed_models"]
+    if probe_policy["probe_mode"] == PROBE_MODE_PROTOCOL_ANY:
+        return {
+            "name": "camera_model_policy",
+            "status": "pending",
+            "detail": "protocol_any does not restrict camera model before probing; model matching happens after protocol discovery",
+        }
+    if allowed_models:
+        return {
+            "name": "camera_model_policy",
+            "status": "ok",
+            "detail": f"Allowed models configured: {', '.join(allowed_models)}",
+        }
+    return {
+        "name": "camera_model_policy",
+        "status": "fail",
+        "detail": "Pinned probe mode requires camera.allowed_models to be configured",
     }
 
 
 def _check_camera_transport(transport: str) -> dict[str, str]:
-    if transport == EXPECTED_GIGE_TRANSPORT:
+    if transport == EXPECTED_TRANSPORT:
         return {
             "name": "camera_transport",
             "status": "ok",
-            "detail": f"{EXPECTED_GIGE_TRANSPORT} matches the Hik GigE / MVS transport contract",
+            "detail": f"{EXPECTED_TRANSPORT} matches the Hik GigE / MVS transport contract",
         }
     if not transport:
         return {"name": "camera_transport", "status": "fail", "detail": "camera.transport is not configured"}
     return {
         "name": "camera_transport",
         "status": "fail",
-        "detail": f"{transport} does not match the required {EXPECTED_GIGE_TRANSPORT} transport",
+        "detail": f"{transport} does not match the required {EXPECTED_TRANSPORT} transport",
     }
 
 
-def _check_camera_identity(serial_number: str, ip: str) -> dict[str, str]:
+def _check_camera_identity(probe_policy: dict[str, Any]) -> dict[str, str]:
+    serial_number = probe_policy["serial_number"]
+    ip = probe_policy["ip"]
     if serial_number:
         return {
             "name": "camera_identity",
@@ -174,21 +201,27 @@ def _check_camera_identity(serial_number: str, ip: str) -> dict[str, str]:
             "status": "ok",
             "detail": f"camera.ip is configured as {ip}",
         }
+    if probe_policy["probe_mode"] == PROBE_MODE_PROTOCOL_ANY:
+        return {
+            "name": "camera_identity",
+            "status": "pending",
+            "detail": "protocol_any allows serial_number and ip to stay empty; probe will use first discovered device when no identity is provided",
+        }
     return {
         "name": "camera_identity",
-        "status": "warn",
-        "detail": "camera.serial_number and camera.ip are both empty; precheck does not pin a live device identity",
+        "status": "fail",
+        "detail": "Pinned probe mode requires camera.serial_number or camera.ip before probing",
     }
 
 
 def _check_camera_sdk(sdk_name: str) -> dict[str, str]:
     if not sdk_name:
         return {"name": "camera_sdk", "status": "fail", "detail": "camera.sdk is not configured"}
-    if sdk_name != EXPECTED_GIGE_SDK:
+    if sdk_name != EXPECTED_SDK:
         return {
             "name": "camera_sdk",
             "status": "fail",
-            "detail": f"{sdk_name} does not match the required {EXPECTED_GIGE_SDK} SDK contract",
+            "detail": f"{sdk_name} does not match the required {EXPECTED_SDK} SDK contract",
         }
     return {
         "name": "camera_sdk",

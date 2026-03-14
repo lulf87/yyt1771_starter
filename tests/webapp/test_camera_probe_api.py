@@ -8,9 +8,19 @@ from src.workflow.camera_probe import run_camera_probe
 
 
 class FakeProbeHandle:
-    def __init__(self, frame: object | None = None) -> None:
+    def __init__(
+        self,
+        frame: object | None = None,
+        *,
+        model: str = "MV-CU060-10GM",
+        serial_number: str = "",
+        ip: str = "",
+    ) -> None:
         self.frame = frame if frame is not None else [[0, 255], [255, 0]]
         self.opened = False
+        self.model = model
+        self.serial_number = serial_number
+        self.ip = ip
 
     def open(self) -> None:
         self.opened = True
@@ -44,41 +54,143 @@ def test_camera_probe_api_fails_for_dev_mock_backend(tmp_path: Path) -> None:
     assert "does not support real GigE probe" in payload["detail"]
 
 
-def test_camera_probe_api_fails_when_prod_identity_is_missing(tmp_path: Path) -> None:
+def test_camera_probe_api_supports_protocol_any_without_identity(tmp_path: Path) -> None:
     client = _make_client(tmp_path, profile="prod_win")
 
-    response = client.post("/api/system/camera/probe")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "fail"
-    assert payload["backend"] == "hik_gige_mvs"
-    assert payload["model"] == "MV-CU060-10GM"
-    assert payload["detail"] == "Camera identity is missing. Configure serial_number or ip before probing."
-
-
-def test_camera_probe_api_returns_ok_with_injected_fake_probe(tmp_path: Path) -> None:
-    client = _make_client(tmp_path, profile="prod_win")
-    client.app.state.runtime_config.camera["serial_number"] = "MV-SERIAL-001"
-
-    def fake_runner(runtime_config):
+    def fake_runner(runtime_config, override=None):
         return run_camera_probe(
             runtime_config,
-            camera_factory=lambda: FakeProbeHandle(frame=[[0, 255, 0], [255, 0, 255]]),
+            override=override,
+            camera_factory=lambda: FakeProbeHandle(
+                frame=[[0, 255, 0], [255, 0, 255]],
+                model="DISCOVERED-MODEL",
+                serial_number="DISCOVERED-001",
+                ip="192.168.1.88",
+            ),
         )
 
     client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
 
-    response = client.post("/api/system/camera/probe")
+    response = client.post("/api/system/camera/probe", json={"probe_mode": "protocol_any"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["backend"] == "hik_gige_mvs"
-    assert payload["model"] == "MV-CU060-10GM"
-    assert payload["identity"]["serial_number"] == "MV-SERIAL-001"
+    assert payload["probe_mode"] == "protocol_any"
+    assert payload["matched_by"] == "first_discovered"
+    assert payload["device"]["model"] == "DISCOVERED-MODEL"
+    assert payload["identity"]["serial_number"] == "DISCOVERED-001"
+    assert payload["identity"]["ip"] == "192.168.1.88"
     assert payload["frame"]["width"] == 3
     assert payload["frame"]["height"] == 2
-    assert payload["frame"]["pixel_format"] == "mono8"
     assert "image" not in payload
     assert "image" not in payload["frame"]
+
+
+def test_camera_probe_api_fails_for_pinned_mode_without_identity(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    response = client.post(
+        "/api/system/camera/probe",
+        json={"probe_mode": "pinned", "allowed_models": ["MV-CU060-10GM"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    assert payload["probe_mode"] == "pinned"
+    assert payload["detail"] == "Pinned probe mode requires serial_number or ip before probing."
+
+
+def test_camera_probe_api_pinned_mode_succeeds_when_allowlist_and_serial_match(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    def fake_runner(runtime_config, override=None):
+        return run_camera_probe(
+            runtime_config,
+            override=override,
+            camera_factory=lambda: FakeProbeHandle(
+                frame=[[0, 255], [255, 0]],
+                model="MV-CU060-10GM",
+                serial_number="MV-SERIAL-001",
+                ip="192.168.1.10",
+            ),
+        )
+
+    client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
+
+    response = client.post(
+        "/api/system/camera/probe",
+        json={
+            "probe_mode": "pinned",
+            "allowed_models": ["MV-CU060-10GM"],
+            "serial_number": "MV-SERIAL-001",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["probe_mode"] == "pinned"
+    assert payload["matched_by"] == "serial_number"
+    assert payload["device"]["model"] == "MV-CU060-10GM"
+    assert payload["identity"]["serial_number"] == "MV-SERIAL-001"
+
+
+def test_camera_probe_api_fails_when_detected_model_is_outside_allowlist(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    def fake_runner(runtime_config, override=None):
+        return run_camera_probe(
+            runtime_config,
+            override=override,
+            camera_factory=lambda: FakeProbeHandle(
+                frame=[[0, 255], [255, 0]],
+                model="OTHER-MODEL",
+                serial_number="MV-SERIAL-001",
+                ip="192.168.1.10",
+            ),
+        )
+
+    client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
+
+    response = client.post(
+        "/api/system/camera/probe",
+        json={
+            "probe_mode": "pinned",
+            "allowed_models": ["MV-CU060-10GM"],
+            "serial_number": "MV-SERIAL-001",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    assert payload["device"]["model"] == "OTHER-MODEL"
+    assert "not in the allowed_models whitelist" in payload["detail"]
+
+
+def test_camera_probe_api_request_body_overrides_profile_default_mode(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    def fake_runner(runtime_config, override=None):
+        return run_camera_probe(
+            runtime_config,
+            override=override,
+            camera_factory=lambda: FakeProbeHandle(
+                frame=[[0, 255]],
+                model="DISCOVERED-MODEL",
+                serial_number="DISCOVERED-001",
+                ip="192.168.1.77",
+            ),
+        )
+
+    client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
+
+    response = client.post("/api/system/camera/probe", json={"probe_mode": "protocol_any"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["probe_mode"] == "protocol_any"
+    assert payload["matched_by"] == "first_discovered"

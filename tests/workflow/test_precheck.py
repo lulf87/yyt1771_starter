@@ -43,7 +43,7 @@ def test_build_system_precheck_returns_fail_when_storage_missing() -> None:
     assert items["camera_backend"]["status"] == "fail"
 
 
-def test_build_system_precheck_warns_when_gige_identity_is_missing(tmp_path: Path) -> None:
+def test_build_system_precheck_fails_when_pinned_gige_identity_is_missing(tmp_path: Path) -> None:
     report = build_system_precheck(
         profile_name="prod_win",
         storage={
@@ -53,9 +53,10 @@ def test_build_system_precheck_warns_when_gige_identity_is_missing(tmp_path: Pat
         replay={"dataset_path": "examples/replay"},
         adapters={"camera": "hik_gige_mvs", "temp": "modbus_temp", "plc": "modbus_tcp"},
         camera={
-            "model": "MV-CU060-10GM",
             "transport": "gige_vision",
             "sdk": "hik_mvs",
+            "probe_mode": "pinned",
+            "allowed_models": ["MV-CU060-10GM"],
             "serial_number": "",
             "ip": "",
         },
@@ -63,10 +64,11 @@ def test_build_system_precheck_warns_when_gige_identity_is_missing(tmp_path: Pat
     )
 
     items = {item["name"]: item for item in report["items"]}
-    assert report["status"] == "warn"
-    assert items["camera_model"]["status"] == "ok"
+    assert report["status"] == "fail"
+    assert items["camera_probe_mode"]["status"] == "ok"
+    assert items["camera_model_policy"]["status"] == "ok"
     assert items["camera_transport"]["status"] == "ok"
-    assert items["camera_identity"]["status"] == "warn"
+    assert items["camera_identity"]["status"] == "fail"
     assert items["camera_sdk"]["status"] == "pending"
 
 
@@ -80,9 +82,10 @@ def test_build_system_precheck_fails_when_gige_transport_is_wrong(tmp_path: Path
         replay={"dataset_path": "examples/replay"},
         adapters={"camera": "hik_gige_mvs", "temp": "modbus_temp", "plc": "modbus_tcp"},
         camera={
-            "model": "MV-CU060-10GM",
             "transport": "rtsp",
             "sdk": "hik_mvs",
+            "probe_mode": "pinned",
+            "allowed_models": ["MV-CU060-10GM"],
             "serial_number": "MV-123",
         },
         project_root=Path(__file__).resolve().parents[2],
@@ -91,3 +94,30 @@ def test_build_system_precheck_fails_when_gige_transport_is_wrong(tmp_path: Path
     items = {item["name"]: item for item in report["items"]}
     assert report["status"] == "fail"
     assert items["camera_transport"]["status"] == "fail"
+
+
+def test_build_system_precheck_protocol_any_keeps_identity_optional(tmp_path: Path) -> None:
+    report = build_system_precheck(
+        profile_name="dev_lab",
+        storage={
+            "sqlite_path": str(tmp_path / "lab.sqlite3"),
+            "artifact_dir": str(tmp_path / "artifacts"),
+        },
+        replay={"dataset_path": "examples/replay"},
+        adapters={"camera": "hik_gige_mvs", "temp": "modbus_temp", "plc": "mock"},
+        camera={
+            "transport": "gige_vision",
+            "sdk": "hik_mvs",
+            "probe_mode": "protocol_any",
+            "allowed_models": [],
+            "serial_number": "",
+            "ip": "",
+        },
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    items = {item["name"]: item for item in report["items"]}
+    assert report["status"] == "warn"
+    assert items["camera_probe_mode"]["status"] == "ok"
+    assert items["camera_model_policy"]["status"] == "pending"
+    assert items["camera_identity"]["status"] == "pending"

@@ -44,19 +44,20 @@ def test_precheck_api_reports_fail_for_missing_replay_dataset(tmp_path: Path) ->
     assert items["replay_dataset"]["status"] == "fail"
 
 
-def test_precheck_api_reports_gige_camera_contract_items_for_prod_win(tmp_path: Path) -> None:
+def test_precheck_api_reports_pinned_camera_policy_fail_for_prod_win_without_identity(tmp_path: Path) -> None:
     client = _make_client(tmp_path, profile="prod_win")
 
     response = client.get("/api/system/precheck")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "warn"
+    assert payload["status"] == "fail"
     items = {item["name"]: item for item in payload["items"]}
     assert items["camera_backend"]["status"] == "ok"
-    assert items["camera_model"]["status"] == "ok"
+    assert items["camera_probe_mode"]["status"] == "ok"
+    assert items["camera_model_policy"]["status"] == "ok"
     assert items["camera_transport"]["status"] == "ok"
-    assert items["camera_identity"]["status"] == "warn"
+    assert items["camera_identity"]["status"] == "fail"
     assert items["camera_sdk"]["status"] == "pending"
 
 
@@ -71,3 +72,19 @@ def test_precheck_api_returns_fail_when_gige_transport_is_invalid(tmp_path: Path
     assert payload["status"] == "fail"
     items = {item["name"]: item for item in payload["items"]}
     assert items["camera_transport"]["status"] == "fail"
+
+
+def test_precheck_api_protocol_any_marks_identity_as_pending(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "warn"
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_probe_mode"]["status"] == "ok"
+    assert items["camera_model_policy"]["status"] == "pending"
+    assert items["camera_identity"]["status"] == "pending"

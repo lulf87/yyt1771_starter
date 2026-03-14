@@ -110,6 +110,17 @@ class CameraProbeIdentityResponse(BaseModel):
     ip: str = ""
 
 
+class CameraProbeRequest(BaseModel):
+    probe_mode: str | None = None
+    allowed_models: list[str] | None = None
+    serial_number: str | None = None
+    ip: str | None = None
+
+
+class CameraProbeDeviceResponse(BaseModel):
+    model: str = ""
+
+
 class CameraProbeFrameResponse(BaseModel):
     width: int
     height: int
@@ -121,10 +132,12 @@ class CameraProbeFrameResponse(BaseModel):
 class CameraProbeResponse(BaseModel):
     status: str
     backend: str = ""
-    model: str = ""
     transport: str = ""
     sdk: str = ""
+    probe_mode: str = ""
+    matched_by: str = ""
     identity: CameraProbeIdentityResponse
+    device: CameraProbeDeviceResponse
     frame: CameraProbeFrameResponse | None = None
     detail: str
 

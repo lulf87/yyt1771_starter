@@ -27,9 +27,10 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
 
     assert runtime_config.profile == "prod_win"
     assert runtime_config.adapters["camera"] == "hik_gige_mvs"
-    assert runtime_config.camera["model"] == "MV-CU060-10GM"
     assert runtime_config.camera["transport"] == "gige_vision"
     assert runtime_config.camera["sdk"] == "hik_mvs"
+    assert runtime_config.camera["probe_mode"] == "pinned"
+    assert runtime_config.camera["allowed_models"] == ["MV-CU060-10GM"]
     assert runtime_config.camera["serial_number"] == ""
     assert runtime_config.camera["ip"] == ""
 

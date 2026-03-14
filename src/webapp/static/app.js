@@ -6,6 +6,11 @@ const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 const runReplayButton = document.getElementById("run-replay-btn");
 const probeCameraButton = document.getElementById("probe-camera-btn");
+const probeModeSelect = document.getElementById("probe-mode-select");
+const probeAllowedModelsInput = document.getElementById("probe-allowed-models-input");
+const probeSerialNumberInput = document.getElementById("probe-serial-number-input");
+const probeIpInput = document.getElementById("probe-ip-input");
+const probeModeHintNode = document.getElementById("probe-mode-hint");
 const refreshPrecheckButton = document.getElementById("refresh-precheck-btn");
 const precheckStatusNode = document.getElementById("precheck-status");
 const precheckItemsNode = document.getElementById("precheck-items");
@@ -82,6 +87,7 @@ let workspaceSummaryState = null;
 let workspaceStageState = null;
 let workspaceActiveSelectionState = null;
 let workspaceAdjustmentState = null;
+let probeControlsDirty = false;
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -114,6 +120,49 @@ function renderCameraProbeResult(payload) {
   cameraProbeResultNode.textContent = JSON.stringify(payload, null, 2);
 }
 
+function parseCommaSeparatedList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function syncCameraProbeControls() {
+  if (!probeModeSelect || !probeModeHintNode) {
+    return;
+  }
+
+  if (probeModeSelect.value === "pinned") {
+    probeModeHintNode.textContent =
+      "Pinned Device requires allowed models plus serial number or IP before probing.";
+    return;
+  }
+
+  probeModeHintNode.textContent =
+    "Protocol Any allows first discovered probe when serial and IP are empty. You can still fill identity fields for a directed hit.";
+}
+
+function syncCameraProbeDefaults(profileName) {
+  if (probeControlsDirty || !probeModeSelect) {
+    return;
+  }
+  probeModeSelect.value = profileName === "prod_win" ? "pinned" : "protocol_any";
+  syncCameraProbeControls();
+}
+
+function buildCameraProbeRequest() {
+  if (!probeControlsDirty) {
+    return null;
+  }
+
+  return {
+    probe_mode: probeModeSelect ? probeModeSelect.value : "protocol_any",
+    allowed_models: probeAllowedModelsInput ? parseCommaSeparatedList(probeAllowedModelsInput.value) : [],
+    serial_number: probeSerialNumberInput ? probeSerialNumberInput.value.trim() : "",
+    ip: probeIpInput ? probeIpInput.value.trim() : "",
+  };
+}
+
 async function loadHealth() {
   const response = await fetch("/health");
   const payload = await response.json();
@@ -125,6 +174,7 @@ async function loadProfile() {
   const payload = await response.json();
   profileNameNode.textContent = payload.profile;
   profileModeNode.textContent = payload.mode;
+  syncCameraProbeDefaults(payload.profile);
 }
 
 function renderStatusPill(status) {
@@ -162,7 +212,12 @@ async function runCameraProbe() {
   probeCameraButton.disabled = true;
   probeCameraButton.textContent = "Probing...";
   try {
-    const response = await fetch("/api/system/camera/probe", { method: "POST" });
+    const requestPayload = buildCameraProbeRequest();
+    const response = await fetch("/api/system/camera/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestPayload ? JSON.stringify(requestPayload) : null,
+    });
     const payload = await response.json();
     renderCameraProbeResult(payload);
   } catch (error) {
@@ -999,6 +1054,20 @@ if (runReplayButton) {
 if (refreshPrecheckButton) {
   refreshPrecheckButton.addEventListener("click", loadPrecheck);
 }
+if (probeModeSelect) {
+  probeModeSelect.addEventListener("change", () => {
+    probeControlsDirty = true;
+    syncCameraProbeControls();
+  });
+}
+for (const probeInput of [probeAllowedModelsInput, probeSerialNumberInput, probeIpInput]) {
+  if (probeInput) {
+    probeInput.addEventListener("input", () => {
+      probeControlsDirty = true;
+      syncCameraProbeControls();
+    });
+  }
+}
 if (probeCameraButton) {
   probeCameraButton.addEventListener("click", runCameraProbe);
 }
@@ -1012,6 +1081,7 @@ if (adjustmentApplyButton) {
   adjustmentApplyButton.addEventListener("click", applyWorkspaceAdjustment);
 }
 if (document.body.dataset.page === "home") {
+  syncCameraProbeControls();
   bootstrap();
 }
 if (document.body.dataset.page === "workspace") {

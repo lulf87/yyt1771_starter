@@ -71,4 +71,7 @@ http://127.0.0.1:8000/
 
 - 首页现在有 `Probe Camera` 按钮，对应 `POST /api/system/camera/probe`。
 - 这个入口只做一次受控单帧探测，不会进入 workspace live。
-- 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然把 `serial_number` 和 `ip` 留空；要做真实探测时，请只在本机本地填写其中一项，不要把现场身份信息提交回仓库。
+- 现在支持两种模式：`Protocol Any` 和 `Pinned Device`。
+- `Protocol Any` 允许在 `serial_number` / `ip` 为空时按协议优先探测第一台可用设备。
+- `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
+- 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。

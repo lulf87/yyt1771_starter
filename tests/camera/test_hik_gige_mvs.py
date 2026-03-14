@@ -4,11 +4,21 @@ from src.camera.hik_gige_mvs import HikGigeMvsCamera
 
 
 class FakeMvsHandle:
-    def __init__(self, frames: list[object] | None = None) -> None:
+    def __init__(
+        self,
+        frames: list[object] | None = None,
+        *,
+        model: str = "MV-CU060-10GM",
+        serial_number: str = "DEV-001",
+        ip: str = "192.168.1.10",
+    ) -> None:
         self.frames = list(frames or [])
         self.opened = False
         self.open_count = 0
         self.close_count = 0
+        self.model = model
+        self.serial_number = serial_number
+        self.ip = ip
 
     def open(self) -> None:
         self.open_count += 1
@@ -80,7 +90,7 @@ def test_open_raises_clear_error_when_factory_cannot_create_handle() -> None:
         camera.open()
 
 
-def test_probe_once_prefers_serial_number_as_identity() -> None:
+def test_probe_once_selection_mode_pinned_prefers_serial_number_as_identity() -> None:
     camera = HikGigeMvsCamera(
         model="MV-CU060-10GM",
         transport="gige_vision",
@@ -89,17 +99,26 @@ def test_probe_once_prefers_serial_number_as_identity() -> None:
         ip="192.168.1.10",
         pixel_format="mono8",
         timeout_ms=750,
-        camera_factory=lambda: FakeMvsHandle(frames=[[[0, 255], [255, 0]]]),
+        camera_factory=lambda: FakeMvsHandle(
+            frames=[[[0, 255], [255, 0]]],
+            serial_number="MV-SERIAL-001",
+            ip="192.168.1.10",
+        ),
     )
 
-    payload = camera.probe_once()
+    payload = camera.probe_once(selection_mode="pinned")
 
-    assert payload["identity"] == "MV-SERIAL-001"
+    assert payload["matched_by"] == "serial_number"
+    assert payload["detected_serial_number"] == "MV-SERIAL-001"
+    assert payload["detected_ip"] == "192.168.1.10"
+    assert payload["detected_model"] == "MV-CU060-10GM"
     assert payload["frame_shape"] == {"width": 2, "height": 2}
     assert payload["pixel_format"] == "mono8"
+    assert payload["frame_id"] == 1
+    assert isinstance(payload["timestamp_ms"], int)
 
 
-def test_probe_once_falls_back_to_ip_identity() -> None:
+def test_probe_once_selection_mode_pinned_falls_back_to_ip_identity() -> None:
     camera = HikGigeMvsCamera(
         model="MV-CU060-10GM",
         transport="gige_vision",
@@ -107,26 +126,55 @@ def test_probe_once_falls_back_to_ip_identity() -> None:
         serial_number="",
         ip="192.168.1.10",
         timeout_ms=750,
-        camera_factory=lambda: FakeMvsHandle(frames=[[[1, 2, 3]]]),
+        camera_factory=lambda: FakeMvsHandle(
+            frames=[[[1, 2, 3]]],
+            serial_number="",
+            ip="192.168.1.10",
+        ),
     )
 
-    payload = camera.probe_once()
+    payload = camera.probe_once(selection_mode="pinned")
 
-    assert payload["identity"] == "192.168.1.10"
+    assert payload["matched_by"] == "ip"
+    assert payload["detected_serial_number"] == ""
+    assert payload["detected_ip"] == "192.168.1.10"
     assert payload["frame_shape"] == {"width": 3, "height": 1}
 
 
-def test_probe_once_rejects_missing_identity() -> None:
+def test_probe_once_rejects_missing_identity_in_pinned_mode() -> None:
     camera = HikGigeMvsCamera(
-        model="MV-CU060-10GM",
+        model="",
         transport="gige_vision",
         sdk_name="hik_mvs",
         timeout_ms=750,
-        camera_factory=lambda: FakeMvsHandle(frames=[[[0]]]),
+        camera_factory=lambda: FakeMvsHandle(frames=[[[0]]], serial_number="", ip=""),
     )
 
     with pytest.raises(ValueError, match="serial_number or ip"):
-        camera.probe_once()
+        camera.probe_once(selection_mode="pinned")
+
+
+def test_probe_once_first_discovered_succeeds_without_identity() -> None:
+    camera = HikGigeMvsCamera(
+        model="",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        timeout_ms=750,
+        camera_factory=lambda: FakeMvsHandle(
+            frames=[[[0, 1, 2], [3, 4, 5]]],
+            model="ANY-MODEL",
+            serial_number="DISCOVERED-001",
+            ip="192.168.1.88",
+        ),
+    )
+
+    payload = camera.probe_once(selection_mode="first_discovered")
+
+    assert payload["matched_by"] == "first_discovered"
+    assert payload["detected_model"] == "ANY-MODEL"
+    assert payload["detected_serial_number"] == "DISCOVERED-001"
+    assert payload["detected_ip"] == "192.168.1.88"
+    assert payload["frame_shape"] == {"width": 3, "height": 2}
 
 
 def test_probe_once_surfaces_factory_failures_clearly() -> None:
@@ -140,7 +188,7 @@ def test_probe_once_surfaces_factory_failures_clearly() -> None:
     )
 
     with pytest.raises(RuntimeError, match="create Hik MVS camera handle"):
-        camera.probe_once()
+        camera.probe_once(selection_mode="pinned")
 
 
 def test_close_is_idempotent() -> None:
@@ -157,7 +205,6 @@ def test_close_is_idempotent() -> None:
 @pytest.mark.parametrize(
     ("model", "transport", "sdk_name", "timeout_ms"),
     [
-        ("", "gige_vision", "hik_mvs", 750),
         ("MV-CU060-10GM", "", "hik_mvs", 750),
         ("MV-CU060-10GM", "gige_vision", "", 750),
         ("MV-CU060-10GM", "gige_vision", "hik_mvs", 0),

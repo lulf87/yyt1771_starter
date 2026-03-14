@@ -9,9 +9,11 @@ adapters:
   temp: modbus_temp
   plc: modbus_tcp
 camera:
-  model: MV-CU060-10GM
   transport: gige_vision
   sdk: hik_mvs
+  probe_mode: pinned
+  allowed_models:
+    - MV-CU060-10GM
   serial_number: ""
   ip: ""
   trigger_mode: free_run

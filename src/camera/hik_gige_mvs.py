@@ -28,8 +28,6 @@ class HikGigeMvsCamera(CameraPort):
         camera_factory: Callable[[], Any] | None = None,
         auto_open: bool = False,
     ) -> None:
-        if not model.strip():
-            raise ValueError("model must not be empty")
         if not transport.strip():
             raise ValueError("transport must not be empty")
         if not sdk_name.strip():
@@ -98,19 +96,26 @@ class HikGigeMvsCamera(CameraPort):
             },
         )
 
-    def probe_once(self) -> dict[str, Any]:
-        identity = self._resolve_identity()
+    def probe_once(self, *, selection_mode: str = "pinned") -> dict[str, Any]:
+        if selection_mode not in {"pinned", "first_discovered"}:
+            raise ValueError(f"Unsupported camera selection mode: {selection_mode}")
+
+        _identity, matched_by = self._resolve_identity(required=selection_mode == "pinned")
         try:
             packet = self.read_frame()
+            assert self._camera is not None
+            detected_device = self._detected_device_info(self._camera)
         finally:
             self.close()
         width, height = self._frame_dimensions(packet.image)
         return {
             "backend": self.backend_name,
-            "model": self.model,
             "transport": self.transport,
             "sdk": self.sdk_name,
-            "identity": identity,
+            "matched_by": matched_by,
+            "detected_model": detected_device["model"] or self.model.strip(),
+            "detected_serial_number": detected_device["serial_number"] or self.serial_number.strip(),
+            "detected_ip": detected_device["ip"] or self.ip.strip(),
             "frame_shape": {
                 "width": width,
                 "height": height,
@@ -181,14 +186,16 @@ class HikGigeMvsCamera(CameraPort):
             return frame if ok else None
         return result
 
-    def _resolve_identity(self) -> str:
+    def _resolve_identity(self, *, required: bool) -> tuple[str, str]:
         serial_number = self.serial_number.strip()
         if serial_number:
-            return serial_number
+            return serial_number, "serial_number"
         ip = self.ip.strip()
         if ip:
-            return ip
-        raise ValueError("Camera identity is missing. Configure serial_number or ip before probing.")
+            return ip, "ip"
+        if required:
+            raise ValueError("Camera identity is missing. Configure serial_number or ip before probing.")
+        return "", "first_discovered"
 
     @staticmethod
     def _frame_dimensions(image: Any) -> tuple[int, int]:
@@ -205,6 +212,69 @@ class HikGigeMvsCamera(CameraPort):
                 return (len(first_row), height)
             return (height, 1)
         raise RuntimeError("Unable to determine frame dimensions from probe image")
+
+    def _detected_device_info(self, camera: Any) -> dict[str, str]:
+        return {
+            "model": self._extract_device_value(
+                camera,
+                attr_names=("model", "device_model", "camera_model"),
+                method_names=("get_model", "model_name"),
+                info_keys=("model", "device_model", "camera_model"),
+            ),
+            "serial_number": self._extract_device_value(
+                camera,
+                attr_names=("serial_number", "serial", "device_serial_number"),
+                method_names=("get_serial_number", "get_serial"),
+                info_keys=("serial_number", "serial", "device_serial_number"),
+            ),
+            "ip": self._extract_device_value(
+                camera,
+                attr_names=("ip", "ip_address", "device_ip"),
+                method_names=("get_ip", "get_ip_address"),
+                info_keys=("ip", "ip_address", "device_ip"),
+            ),
+        }
+
+    def _extract_device_value(
+        self,
+        camera: Any,
+        *,
+        attr_names: tuple[str, ...],
+        method_names: tuple[str, ...],
+        info_keys: tuple[str, ...],
+    ) -> str:
+        for attr_name in attr_names:
+            if hasattr(camera, attr_name):
+                value = getattr(camera, attr_name)
+                text = self._string_value(value)
+                if text:
+                    return text
+
+        for method_name in method_names:
+            method = getattr(camera, method_name, None)
+            if callable(method):
+                text = self._string_value(method())
+                if text:
+                    return text
+
+        for info_name in ("get_device_info", "device_info", "device_meta"):
+            info = getattr(camera, info_name, None)
+            if callable(info):
+                info = info()
+            if isinstance(info, dict):
+                for key in info_keys:
+                    text = self._string_value(info.get(key))
+                    if text:
+                        return text
+
+        return ""
+
+    @staticmethod
+    def _string_value(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        return text
 
     @staticmethod
     def _handle_is_opened(camera: Any) -> bool:

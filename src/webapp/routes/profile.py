@@ -4,11 +4,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 
 from src.webapp.config import RuntimeConfig
 from src.webapp.deps import get_camera_probe_runner, get_runtime_config
-from src.webapp.schemas import CameraProbeResponse, PrecheckResponse, ProfileResponse
+from src.webapp.schemas import CameraProbeRequest, CameraProbeResponse, PrecheckResponse, ProfileResponse
 from src.workflow.precheck import build_system_precheck
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -33,7 +33,9 @@ def get_precheck(runtime_config: RuntimeConfig = Depends(get_runtime_config)) ->
 
 @router.post("/camera/probe", response_model=CameraProbeResponse)
 def post_camera_probe(
+    probe_request: CameraProbeRequest | None = Body(default=None),
     runtime_config: RuntimeConfig = Depends(get_runtime_config),
-    runner: Callable[[RuntimeConfig], dict[str, Any]] = Depends(get_camera_probe_runner),
+    runner: Callable[[RuntimeConfig, dict[str, Any] | None], dict[str, Any]] = Depends(get_camera_probe_runner),
 ) -> dict[str, Any]:
-    return runner(runtime_config)
+    override = None if probe_request is None else probe_request.model_dump(exclude_none=True)
+    return runner(runtime_config, override)
