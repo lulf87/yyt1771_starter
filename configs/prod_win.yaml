@@ -6,7 +6,7 @@ webapp:
   port: 8080
 adapters:
   camera: hik_gige_mvs
-  temp: modbus_temp
+  temp: lu92xx_modbus_rtu
   plc: modbus_tcp
 camera:
   transport: gige_vision
@@ -21,6 +21,39 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+temp:
+  backend: lu92xx_modbus_rtu
+  protocol: modbus_rtu
+  slave_address: 1
+  serial:
+    port: COM5
+    baudrate: 19200
+    bytesize: 8
+    parity: N
+    stopbits: 1
+    timeout_ms: 500
+  register_map:
+    process_value:
+      function_code: 3
+      start_address: 264
+      register_count: 1
+      signed: true
+      decode_scale: 0.1
+    target_or_stop_value:
+      function_code: 6
+      start_address: 0
+      register_count: 1
+      signed: true
+      encode_scale: 10.0
+    output_power:
+      function_code: 6
+      start_address: 4
+      register_count: 1
+      signed: false
+      encode_scale: 256.0
+  control:
+    start_output_mode: power_nonzero
+    startup_power_percent: 100.0
 storage:
   sqlite_path: C:/yyt1771/data/prod.sqlite3
   artifact_dir: C:/yyt1771/artifacts

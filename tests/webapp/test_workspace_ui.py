@@ -19,6 +19,8 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     response = client.get(f"/workspace/{session_id}")
 
     assert response.status_code == 200
+    assert '/static/app.css?v=' in response.text
+    assert '/static/app.js?v=' in response.text
     assert 'id="workspace-shell"' in response.text
     assert 'id="workspace-stepper"' in response.text
     assert 'id="workspace-main"' in response.text

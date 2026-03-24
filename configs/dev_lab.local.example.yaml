@@ -13,3 +13,28 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+
+temp:
+  backend: lu92xx_modbus_rtu
+  protocol: modbus_rtu
+  slave_address: 1
+  serial:
+    port: /dev/cu.usbserial-0001
+    baudrate: 19200
+    bytesize: 8
+    parity: N
+    stopbits: 1
+    timeout_ms: 500
+  register_map:
+    process_value:
+      start_address: 264
+      decode_scale: 0.1
+    target_or_stop_value:
+      start_address: 0
+      encode_scale: 10.0
+    output_power:
+      start_address: 4
+      encode_scale: 256.0
+  control:
+    start_output_mode: power_nonzero
+    startup_power_percent: 100.0

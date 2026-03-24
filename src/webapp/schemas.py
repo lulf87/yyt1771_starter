@@ -1,6 +1,10 @@
 """Request and response models for the web application layer."""
 
+import math
+from typing import Literal
+
 from pydantic import BaseModel, Field
+from pydantic import model_validator
 
 
 class HealthResponse(BaseModel):
@@ -27,6 +31,206 @@ class SessionSummaryResponse(BaseModel):
     state: str
     point_count: int
     af95: float | None
+
+
+class RectRegionRequest(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class RectRegionResponse(RectRegionRequest):
+    pass
+
+
+class MetricBoxRequest(BaseModel):
+    center_x: int = Field(ge=0)
+    center_y: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    angle_deg: float = 0.0
+
+
+class MetricBoxResponse(MetricBoxRequest):
+    pass
+
+
+class PixelPointRequest(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
+class PixelPointResponse(PixelPointRequest):
+    pass
+
+
+class MeasurementDefinitionRequest(BaseModel):
+    analysis_roi: RectRegionRequest
+    metric_box: MetricBoxRequest
+    point_a_px: PixelPointRequest
+    point_b_px: PixelPointRequest
+    foreground_polarity: Literal["dark_on_light", "light_on_dark"]
+    threshold_mode: Literal["adaptive", "binary", "otsu"]
+    ignore_internal_texture: bool
+    min_target_area_px: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
+        if self.point_a_px == self.point_b_px:
+            raise ValueError("point_a_px and point_b_px must be distinct")
+        if not _metric_box_within_region(self.analysis_roi, self.metric_box):
+            raise ValueError("metric_box must stay inside analysis_roi")
+        if not _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y):
+            raise ValueError("metric_box center must stay inside analysis_roi")
+        if not _point_in_region(self.analysis_roi, self.point_a_px.x, self.point_a_px.y):
+            raise ValueError("point_a_px must stay inside analysis_roi")
+        if not _point_in_region(self.analysis_roi, self.point_b_px.x, self.point_b_px.y):
+            raise ValueError("point_b_px must stay inside analysis_roi")
+        if not _point_in_metric_box(self.metric_box, self.point_a_px.x, self.point_a_px.y):
+            raise ValueError("point_a_px must stay inside metric_box")
+        if not _point_in_metric_box(self.metric_box, self.point_b_px.x, self.point_b_px.y):
+            raise ValueError("point_b_px must stay inside metric_box")
+        return self
+
+
+class MeasurementDefinitionResponse(MeasurementDefinitionRequest):
+    pass
+
+
+class AutoDetectDefinitionRequest(BaseModel):
+    analysis_roi: RectRegionRequest
+    metric_box: MetricBoxRequest
+    foreground_polarity: Literal["dark_on_light", "light_on_dark"]
+    threshold_mode: Literal["adaptive", "binary", "otsu"]
+    ignore_internal_texture: bool
+    min_target_area_px: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_geometry(self) -> "AutoDetectDefinitionRequest":
+        if not _metric_box_within_region(self.analysis_roi, self.metric_box):
+            raise ValueError("metric_box must stay inside analysis_roi")
+        if not _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y):
+            raise ValueError("metric_box center must stay inside analysis_roi")
+        return self
+
+
+class AutoDetectDefinitionResponse(BaseModel):
+    definition: MeasurementDefinitionResponse
+    quality: float
+    metric_raw: float | None
+    detail: str = ""
+
+
+class RunCreateRequest(BaseModel):
+    profile: str | None = None
+    preset: str = Field(default="balloon", min_length=1)
+
+
+class RunSummaryResponse(BaseModel):
+    run_id: str
+    status: str
+    profile: str
+    preset: str
+
+
+class PreviewStateResponse(BaseModel):
+    stream_active: bool
+    frozen_frame_available: bool
+    last_frame_id: int | None = None
+
+
+class EditorStateResponse(BaseModel):
+    state: Literal["empty", "editing", "locked"]
+
+
+class RunRatesResponse(BaseModel):
+    camera_resulting_fps: float | None = None
+    preview_display_fps: float | None = None
+    measurement_sample_hz: float | None = None
+    artifact_capture_hz: float | None = None
+    dropped_frame_count: int = 0
+
+
+class MeasurementProfileResponse(BaseModel):
+    acquisition_roi: RectRegionResponse | None = None
+    decimation: int | None = None
+    binning: int | None = None
+    exposure_us: int | None = None
+
+
+class RunDetailResponse(RunSummaryResponse):
+    definition: MeasurementDefinitionResponse | None = None
+    created_at_ms: int
+    updated_at_ms: int
+    definition_complete: bool = False
+    capture_mode: Literal["idle", "setup_preview", "measurement", "post_run_review"]
+    rates: RunRatesResponse
+    measurement_profile: MeasurementProfileResponse
+    preview: PreviewStateResponse
+    editor: EditorStateResponse
+    warnings: list[str] = Field(default_factory=list)
+
+
+class RunStartRequest(BaseModel):
+    target_temperature_celsius: float = Field(gt=0)
+
+
+class RunStartResponse(BaseModel):
+    run_id: str
+    session_id: str
+    status: str
+    point_count: int | None = None
+    af95: float | None = None
+
+
+class RunTelemetryPointResponse(BaseModel):
+    timestamp_ms: int
+    temperature_celsius: float
+    space1_px: float
+    tracking_quality: float
+    sample_index: int | None = None
+    sample_interval_ms: int | None = None
+    frame_id: int | None = None
+    frame_timestamp_ms: int | None = None
+    temp_timestamp_ms: int | None = None
+    metric_timestamp_ms: int | None = None
+    camera_resulting_fps: float | None = None
+
+
+class RunTelemetryResponse(BaseModel):
+    run_id: str
+    status: str
+    latest: RunTelemetryPointResponse | None = None
+    curve: list[RunTelemetryPointResponse]
+
+
+class RunArtifactRefsResponse(BaseModel):
+    definition: str
+    telemetry: str
+    events: str
+    detail: str
+    result: str
+    keyframes: list[str] = []
+
+
+class RunResultResponse(BaseModel):
+    session_id: str
+    state: str
+    analysis_engine: str
+    channel_name: str
+    result_status: str = "ok"
+    result_reason: str | None = None
+    result_detail: str = ""
+    af95: float | None = None
+    as_value: float | None = None
+    af_value: float | None = None
+    point_count: int
+    capture_mode: str = "post_run_review"
+    rates: RunRatesResponse = Field(default_factory=RunRatesResponse)
+    measurement_profile: MeasurementProfileResponse = Field(default_factory=MeasurementProfileResponse)
+    warnings: list[str] = Field(default_factory=list)
+    artifacts: RunArtifactRefsResponse
 
 
 class SessionHistoryResponse(BaseModel):
@@ -146,3 +350,48 @@ class CameraProbeResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+def _point_in_region(region: RectRegionRequest, x: int, y: int) -> bool:
+    return region.x <= x < (region.x + region.width) and region.y <= y < (region.y + region.height)
+
+
+def _metric_box_within_region(region: RectRegionRequest, box: MetricBoxRequest) -> bool:
+    return all(_point_in_region_float(region, x, y) for x, y in _metric_box_corners(box))
+
+
+def _point_in_metric_box(box: MetricBoxRequest, x: int, y: int) -> bool:
+    angle_rad = math.radians(box.angle_deg)
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = x - box.center_x
+    translated_y = y - box.center_y
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    return abs(local_x) <= box.width / 2 and abs(local_y) <= box.height / 2
+
+
+def _metric_box_corners(box: MetricBoxRequest) -> list[tuple[float, float]]:
+    angle_rad = math.radians(box.angle_deg)
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    half_width = box.width / 2
+    half_height = box.height / 2
+    corners: list[tuple[float, float]] = []
+    for local_x, local_y in (
+        (-half_width, -half_height),
+        (half_width, -half_height),
+        (half_width, half_height),
+        (-half_width, half_height),
+    ):
+        corners.append(
+            (
+                box.center_x + local_x * cos_theta - local_y * sin_theta,
+                box.center_y + local_x * sin_theta + local_y * cos_theta,
+            )
+        )
+    return corners
+
+
+def _point_in_region_float(region: RectRegionRequest, x: float, y: float) -> bool:
+    return region.x <= x <= (region.x + region.width) and region.y <= y <= (region.y + region.height)

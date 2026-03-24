@@ -6,7 +6,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from src.camera.hik_gige_mvs import HikGigeMvsCamera, import_hik_mvs_sdk_module
+from src.camera.hik_gige_mvs import (
+    HikGigeMvsCamera,
+    discover_gige_vision_devices,
+    import_hik_mvs_sdk_module,
+)
 
 EXPECTED_BACKEND = "hik_gige_mvs"
 EXPECTED_TRANSPORT = "gige_vision"
@@ -290,6 +294,12 @@ def _classify_probe_exception(exc: Exception) -> dict[str, str]:
         return _failure("SDK_IMPORT_NOT_READY", ERROR_STAGE_SDK_RUNTIME, detail)
     if "Camera identity is missing" in detail:
         return _failure("PINNED_IDENTITY_MISSING", ERROR_STAGE_CONFIG, detail)
+    if "enumerate devices" in detail:
+        return _failure(
+            "DEVICE_DISCOVERY_FAILED",
+            ERROR_STAGE_DEVICE_DISCOVERY,
+            _enrich_sdk_discovery_failure_detail(detail),
+        )
     if (
         "Failed to read frame" in detail
         or "supported frame read method" in detail
@@ -297,6 +307,39 @@ def _classify_probe_exception(exc: Exception) -> dict[str, str]:
     ):
         return _failure("FRAME_READ_FAILED", ERROR_STAGE_FRAME_READ, detail)
     return _failure("DEVICE_DISCOVERY_FAILED", ERROR_STAGE_DEVICE_DISCOVERY, detail)
+
+
+def _enrich_sdk_discovery_failure_detail(detail: str) -> str:
+    try:
+        devices = discover_gige_vision_devices()
+    except Exception:
+        return detail
+    if not devices:
+        return detail
+
+    snippets: list[str] = []
+    for device in devices[:3]:
+        parts = [
+            f"interface={device.get('interface', '')}",
+            f"host_ip={device.get('host_ip', '')}",
+            f"ip={device.get('ip', '')}",
+        ]
+        model = str(device.get("model", "") or "").strip()
+        if model:
+            parts.append(f"model={model}")
+        serial_number = str(device.get("serial_number", "") or "").strip()
+        if serial_number:
+            parts.append(f"serial_number={serial_number}")
+        user_defined_name = str(device.get("user_defined_name", "") or "").strip()
+        if user_defined_name:
+            parts.append(f"user_defined_name={user_defined_name}")
+        snippets.append(", ".join(parts))
+
+    return (
+        f"{detail}. Raw GVCP discovery still found {len(devices)} device(s): "
+        f"{'; '.join(snippets)}. This points to a Hik MVS GigE runtime/driver initialization problem "
+        "on this host rather than a missing camera response."
+    )
 
 
 def _apply_failure(response: dict[str, Any], failure: dict[str, str]) -> dict[str, Any]:

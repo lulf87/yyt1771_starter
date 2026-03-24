@@ -258,6 +258,56 @@ def test_camera_probe_api_reports_frame_read_failure(tmp_path: Path) -> None:
     assert payload["error_stage"] == "frame_read"
 
 
+def test_camera_probe_api_enriches_sdk_discovery_failure_with_gvcp_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+
+    class BrokenDiscoveryHandle(FakeProbeHandle):
+        def open(self) -> None:
+            raise RuntimeError("Failed to enumerate devices via Hik MVS SDK (ret=0x80000006)")
+
+    monkeypatch.setattr(
+        camera_probe_module,
+        "discover_gige_vision_devices",
+        lambda: [
+            {
+                "interface": "en7",
+                "host_ip": "192.168.188.22",
+                "ip": "192.168.3.211",
+                "model": "MV-CA060-11GM",
+                "serial_number": "00J67378626",
+                "user_defined_name": "Watch",
+            }
+        ],
+    )
+
+    def fake_runner(runtime_config, override=None):
+        return run_camera_probe(
+            runtime_config,
+            override=override,
+            camera_factory=lambda: BrokenDiscoveryHandle(),
+        )
+
+    client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
+
+    response = client.post("/api/system/camera/probe")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    assert payload["error_code"] == "DEVICE_DISCOVERY_FAILED"
+    assert payload["error_stage"] == "device_discovery"
+    assert "Raw GVCP discovery still found 1 device" in payload["detail"]
+    assert "interface=en7, host_ip=192.168.188.22, ip=192.168.3.211" in payload["detail"]
+    assert "model=MV-CA060-11GM" in payload["detail"]
+    assert "serial_number=00J67378626" in payload["detail"]
+    assert "runtime/driver initialization problem" in payload["detail"]
+
+
 def test_camera_probe_api_writes_failure_diagnostic_record(tmp_path: Path) -> None:
     client = _make_client(tmp_path, profile="prod_win")
     store = ProbeDiagnosticStore(tmp_path / "logs")

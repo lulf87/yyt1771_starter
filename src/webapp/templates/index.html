@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ app_title }}</title>
-    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}" />
   </head>
   <body data-page="home">
     <main class="shell">
@@ -30,6 +30,168 @@
             <dd id="profile-mode">Loading...</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="panel">
+        <div class="actions">
+          <div>
+            <h2>Live Setup</h2>
+            <p>Phase 2 preview and definition flow for ROI, metric box, and two locked measurement points.</p>
+          </div>
+          <div class="button-row live-toolbar">
+            <select id="live-run-preset-select" data-testid="live-run-preset-select">
+              <option value="balloon">Balloon</option>
+              <option value="guidewire">Guidewire</option>
+            </select>
+            <button id="create-live-run-btn" type="button">Create Live Run</button>
+            <button id="fetch-live-preview-btn" type="button" disabled>Fetch Preview</button>
+            <button id="start-live-preview-stream-btn" type="button" disabled>Start Live Preview</button>
+            <button id="stop-live-preview-stream-btn" type="button" disabled>Stop Live Preview</button>
+          </div>
+        </div>
+        <dl class="facts detail-facts">
+          <div>
+            <dt>Run ID</dt>
+            <dd id="live-run-id" data-testid="live-run-id">Not created</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd id="live-run-status" data-testid="live-run-status">Not ready</dd>
+          </div>
+          <div>
+            <dt>Preset</dt>
+            <dd id="live-run-preset" data-testid="live-run-preset">balloon</dd>
+          </div>
+          <div>
+            <dt>Preview FPS</dt>
+            <dd id="live-preview-rate" data-testid="live-preview-rate">n/a</dd>
+          </div>
+          <div>
+            <dt>Measurement Hz</dt>
+            <dd id="live-measurement-rate" data-testid="live-measurement-rate">n/a</dd>
+          </div>
+        </dl>
+        <div class="live-setup-grid">
+          <article class="live-preview-panel">
+            <div class="button-row live-toolbar">
+              <button id="auto-detect-definition-btn" type="button" disabled>Auto Detect Points</button>
+              <button id="save-live-definition-btn" type="button" disabled>Save Definition</button>
+              <button id="start-live-run-btn" type="button" disabled>Start Live Run</button>
+              <button id="stop-live-run-btn" type="button" disabled>Stop Live Run</button>
+            </div>
+            <div class="button-row live-toolbar">
+              <label for="live-target-temperature">Target Temp (°C)</label>
+              <input
+                id="live-target-temperature"
+                data-testid="live-target-temperature"
+                type="number"
+                min="1"
+                step="0.1"
+                value="75"
+              />
+            </div>
+            <div class="button-row live-toolbar">
+              <button id="draw-analysis-roi-btn" type="button" disabled>Draw ROI</button>
+              <button id="draw-observation-window-btn" type="button" disabled>Draw Window</button>
+              <button id="rotate-observation-window-btn" type="button" disabled>Rotate Window</button>
+              <button id="pick-point-a-btn" type="button" disabled>Point A</button>
+              <button id="pick-point-b-btn" type="button" disabled>Point B</button>
+            </div>
+            <p id="live-point-picker-status" class="session-meta" data-testid="live-point-picker-status">
+              Preview image not loaded yet.
+            </p>
+            <div class="live-preview-frame">
+              <div id="live-preview-stage" class="live-preview-stage" hidden>
+                <img id="live-preview-img" data-testid="live-preview-img" alt="Live preview frame" hidden />
+                <svg
+                  id="live-preview-overlay"
+                  data-testid="live-preview-overlay"
+                  class="live-preview-overlay"
+                  aria-label="Live preview overlay"
+                  hidden
+                ></svg>
+              </div>
+              <p id="live-preview-empty" class="session-item--empty" data-testid="live-preview-empty">
+                Create a live run and fetch a preview frame to start setup.
+              </p>
+            </div>
+            <p id="live-run-message" class="live-message live-message--neutral" data-testid="live-run-message">
+              Create a live run draft to begin the setup flow.
+            </p>
+          </article>
+
+          <article class="live-definition-panel">
+            <section class="live-form-section">
+              <h3>Analysis ROI</h3>
+              <div class="live-form-grid">
+                <label for="live-analysis-roi-x">X</label>
+                <input id="live-analysis-roi-x" data-testid="live-analysis-roi-x" type="number" min="0" />
+                <label for="live-analysis-roi-y">Y</label>
+                <input id="live-analysis-roi-y" data-testid="live-analysis-roi-y" type="number" min="0" />
+                <label for="live-analysis-roi-width">Width</label>
+                <input id="live-analysis-roi-width" data-testid="live-analysis-roi-width" type="number" min="1" />
+                <label for="live-analysis-roi-height">Height</label>
+                <input id="live-analysis-roi-height" data-testid="live-analysis-roi-height" type="number" min="1" />
+              </div>
+            </section>
+
+            <section class="live-form-section">
+              <h3>Observation Window</h3>
+              <div class="live-form-grid">
+                <label for="live-metric-box-center-x">Center X</label>
+                <input id="live-metric-box-center-x" data-testid="live-metric-box-center-x" type="number" min="0" />
+                <label for="live-metric-box-center-y">Center Y</label>
+                <input id="live-metric-box-center-y" data-testid="live-metric-box-center-y" type="number" min="0" />
+                <label for="live-metric-box-width">Width</label>
+                <input id="live-metric-box-width" data-testid="live-metric-box-width" type="number" min="1" />
+                <label for="live-metric-box-height">Height</label>
+                <input id="live-metric-box-height" data-testid="live-metric-box-height" type="number" min="1" />
+                <label for="live-metric-box-angle">Angle</label>
+                <input id="live-metric-box-angle" data-testid="live-metric-box-angle" type="number" step="0.1" />
+              </div>
+            </section>
+
+            <section class="live-form-section">
+              <h3>Locked Points</h3>
+              <div class="live-form-grid">
+                <label for="live-point-a-x">Point A X</label>
+                <input id="live-point-a-x" data-testid="live-point-a-x" type="number" min="0" />
+                <label for="live-point-a-y">Point A Y</label>
+                <input id="live-point-a-y" data-testid="live-point-a-y" type="number" min="0" />
+                <label for="live-point-b-x">Point B X</label>
+                <input id="live-point-b-x" data-testid="live-point-b-x" type="number" min="0" />
+                <label for="live-point-b-y">Point B Y</label>
+                <input id="live-point-b-y" data-testid="live-point-b-y" type="number" min="0" />
+              </div>
+            </section>
+
+            <section class="live-form-section">
+              <h3>Detection</h3>
+              <div class="live-form-grid">
+                <label for="live-foreground-polarity">Foreground</label>
+                <select id="live-foreground-polarity" data-testid="live-foreground-polarity">
+                  <option value="dark_on_light">Dark on Light</option>
+                  <option value="light_on_dark">Light on Dark</option>
+                </select>
+                <label for="live-threshold-mode">Threshold</label>
+                <select id="live-threshold-mode" data-testid="live-threshold-mode">
+                  <option value="adaptive">Adaptive</option>
+                  <option value="binary">Binary</option>
+                  <option value="otsu">Otsu</option>
+                </select>
+                <label for="live-min-target-area">Min Area</label>
+                <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
+                <label for="live-ignore-internal-texture">Ignore Texture</label>
+                <input
+                  id="live-ignore-internal-texture"
+                  data-testid="live-ignore-internal-texture"
+                  type="checkbox"
+                  checked
+                />
+              </div>
+            </section>
+          </article>
+        </div>
       </section>
 
       <section class="panel">
@@ -143,6 +305,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

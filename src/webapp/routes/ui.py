@@ -13,6 +13,13 @@ from src.webapp.deps import get_session_repo
 
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
+static_dir = Path(__file__).resolve().parents[1] / "static"
+
+
+def _asset_version() -> str:
+    css_mtime = (static_dir / "app.css").stat().st_mtime_ns
+    js_mtime = (static_dir / "app.js").stat().st_mtime_ns
+    return str(max(int(css_mtime), int(js_mtime)))
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -20,7 +27,10 @@ def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"app_title": "YYT1771 Web Console"},
+        context={
+            "app_title": "YYT1771 Web Console",
+            "asset_version": _asset_version(),
+        },
     )
 
 
@@ -42,6 +52,7 @@ def workspace(
         name="workspace.html",
         context={
             "app_title": "YYT1771 Workspace",
+            "asset_version": _asset_version(),
             "session_id": session_id,
             "summary": summary,
             "steps": ["准备", "采集", "处理", "计算", "调整", "存储"],

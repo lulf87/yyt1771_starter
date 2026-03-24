@@ -1,0 +1,868 @@
+from pathlib import Path
+import time
+
+from fastapi.testclient import TestClient
+
+from src.camera.mock_camera import MockCamera
+from src.core.models import FramePacket
+from src.storage.session_artifacts import SessionArtifactStore
+from src.storage.sqlite_repo import SqliteSessionRepo
+from src.temp.mock_temp import MockTempController
+from src.webapp.app import create_app
+from src.webapp.deps import LivePreviewService, LiveRunService, PreviewStateSnapshot
+
+
+class ReadFailingTempController(MockTempController):
+    def __init__(self) -> None:
+        super().__init__()
+        self._read_count = 0
+
+    def read(self):
+        self._read_count += 1
+        if self._read_count >= 2:
+            raise RuntimeError("temp read failed")
+        return super().read()
+
+
+class IncrementingPreviewCamera:
+    def __init__(self) -> None:
+        self._frame_id = 0
+
+    def read_frame(self) -> FramePacket:
+        self._frame_id += 1
+        return FramePacket(
+            timestamp_ms=1_000 + self._frame_id,
+            source="incrementing_preview_camera",
+            image=[[0, 32], [64, 96]],
+            frame_id=self._frame_id,
+        )
+
+    def close(self) -> None:
+        return None
+
+
+class NativePreviewImage:
+    def __init__(self) -> None:
+        self.downsample_calls: list[tuple[int, int]] = []
+
+    def downsample_rows(self, *, max_width: int = 640, max_height: int = 480) -> list[list[int]]:
+        self.downsample_calls.append((max_width, max_height))
+        return [[1, 2], [3, 4]]
+
+    def __len__(self) -> int:
+        raise AssertionError("native preview image should not be normalized through the generic path")
+
+    def __getitem__(self, index):
+        raise AssertionError("native preview image should not be normalized through the generic path")
+
+
+def _make_app(tmp_path: Path):
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.live_run_service = LiveRunService(
+        repo=SqliteSessionRepo(tmp_path / "sessions.db"),
+        artifact_store=SessionArtifactStore(tmp_path / "artifacts"),
+        preview_service=app.state.live_preview_service,
+    )
+    return app
+
+
+def _make_client(tmp_path: Path) -> TestClient:
+    return TestClient(_make_app(tmp_path))
+
+
+def _mock_definition_payload() -> dict[str, object]:
+    return {
+        "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+        "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+        "point_a_px": {"x": 12, "y": 32},
+        "point_b_px": {"x": 83, "y": 32},
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "ignore_internal_texture": True,
+        "min_target_area_px": 150,
+    }
+
+
+def _create_ready_run(client: TestClient) -> str:
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    response = client.put(f"/api/runs/{run_id}/definition", json=_mock_definition_payload())
+    assert response.status_code == 200
+    assert response.json()["status"] == "run_ready"
+    return run_id
+
+
+def _wait_for_run_status(client: TestClient, run_id: str, expected_status: str, timeout_s: float = 3.0) -> dict[str, object]:
+    deadline = time.time() + timeout_s
+    last_payload: dict[str, object] | None = None
+    while time.time() < deadline:
+        response = client.get(f"/api/runs/{run_id}")
+        assert response.status_code == 200
+        last_payload = response.json()
+        if last_payload["status"] == expected_status:
+            return last_payload
+        time.sleep(0.05)
+    raise AssertionError(f"run {run_id} did not reach {expected_status}; last payload={last_payload}")
+
+
+def test_create_run_returns_summary(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    response = client.post("/api/runs", json={"preset": "balloon"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"].startswith("run-")
+    assert payload["status"] == "created"
+    assert payload["profile"] == "dev_mock"
+    assert payload["preset"] == "balloon"
+
+
+def test_get_run_returns_saved_draft_without_definition(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "guidewire"})
+    run_id = created.json()["run_id"]
+
+    response = client.get(f"/api/runs/{run_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == run_id
+    assert payload["preset"] == "guidewire"
+    assert payload["definition"] is None
+    assert payload["definition_complete"] is False
+    assert payload["capture_mode"] == "idle"
+    assert payload["rates"]["measurement_sample_hz"] is None
+    assert payload["rates"]["artifact_capture_hz"] is None
+    assert payload["measurement_profile"]["acquisition_roi"] is None
+    assert payload["measurement_profile"]["exposure_us"] == 10000
+    assert payload["preview"] == {
+        "stream_active": False,
+        "frozen_frame_available": False,
+        "last_frame_id": None,
+    }
+    assert payload["editor"] == {"state": "empty"}
+    assert payload["created_at_ms"] <= payload["updated_at_ms"]
+
+
+def test_get_run_returns_404_for_missing_draft(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    response = client.get("/api/runs/missing-run")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Run not found: missing-run"}
+
+
+def test_put_definition_saves_measurement_definition_and_advances_status(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 1280, "height": 720},
+            "metric_box": {"center_x": 640, "center_y": 360, "width": 900, "height": 120, "angle_deg": 12.0},
+            "point_a_px": {"x": 210, "y": 320},
+            "point_b_px": {"x": 980, "y": 402},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == run_id
+    assert payload["status"] == "run_ready"
+    assert payload["definition_complete"] is True
+    assert payload["editor"] == {"state": "locked"}
+    assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
+    assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
+
+
+def test_put_definition_rejects_invalid_payload_with_422(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 1280, "height": 720},
+            "metric_box": {"center_x": 640, "center_y": 360, "width": 0, "height": 120, "angle_deg": 12.0},
+            "point_a_px": {"x": 210, "y": 320},
+            "point_b_px": {"x": 210, "y": 320},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_preview_frame_returns_png_and_marks_definition_editing_with_frozen_frame(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+    detail_response = client.get(f"/api/runs/{run_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["status"] == "definition_editing"
+    assert detail_response.json()["capture_mode"] == "setup_preview"
+    assert detail_response.json()["preview"]["stream_active"] is False
+    assert detail_response.json()["preview"]["frozen_frame_available"] is True
+    assert detail_response.json()["editor"] == {"state": "editing"}
+
+
+def test_preview_frame_uses_setup_preview_camera_profile(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    profile_names: list[str] = []
+    original_open_camera = app.state.live_preview_service.open_camera
+
+    def wrapped_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        profile_names.append(profile_name)
+        return original_open_camera(runtime_config, profile_name=profile_name)
+
+    app.state.live_preview_service.open_camera = wrapped_open_camera
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 200
+    assert profile_names == ["setup_preview"]
+
+
+def test_preview_frame_refreshes_with_new_capture_by_default(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    preview_camera = IncrementingPreviewCamera()
+    app.state.live_preview_service.open_camera = lambda runtime_config, *, profile_name="setup_preview": preview_camera
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    first = client.post(f"/api/runs/{run_id}/preview/frame")
+    second = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["X-Frame-Id"] == "1"
+    assert second.headers["X-Frame-Id"] == "2"
+
+
+def test_preview_frame_cached_query_reuses_frozen_frame(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    preview_camera = IncrementingPreviewCamera()
+    app.state.live_preview_service.open_camera = lambda runtime_config, *, profile_name="setup_preview": preview_camera
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    first = client.post(f"/api/runs/{run_id}/preview/frame")
+    cached = client.post(f"/api/runs/{run_id}/preview/frame?cached=1")
+
+    assert first.status_code == 200
+    assert cached.status_code == 200
+    assert first.headers["X-Frame-Id"] == "1"
+    assert cached.headers["X-Frame-Id"] == "1"
+
+
+def test_preview_stream_returns_multipart_jpeg_and_marks_preview_ready(tmp_path: Path) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    preview_service = app.state.live_preview_service
+
+    def fake_start_stream(runtime_config, *, run_id):
+        return object(), FramePacket(
+            timestamp_ms=123,
+            source="mock_camera",
+            image=[[0, 32], [64, 96]],
+            frame_id=7,
+        )
+
+    def fake_stream_frames(active_stream, *, first_frame, frame_interval_ms):
+        yield first_frame
+
+    preview_service.start_stream = fake_start_stream
+    preview_service.stream_frames = fake_stream_frames
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    with client.stream("GET", f"/api/runs/{run_id}/preview/stream") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("multipart/x-mixed-replace")
+        chunks = bytearray()
+        for chunk in response.iter_bytes():
+            chunks.extend(chunk)
+            if b"\xff\xd8\xff" in chunks:
+                break
+
+    detail_response = client.get(f"/api/runs/{run_id}")
+
+    assert b"--frame" in chunks
+    assert b"Content-Type: image/jpeg" in chunks
+    assert b"\xff\xd8\xff" in chunks
+    assert detail_response.status_code == 200
+    assert detail_response.json()["status"] == "preview_ready"
+    assert detail_response.json()["capture_mode"] == "setup_preview"
+    assert detail_response.json()["preview"]["stream_active"] is False
+    assert detail_response.json()["preview"]["frozen_frame_available"] is True
+    assert detail_response.json()["editor"] == {"state": "editing"}
+
+
+def test_preview_frame_prefers_native_downsample_fast_path(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    image = NativePreviewImage()
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        return FramePacket(
+            timestamp_ms=123,
+            source="fast_preview_camera",
+            image=image,
+            frame_id=9,
+        )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image.downsample_calls == [(640, 480)]
+
+
+def test_preview_stream_prefers_native_downsample_fast_path(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    image = NativePreviewImage()
+
+    def fake_start_stream(runtime_config, *, run_id):
+        return object(), FramePacket(
+            timestamp_ms=123,
+            source="fast_preview_camera",
+            image=image,
+            frame_id=7,
+        )
+
+    def fake_stream_frames(active_stream, *, first_frame, frame_interval_ms):
+        yield first_frame
+
+    app.state.live_preview_service.start_stream = fake_start_stream
+    app.state.live_preview_service.stream_frames = fake_stream_frames
+
+    with client.stream("GET", f"/api/runs/{run_id}/preview/stream") as response:
+        assert response.status_code == 200
+        chunks = bytearray()
+        for chunk in response.iter_bytes():
+            chunks.extend(chunk)
+            if b"\xff\xd8\xff" in chunks:
+                break
+
+    assert b"\xff\xd8\xff" in chunks
+    assert image.downsample_calls == [(384, 256)]
+
+
+def test_live_preview_service_stream_frames_prefers_latest_frame_when_camera_outpaces_display() -> None:
+    service = LivePreviewService()
+
+    class FastPreviewCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            if self.closed:
+                raise RuntimeError("camera closed")
+            self.frame_id += 1
+            time.sleep(0.005)
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="fast_preview_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = FastPreviewCamera()
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+    active_stream, first_frame = service.start_stream(object(), run_id="run-latest")
+
+    frame_ids: list[int] = []
+    for frame in service.stream_frames(
+        active_stream,
+        first_frame=first_frame,
+        frame_interval_ms=60,
+    ):
+        frame_ids.append(int(frame.frame_id or 0))
+        if len(frame_ids) >= 3:
+            service.stop_stream(run_id="run-latest")
+
+    assert frame_ids[0] == 1
+    assert frame_ids[1] > 2
+    assert frame_ids[2] > frame_ids[1]
+    assert camera.closed is True
+
+
+def test_stop_preview_stream_returns_detail_and_keeps_frozen_frame(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    preview_response = client.post(f"/api/runs/{run_id}/preview/frame")
+    assert preview_response.status_code == 200
+
+    response = client.post(f"/api/runs/{run_id}/preview/stream/stop")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "definition_editing"
+    assert payload["capture_mode"] == "setup_preview"
+    assert payload["preview"]["stream_active"] is False
+    assert payload["preview"]["frozen_frame_available"] is True
+    assert payload["editor"] == {"state": "editing"}
+
+
+def test_stop_preview_stream_force_releases_timed_out_stream(tmp_path: Path) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    preview_service = app.state.live_preview_service
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    force_calls: list[str] = []
+    wait_calls: list[int] = []
+
+    def fake_stop_stream(*, run_id: str) -> bool:
+        return True
+
+    def fake_wait_for_stream_stop(*, run_id: str, timeout_ms: int = 1_000) -> bool:
+        wait_calls.append(timeout_ms)
+        return len(wait_calls) > 1
+
+    def fake_force_stop_stream(*, run_id: str) -> bool:
+        force_calls.append(run_id)
+        return True
+
+    def fake_get_preview_state(*, run_id: str) -> PreviewStateSnapshot:
+        return PreviewStateSnapshot(
+            stream_active=False,
+            frozen_frame_available=True,
+            last_frame_id=7,
+            preview_display_fps=7.5,
+        )
+
+    preview_service.stop_stream = fake_stop_stream
+    preview_service.wait_for_stream_stop = fake_wait_for_stream_stop
+    preview_service.force_stop_stream = fake_force_stop_stream
+    preview_service.get_preview_state = fake_get_preview_state
+
+    response = client.post(f"/api/runs/{run_id}/preview/stream/stop")
+
+    assert response.status_code == 200
+    assert force_calls == [run_id]
+    assert wait_calls == [3_000, 250]
+    assert response.json()["preview"]["frozen_frame_available"] is True
+    assert response.json()["rates"]["preview_display_fps"] == 7.5
+
+
+def test_get_run_detail_exposes_preview_display_fps_from_preview_state(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    app.state.live_preview_service.get_preview_state = lambda *, run_id: PreviewStateSnapshot(
+        stream_active=True,
+        frozen_frame_available=False,
+        last_frame_id=3,
+        preview_display_fps=8.4,
+    )
+
+    response = client.get(f"/api/runs/{run_id}")
+
+    assert response.status_code == 200
+    assert response.json()["rates"]["preview_display_fps"] == 8.4
+
+
+def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["definition"]["point_a_px"]["x"] < payload["definition"]["point_b_px"]["x"]
+    assert payload["quality"] > 0.75
+    assert payload["metric_raw"] is not None
+
+
+def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client)
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "point_a_px": {"x": 12, "y": 32},
+            "point_b_px": {"x": 12, "y": 32},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+        },
+    )
+    detail_response = client.get(f"/api/runs/{run_id}")
+
+    assert response.status_code == 422
+    assert detail_response.status_code == 200
+    assert detail_response.json()["status"] == "run_ready"
+    assert detail_response.json()["definition"]["point_a_px"] == {"x": 12, "y": 32}
+    assert detail_response.json()["definition"]["point_b_px"] == {"x": 83, "y": 32}
+
+
+def test_put_definition_rejects_points_outside_analysis_roi(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "metric_box": {"center_x": 50, "center_y": 50, "width": 60, "height": 20, "angle_deg": 0.0},
+            "point_a_px": {"x": 10, "y": 10},
+            "point_b_px": {"x": 150, "y": 10},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_put_definition_rejects_points_outside_metric_box(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 200, "height": 120},
+            "metric_box": {"center_x": 80, "center_y": 50, "width": 40, "height": 20, "angle_deg": 0.0},
+            "point_a_px": {"x": 20, "y": 50},
+            "point_b_px": {"x": 120, "y": 50},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_app_mounts_live_run_router(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    response = client.post("/api/runs", json={"preset": "balloon"})
+
+    assert response.status_code == 200
+
+
+def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    detail_payload = _wait_for_run_status(client, run_id, "completed")
+    telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+    session_response = client.get(f"/api/session/{run_id}")
+    session_detail_response = client.get(f"/api/session/{run_id}/detail")
+
+    assert start_response.status_code == 200
+    start_payload = start_response.json()
+    assert start_payload["run_id"] == run_id
+    assert start_payload["session_id"] == run_id
+    assert start_payload["status"] == "running"
+    assert start_payload["point_count"] is None
+    assert start_payload["af95"] is None
+
+    assert detail_payload["status"] == "completed"
+    assert detail_payload["capture_mode"] == "post_run_review"
+    assert detail_payload["rates"]["measurement_sample_hz"] is not None
+    assert detail_payload["rates"]["artifact_capture_hz"] is not None
+
+    assert telemetry_response.status_code == 200
+    telemetry_payload = telemetry_response.json()
+    assert telemetry_payload["status"] == "completed"
+    assert len(telemetry_payload["curve"]) >= 3
+    assert telemetry_payload["latest"]["space1_px"] >= telemetry_payload["curve"][0]["space1_px"]
+    assert telemetry_payload["latest"]["sample_index"] is not None
+    assert telemetry_payload["latest"]["frame_id"] is not None
+    assert telemetry_payload["latest"]["frame_timestamp_ms"] is not None
+    assert telemetry_payload["curve"][1]["sample_interval_ms"] is not None
+
+    assert result_response.status_code == 200
+    result_payload = result_response.json()
+    assert result_payload["session_id"] == run_id
+    assert result_payload["state"] == "completed"
+    assert result_payload["result_status"] == "ok"
+    assert result_payload["af95"] is not None
+    assert result_payload["as_value"] is not None
+    assert result_payload["af_value"] is not None
+    assert result_payload["capture_mode"] == "post_run_review"
+    assert result_payload["rates"]["measurement_sample_hz"] is not None
+    assert result_payload["rates"]["artifact_capture_hz"] == result_payload["rates"]["measurement_sample_hz"]
+    assert result_payload["measurement_profile"]["exposure_us"] == 10000
+    assert result_payload["warnings"] == []
+    assert result_payload["artifacts"]["telemetry"] == "telemetry.csv"
+    assert result_payload["artifacts"]["keyframes"]
+
+    assert session_response.status_code == 200
+    assert session_response.json()["session_id"] == run_id
+    assert session_response.json()["state"] == "completed"
+
+    assert session_detail_response.status_code == 200
+    assert session_detail_response.json()["source"] == "live_run"
+    assert session_detail_response.json()["point_count"] >= 3
+
+    session_dir = tmp_path / "artifacts" / run_id
+    assert (session_dir / "definition.json").exists()
+    assert (session_dir / "telemetry.csv").exists()
+    assert (session_dir / "events.jsonl").exists()
+    assert (session_dir / "result.json").exists()
+    assert (session_dir / "keyframes").exists()
+
+
+def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    profile_names: list[str] = []
+
+    def wrapped_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        profile_names.append(profile_name)
+        return MockCamera(profile_name=profile_name)
+
+    app.state.live_run_service.preview_service.open_camera = wrapped_open_camera
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    _wait_for_run_status(client, run_id, "completed")
+
+    assert start_response.status_code == 200
+    assert profile_names == ["measurement"]
+
+
+def test_start_live_run_persists_explicit_unavailable_result_when_afas_curve_is_too_short(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 35.0},
+    )
+    completed_detail = _wait_for_run_status(client, run_id, "completed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+    assert completed_detail["status"] == "completed"
+    assert completed_detail["rates"]["measurement_sample_hz"] is not None
+    assert result_response.status_code == 200
+    payload = result_response.json()
+    assert payload["state"] == "completed"
+    assert payload["result_status"] == "unavailable"
+    assert payload["result_reason"] == "insufficient_points"
+    assert payload["rates"]["measurement_sample_hz"] is not None
+    assert payload["as_value"] is None
+    assert payload["af_value"] is None
+
+
+def test_start_live_run_exposes_cadence_warning_when_achieved_rate_is_below_target(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.live.run.measurement_target_hz = 50.0
+    original_open_camera = app.state.live_preview_service.open_camera
+
+    class SlowMeasurementCamera(MockCamera):
+        def read_frame(self) -> FramePacket:
+            time.sleep(0.03)
+            return super().read_frame()
+
+    def wrapped_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        if profile_name == "measurement":
+            return SlowMeasurementCamera()
+        return original_open_camera(runtime_config, profile_name=profile_name)
+
+    app.state.live_preview_service.open_camera = wrapped_open_camera
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    completed_detail = _wait_for_run_status(client, run_id, "completed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert len(completed_detail["warnings"]) == 1
+    assert "measurement cadence below target:" in completed_detail["warnings"][0]
+    assert "target 50.00 Hz" in completed_detail["warnings"][0]
+    assert result_response.status_code == 200
+    result_warnings = result_response.json()["warnings"]
+    assert len(result_warnings) == 1
+    assert "measurement cadence below target:" in result_warnings[0]
+    assert "target 50.00 Hz" in result_warnings[0]
+
+
+def test_start_live_run_rejects_invalid_transition_before_definition(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": f"Run must be in run_ready before start: {run_id}"}
+
+
+def test_get_live_run_result_returns_404_before_finalize(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client)
+
+    response = client.get(f"/api/runs/{run_id}/result")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": f"Run result not available: {run_id}"}
+
+
+def test_stop_live_run_rejects_when_run_is_not_running(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client)
+
+    response = client.post(f"/api/runs/{run_id}/stop")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": f"Run is not currently running: {run_id}"}
+
+
+def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.live.run.capture_interval_ms = 500
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    stop_response = client.post(f"/api/runs/{run_id}/stop")
+    aborted_detail = _wait_for_run_status(client, run_id, "aborted")
+    telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+    assert stop_response.status_code == 200
+    assert stop_response.json()["status"] == "stopping"
+    assert aborted_detail["status"] == "aborted"
+    assert telemetry_response.status_code == 200
+    assert telemetry_response.json()["status"] == "aborted"
+    assert result_response.status_code == 404
+
+
+def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    service = app.state.live_run_service
+    service._build_temp_controller = lambda runtime_config: ReadFailingTempController()
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    failed_detail = _wait_for_run_status(client, run_id, "failed")
+    telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+    assert failed_detail["status"] == "failed"
+    assert telemetry_response.status_code == 200
+    assert telemetry_response.json()["status"] == "failed"
+    assert len(telemetry_response.json()["curve"]) == 1
+    assert result_response.status_code == 404
+
+
+def test_start_live_run_marks_failed_when_finalize_breaks(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    service = app.state.live_run_service
+
+    def failing_save_live_bundle(*args, **kwargs):
+        raise RuntimeError("artifact finalize failed")
+
+    service.artifact_store.save_live_bundle = failing_save_live_bundle
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 75.0},
+    )
+    failed_detail = _wait_for_run_status(client, run_id, "failed")
+    telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+    assert failed_detail["status"] == "failed"
+    assert telemetry_response.status_code == 200
+    assert telemetry_response.json()["status"] == "failed"
+    assert result_response.status_code == 404

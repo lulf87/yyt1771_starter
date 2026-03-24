@@ -17,6 +17,17 @@ class TempReader(Protocol):
         """Return one temperature sample."""
 
 
+class TempControllerPort(Protocol):
+    def set_target_temperature(self, celsius: float) -> None:
+        """Set the requested controller temperature."""
+
+    def start_output(self) -> None:
+        """Enable controller output for a run."""
+
+    def stop_output(self) -> None:
+        """Disable controller output for a run."""
+
+
 class PlcPort(Protocol):
     def read(self) -> PlcSnapshot:
         """Return a PLC snapshot."""
