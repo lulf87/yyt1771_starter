@@ -18,6 +18,16 @@ Supporting review inputs:
 
 Status: LOCKED_FOR_IMPLEMENTATION_AFTER_REQUIREMENT_REFREEZE
 
+Migration note:
+
+- This file remains authoritative for live-run workflow, state, and contract decisions.
+- Final delivery-shell direction is now additionally constrained by
+  [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
+  and
+  [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md).
+- Where this file refers to the browser workstation as the delivery shell,
+  interpret that as the historical implementation baseline, not the newly locked final product direction.
+
 ## Purpose
 
 这份文档把当前 office-hours 需求基线转成一份真正可执行的工程锁定方案。

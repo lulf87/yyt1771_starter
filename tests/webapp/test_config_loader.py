@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from src.webapp import config as config_module
-from src.webapp.config import load_runtime_config
+from src.application import runtime_config as config_module
+from src.application.runtime_config import load_runtime_config
 
 
 def test_load_runtime_config_reads_known_profile() -> None:
@@ -58,9 +58,23 @@ webapp:
   host: 127.0.0.1
   port: 8000
 adapters:
-  camera: hik_rtsp_opencv
-  temp: modbus_temp
+  camera: hik_gige_mvs
+  temp: mock
   plc: mock
+camera:
+  transport: gige_vision
+  sdk: hik_mvs
+  probe_mode: protocol_any
+  allowed_models: []
+  serial_number: ""
+  ip: ""
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 0.0
+  timeout_ms: 1000
+temp:
+  backend: mock
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
   artifact_dir: examples/runtime/artifacts
@@ -73,13 +87,16 @@ replay:
     runtime_config = load_runtime_config("dev_lab")
 
     assert runtime_config.profile == "dev_lab"
-    assert runtime_config.adapters["camera"] == "hik_rtsp_opencv"
+    assert runtime_config.adapters["camera"] == "hik_gige_mvs"
+    assert runtime_config.adapters["temp"] == "mock"
     assert runtime_config.storage["sqlite_path"] == "examples/runtime/dev_lab.sqlite3"
-    assert runtime_config.camera == {}
+    assert runtime_config.camera["transport"] == "gige_vision"
     assert runtime_config.live.camera.pixel_format == "mono8"
     assert runtime_config.live.camera.setup_preview.pixel_format == "mono8"
     assert runtime_config.live.camera.measurement.pixel_format == "mono8"
+    assert runtime_config.live.camera.transport == "gige_vision"
     assert runtime_config.live.temp.protocol == "modbus_rtu"
+    assert runtime_config.live.temp.backend == "mock"
     assert runtime_config.live.temp.serial.timeout_ms == 500
     assert runtime_config.live.temp.register_map.process_value.start_address == 264
     assert runtime_config.live.run.preview_target_fps == 8.0
@@ -102,9 +119,23 @@ webapp:
   host: 127.0.0.1
   port: 8000
 adapters:
-  camera: hik_rtsp_opencv
-  temp: modbus_temp
+  camera: hik_gige_mvs
+  temp: mock
   plc: mock
+camera:
+  transport: gige_vision
+  sdk: hik_mvs
+  probe_mode: protocol_any
+  allowed_models: []
+  serial_number: ""
+  ip: ""
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 0.0
+  timeout_ms: 1000
+temp:
+  backend: mock
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
   artifact_dir: examples/runtime/artifacts
@@ -117,6 +148,7 @@ logging:
         """
 adapters:
   camera: hik_gige_mvs
+  temp: lu92xx_modbus_rtu
 camera:
   transport: gige_vision
   sdk: hik_mvs
@@ -216,7 +248,7 @@ storage:
     assert runtime_config.profile == "dev_lab"
     assert runtime_config.adapters == {
         "camera": "hik_gige_mvs",
-        "temp": "modbus_temp",
+        "temp": "lu92xx_modbus_rtu",
         "plc": "mock",
     }
     assert runtime_config.camera["transport"] == "gige_vision"

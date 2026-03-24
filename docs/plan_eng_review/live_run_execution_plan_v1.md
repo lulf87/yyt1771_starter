@@ -843,7 +843,9 @@ Done criteria:
 
 Implementation task:
 
-- [codex_task_022_live_run_phase1_contracts.md](../codex_task_022_live_run_phase1_contracts.md)
+- use this execution plan together with
+  [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
+  as the authoritative phase-1 implementation entrypoint
 
 ### Phase 2: Vision setup flow with mock/live-preview bridge
 

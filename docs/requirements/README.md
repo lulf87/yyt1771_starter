@@ -13,6 +13,7 @@ Current authority set:
 - [requirements_overview.md](./requirements_overview.md)
 - [master_control_plan.md](./master_control_plan.md)
 - [office_hours_requirement_baseline_v1.md](./office_hours_requirement_baseline_v1.md)
+- [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md)
 - [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md)
 - [architecture_lock.md](./architecture_lock.md)
 - [module_map.md](./module_map.md)

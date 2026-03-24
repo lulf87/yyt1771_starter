@@ -272,7 +272,7 @@ This document updates the assumptions in:
 
 It does **not** replace:
 
-- `docs/codex_task_022_live_run_phase1_contracts.md`
+- the later live-run engineering plan stack under `docs/plan_eng_review/`
 
 Phase 1 stays hardware-free.
 This update only narrows the shape of the later real-device implementation.

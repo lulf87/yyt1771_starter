@@ -1,10 +1,10 @@
+from src.application.runtime_config import RuntimeConfig, WebAppConfig
 from src.camera.mock_camera import MockCamera
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.temp.mock_temp import MockTempController
 from src.workflow.live_run import LiveRunCoordinator, MockLiveMetricSource, resolve_measurement_interval_ms
-from src.webapp.config import RuntimeConfig, WebAppConfig
 
 
 def _definition() -> MeasurementDefinition:

@@ -13,7 +13,7 @@ from PIL import Image
 from src.core.enums import RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
 from src.storage.session_artifacts import SessionArtifactStore
-from src.webapp.config import RuntimeConfig
+from src.application.runtime_config import RuntimeConfig
 from src.webapp.deps import (
     LivePreviewService,
     LiveRunDraftRegistry,

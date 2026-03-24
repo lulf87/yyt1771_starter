@@ -10,6 +10,9 @@ def test_app_can_be_created() -> None:
     assert app.state.profile_name == "dev_mock"
     assert app.state.runtime_config.profile == "dev_mock"
     assert app.state.runtime_config.webapp.host == "127.0.0.1"
+    assert app.state.application_container.runtime_config is app.state.runtime_config
+    assert app.state.application_container.live_preview_service is app.state.live_preview_service
+    assert app.state.application_container.live_run_registry is app.state.live_run_registry
 
 
 def test_health_returns_basic_status_payload() -> None:

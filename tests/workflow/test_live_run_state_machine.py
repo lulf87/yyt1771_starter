@@ -1,3 +1,4 @@
+from src.application.runtime_config import RuntimeConfig, WebAppConfig
 from src.camera.mock_camera import MockCamera
 from src.core.enums import RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, ShapeMetric, TempReading
@@ -10,7 +11,6 @@ from src.workflow.live_run import (
     LiveRunTrackingInvalidated,
     MockLiveMetricSource,
 )
-from src.webapp.config import RuntimeConfig, WebAppConfig
 
 
 def _definition() -> MeasurementDefinition:

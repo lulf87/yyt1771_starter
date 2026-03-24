@@ -86,20 +86,24 @@ project-root/
     requirements/
       README.md
       architecture_lock.md
+      desktop_workstation_migration_requirement_v1.md
+      live_capture_temporal_sampling_requirement_v1.md
+      lu92xx_modbus_rtu_requirement_v1.md
       module_map.md
       master_control_plan.md
       office_hours_requirement_baseline_v1.md
       requirements_overview.md
-      lu92xx_modbus_rtu_requirement_v1.md
     plan_eng_review/
       README.md
+      desktop_workstation_migration_plan_lock_v1.md
+      live_capture_temporal_sampling_plan_lock_v1.md
+      live_capture_temporal_sampling_bench_v1.md
+      live_run_plan_lock_v1.md
       live_run_execution_plan_v1.md
       live_run_implementation_breakdown_v1.md
       live_run_task_status_v1.md
       live_run_test_plan_v1.md
       live_run_bench_validation_v1.md
-    codex_task_000_scaffold_freeze.md
-    codex_response_contract.md
   examples/
     __init__.py
     offline_demo.py

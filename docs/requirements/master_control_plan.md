@@ -10,14 +10,15 @@
 正式交互路线冻结为：
 
 ```text
-Browser -> Web API -> Workflow/Storage/Report
+Delivery Shell (desktop_app | webapp) -> Application Layer -> Workflow / Storage / Report
 ```
 
 其中：
 
-- Mac：开发、测试、mock 联调
-- Windows：最终真实设备运行环境
-- 浏览器：最终用户交互入口
+- Mac：开发、测试、mock 联调与大部分验证
+- Windows：最终真实设备运行、打包与现场验收环境
+- `desktop_app`：最终目标交付壳
+- `webapp`：过渡适配壳 / 调试入口
 
 项目固定主链：
 

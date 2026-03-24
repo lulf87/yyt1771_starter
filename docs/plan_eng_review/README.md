@@ -13,6 +13,8 @@ Use the files here when you need:
 
 Current authority set:
 
+- [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md)
+- [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
 - [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
 - [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
 - [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)
@@ -24,7 +26,6 @@ Current authority set:
 
 Rule:
 
-- future engineering-plan changes must be updated here, not in legacy
-  root-level docs
+- future engineering-plan changes must be updated here, not in duplicate docs
 - future implementation work must read this directory together with
   `docs/requirements/`

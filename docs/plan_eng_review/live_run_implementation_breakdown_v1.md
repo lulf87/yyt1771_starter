@@ -249,7 +249,8 @@ Status: READY_FOR_TASK_SPLIT_AFTER_OFFICE_HOURS_SYNTHESIS
 
 ### Notes
 
-现有 [codex_task_022_live_run_phase1_contracts.md](../codex_task_022_live_run_phase1_contracts.md) 可以视为这个阶段的首个任务入口。
+当前阶段的首个任务入口应直接以本文件和
+[live_run_execution_plan_v1.md](./live_run_execution_plan_v1.md) 为准。
 
 ---
 
@@ -598,7 +599,7 @@ Phase 1 -> Phase 2 -> Phase 4 -> Phase 7
 
 ## Suggested task split
 
-如果后续要继续拆成 `codex_task_*.md`，推荐按下面的粒度切：
+如果后续还需要继续拆分执行单元，推荐按下面的粒度切：
 
 1. Task-A: live run Phase 1 contracts and route skeleton
 2. Task-B: preview frame + definition validation + auto-detect

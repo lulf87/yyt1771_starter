@@ -19,7 +19,7 @@ def test_profile_api_returns_runtime_profile_payload() -> None:
         },
         "adapters": {
             "camera": "hik_gige_mvs",
-            "temp": "modbus_temp",
+            "temp": "lu92xx_modbus_rtu",
             "plc": "modbus_tcp",
         },
     }

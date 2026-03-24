@@ -11,14 +11,11 @@ only the authoritative files under these two directories:
 - `docs/requirements/`
 - `docs/plan_eng_review/`
 
-Everything else under `docs/` should be treated as historical background,
-legacy task record, or archival context unless it is explicitly promoted into
-one of those two directories.
+The `docs/` root should stay minimal, with current authoritative material
+living only in those two directories.
 
 That means:
 
-- do not start new implementation work from legacy root-level docs
-- do not treat old `codex_task_*.md` files as the current requirement baseline
 - if a new feature needs a new requirement, land it in `docs/requirements/`
   first
 - if a new implementation plan or status board is needed, land it in
@@ -30,13 +27,14 @@ Build a YY/T 1771 visual-analysis workstation that:
 
 - starts from an offline minimum chain
 - keeps module boundaries stable
-- grows into a browser-based Web application
+- has already proven a browser-based workstation baseline
+- now migrates final delivery toward a Windows desktop workstation while preserving workflow semantics
 - runs with Mac-based development and Windows-based production profiles
 
 The fixed system direction is:
 
 ```text
-Browser -> Web API -> Workflow / Storage / Report
+Delivery Shell (desktop_app | webapp) -> Application Layer -> Workflow / Storage / Report
 ```
 
 The fixed analysis chain is:
@@ -72,7 +70,7 @@ yyt1771_starter/
 Top-level explanation:
 
 - `configs/`: runtime profile and example configuration files
-- `docs/`: canonical requirement docs, eng-review docs, and historical records
+- `docs/`: canonical requirement docs and eng-review docs
 - `examples/`: replay samples, offline demos, and dev runtime outputs
 - `src/`: application source code
 - `tests/`: mirrored test layout by module
@@ -89,7 +87,8 @@ Use these first when you need:
 - overall project direction
 - phase order
 - current forbidden work
-- browser workstation product framing
+- the original browser workstation product framing
+- the current desktop-delivery migration direction
 - frozen live-setup interaction semantics
 
 ### B. Architecture / Boundary Baseline
@@ -106,11 +105,15 @@ Use these when you need:
 
 ### C. Device / Requirement Baseline
 
+- [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md)
 - [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md)
 - [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md)
 
 Use this when you need:
 
+- the locked decision to keep the same workflow while migrating final delivery to a desktop workstation
+- the locked decision to keep the migration inside the current repository
+- the locked acceptance gate for desktop preview display performance on Windows
 - the locked LU92XX controller requirement shape
 - verified Modbus RTU assumptions
 - current hardware-side blockers that are allowed vs. not allowed
@@ -122,6 +125,8 @@ Use this when you need:
 The canonical engineering-review files now live in the sibling
 `docs/plan_eng_review/` directory:
 
+- [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
+- [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
 - [live_capture_temporal_sampling_plan_lock_v1.md](../plan_eng_review/live_capture_temporal_sampling_plan_lock_v1.md)
 - [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
 - [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
@@ -132,6 +137,8 @@ The canonical engineering-review files now live in the sibling
 
 Use these when you need:
 
+- the locked desktop-transition plan for staying in the current repo and extracting an application layer before adding a desktop shell
+- the current D1-D7 desktop migration progress board
 - the locked implementation plan for `50 Hz` measurement and preview / measurement split
 - the current locked implementation plan
 - task breakdown and dependency order
@@ -140,18 +147,11 @@ Use these when you need:
 
 ## 5. Legacy Docs Policy
 
-Root-level docs outside `docs/requirements/` and `docs/plan_eng_review/` are
-still worth keeping, but they are no longer the default authority set for new
-work.
+The `docs/` root should stay minimal and should not accumulate duplicate or
+legacy task files. Current work should start from:
 
-Treat them as:
-
-- historical task records
-- legacy workspace/replay references
-- archival notes that may explain prior decisions
-
-Do not treat them as the starting point for new implementation unless a new
-requirement explicitly promotes them into the canonical directories.
+- `docs/requirements/`
+- `docs/plan_eng_review/`
 
 ## 6. Where To Read First
 
@@ -159,15 +159,18 @@ Recommended reading order for current work:
 
 1. [master_control_plan.md](./master_control_plan.md)
 2. [office_hours_requirement_baseline_v1.md](./office_hours_requirement_baseline_v1.md)
-3. [architecture_lock.md](./architecture_lock.md)
-4. [module_map.md](./module_map.md)
-5. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
-6. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
-7. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
-8. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
-9. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
-10. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
-11. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
+3. [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) if touching final delivery shape, desktop transition, or same-workflow migration
+4. [architecture_lock.md](./architecture_lock.md)
+5. [module_map.md](./module_map.md)
+6. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
+7. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
+8. [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
+9. [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
+10. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
+11. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
+12. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
+13. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
+14. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
 
 ## 7. Practical Directory Notes
 

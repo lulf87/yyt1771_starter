@@ -1,6 +1,6 @@
 # Live Run Task Status v1
 
-Updated on 2026-03-23
+Updated on 2026-03-24
 Status: ACTIVE_WORKTREE_SNAPSHOT
 
 ## Purpose
@@ -35,15 +35,17 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 
 1. [requirements_overview.md](../requirements/requirements_overview.md)
 2. [office_hours_requirement_baseline_v1.md](../requirements/office_hours_requirement_baseline_v1.md)
-3. [live_capture_temporal_sampling_requirement_v1.md](../requirements/live_capture_temporal_sampling_requirement_v1.md)
-4. [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
-5. [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
-6. [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)
-7. [live_run_execution_plan_v1.md](./live_run_execution_plan_v1.md)
-8. [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
-9. [live_run_test_plan_v1.md](./live_run_test_plan_v1.md)
-10. [lu92xx_modbus_rtu_requirement_v1.md](../requirements/lu92xx_modbus_rtu_requirement_v1.md)
-11. [codex_task_022_live_run_phase1_contracts.md](../codex_task_022_live_run_phase1_contracts.md)
+3. [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
+4. [live_capture_temporal_sampling_requirement_v1.md](../requirements/live_capture_temporal_sampling_requirement_v1.md)
+5. [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md)
+6. [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
+7. [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
+8. [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
+9. [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)
+10. [live_run_execution_plan_v1.md](./live_run_execution_plan_v1.md)
+11. [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
+12. [live_run_test_plan_v1.md](./live_run_test_plan_v1.md)
+13. [lu92xx_modbus_rtu_requirement_v1.md](../requirements/lu92xx_modbus_rtu_requirement_v1.md)
 
 ### 3. Latest locked conclusions
 
@@ -52,6 +54,11 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 - 最小闭环是 `preview -> measurement definition -> live coordinator -> result/artifacts`
 - live run 属于 `Experiment & Analysis Lane` 主链；`precheck/probe` 属于 `Commissioning Lane`
 - replay / workspace 继续保留，但定位为离线验证与复盘能力
+- 最终交付方向已新增锁定：
+  - 保留现有 workflow 语义
+  - 不再以 Web 作为最终交付形态
+  - 优先在当前仓库内做桌面迁移
+  - 首批抽离目标是 `webapp/config.py` 与 `webapp/deps.py` 中的应用层职责
 - `workflow` 不直接处理 LU92XX 寄存器与串口细节
 - `curve` 负责结果计算
 - `target_temperature_celsius` 保持 API 语义
@@ -69,6 +76,7 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
   - `artifact_capture_hz`
 - `50 Hz synchronized measurement` 已锁成 baseline gate
 - `100 Hz synchronized measurement` 仅是 stretch goal
+- 桌面可视预览 `preview_display_fps >= 50` 已被单独锁成 desktop migration gate
 - `analysis_roi` / `metric_box` 不能再被当成 camera-side acquisition ROI 的替代品
 
 ---
@@ -207,7 +215,7 @@ Status: VERIFIED_DONE
 
 ## Phase 2: Preview, measurement definition, and run gating
 
-Status: VERIFIED_DONE_IN_DEV_MOCK_WITH_ROUTE_NAMING_DEVIATION
+Status: VERIFIED_DONE_FOR_CURRENT_WEB_BASELINE_WITH_ROUTE_NAMING_DEVIATION
 
 已验证完成项：
 
@@ -239,7 +247,14 @@ Status: VERIFIED_DONE_IN_DEV_MOCK_WITH_ROUTE_NAMING_DEVIATION
 - 计划文档早期草稿写的是 `POST /api/runs/{run_id}/definition/auto-detect`
 - 当前实现和前端使用的是 `POST /api/runs/{run_id}/definition/auto`
 - 这属于 route naming deviation，不影响当前 Phase 2 的 mock/browser 完成判断
-- 当前没有连接真实相机，所以 Phase 2 的“真机操作手感”尚未单独复核
+- 当前这项完成判断尚未包含单独的真机 operator-side UI 手感复核
+
+补充说明：
+
+- 这里的完成判断只表示当前 Web baseline 已经达到 freeze-first 交互语义
+- 它不等于桌面迁移已经完成
+- 桌面迁移的交付进度应另看：
+  - [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
 
 建议：
 
@@ -252,7 +267,7 @@ Status: VERIFIED_DONE_IN_DEV_MOCK_WITH_ROUTE_NAMING_DEVIATION
 
 这部分是 2026-03-23 requirement addendum 新增的工程主线。
 
-Status: TS_1_TO_TS_4_VERIFIED_TS_5_BLOCKED_ON_PHYSICAL_BENCH
+Status: CAMERA_CADENCE_GATE_VERIFIED_FULL_THERMAL_CLOSED_LOOP_BLOCKED
 
 ### TS-1. Contract split and achieved-rate skeleton
 
@@ -332,9 +347,20 @@ Status: VERIFIED_DONE_WITH_REAL_CAMERA_AND_MOCK_TEMP_BENCH
 - 不覆盖：
   - 真实温控器闭环实验链
 
+补充说明：
+
+- `TS-5` 已经不再是“完全 blocked”
+- 当前真正 blocked 的是：
+  - full thermal closed-loop bench
+  - desktop preview `>50 Hz` Windows gate
+- 这两个问题分别由：
+  - Phase 6 / LU92XX 现场 bench
+  - [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
+ 继续跟踪
+
 ### TS-6. 100 Hz stretch review
 
-Status: OUT_OF_SCOPE_UNTIL_TS-5
+Status: OUT_OF_SCOPE_UNTIL_DESKTOP_PREVIEW_AND_WINDOWS_ACCEPTANCE_REVIEW
 
 ---
 
@@ -493,10 +519,10 @@ Status: PARTIAL
    Scope: Phase 1 合同、状态、schema、route skeleton
 
 2. Task-B
-   Status: PARTIAL_AFTER_UI_REQUIREMENT_REFREEZE
+   Status: VERIFIED_DONE_FOR_CURRENT_WEB_BASELINE_WITH_ROUTE_NAMING_DEVIATION
    Scope: preview、definition validation、auto detect、run gating
    Follow-up:
-   统一 `auto` vs `auto-detect` 路径；补齐 freeze/restart 生命周期；把 ROI / 观测窗口 / A-B 提升到图上可视化编辑
+   若要继续做契约清理，可统一 `auto` vs `auto-detect` 路径；若要继续推进最终交付，应转入桌面迁移 D5-D7，而不是再把当前 Web baseline 误报成未完成
 
 3. Task-C
    Status: VERIFIED_DONE
@@ -523,7 +549,12 @@ Status: PARTIAL
 
 ## Recommended next step
 
-如果你要“顺利往下继续”，推荐按照下面顺序进行，而不是重新猜需求：
+如果你要“顺利往下继续”，推荐先明确自己是在推进哪条主线：
+
+- 若继续补 live run 组件完成度：按下面 bench / integration 顺序走
+- 若开始桌面迁移：改看 [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md) 并从 D5 开始
+
+若当前目标仍是 live run 组件收口，推荐按照下面顺序进行，而不是重新猜需求：
 
 1. 把当前并行进程的 live run 代码先形成一个提交点
 2. 在这个提交点上，把 [live_run_task_status_v1.md](./live_run_task_status_v1.md) 当成当前状态板
@@ -546,4 +577,4 @@ Status: PARTIAL
 
 ## One-line summary
 
-当前最新需求基线已经由 repo 内的 office-hours 综合文档统一收口；当前代码已经完成并验证了 Phase 1、Phase 3、Phase 4、Phase 5，但 Phase 2 在 operator UI 语义上仍未达成最新 freeze-first 基线，Task-F 仍然 blocked 在物理 LU92XX bench，Task-G 也还没有完成。
+当前最新需求基线已经由 repo 内的 requirement / migration 文档统一收口；当前代码已经完成并验证了 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5，以及 real-camera cadence gate 下的 TS-5；桌面迁移 D1-D4 已经完成，但真实 LU92XX 现场 bench 仍 blocked，Task-G 仍未完成，桌面迁移 D5-D7 也尚未开始代码实施。

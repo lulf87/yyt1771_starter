@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends
 
-from src.webapp.config import RuntimeConfig
+from src.application.runtime_config import RuntimeConfig
 from src.webapp.deps import get_camera_probe_runner, get_runtime_config
 from src.webapp.schemas import CameraProbeRequest, CameraProbeResponse, PrecheckResponse, ProfileResponse
 from src.workflow.precheck import build_system_precheck

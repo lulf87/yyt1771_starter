@@ -1,5 +1,6 @@
 adapters:
   camera: hik_gige_mvs
+  temp: lu92xx_modbus_rtu
 
 camera:
   transport: gige_vision

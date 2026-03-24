@@ -6,9 +6,9 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from src.application.runtime_config import RuntimeConfig
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
-from src.webapp.config import RuntimeConfig
 from src.webapp.deps import (
     get_adjustment_service,
     get_runtime_config,

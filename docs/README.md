@@ -13,5 +13,10 @@ From now on:
 - all current engineering-plan, implementation-breakdown, status, and
   validation updates must be written into `docs/plan_eng_review/`
 
-Everything else under `docs/` remains useful as historical context, but it is
-not the default authority set for new implementation.
+The `docs/` root is intentionally kept minimal:
+
+- `README.md`
+- `requirements/`
+- `plan_eng_review/`
+
+No legacy task files or duplicate root-level copies should remain here.
