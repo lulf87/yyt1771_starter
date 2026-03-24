@@ -3,23 +3,36 @@
 YY/T 1771 visual-analysis workstation baseline with:
 
 - offline mock and replay session flows
-- Web API and browser workspace as the primary interaction route
+- shared workflow / storage / report core reused across delivery shells
+- browser shell kept as transition / debug route
+- final delivery now migrating toward a Windows desktop workstation
 - replay detail visualization and workspace analysis views
 - adjustment contract and Adjustment MVP state flow
 
 The repository is no longer at the Task-000 scaffold stage. It now reflects the
-current Web / workspace / replay / adjustment MVP baseline while keeping live
-hardware orchestration and deeper algorithm expansion out of scope for now.
+current migration state:
+
+- canonical requirements and plan docs have moved under `docs/requirements/`
+  and `docs/plan_eng_review/`
+- the shared application layer is being extracted from `webapp`
+- the desktop workstation shell is now bootstrapped in `src/desktop_app/`
+
+For review and current execution truth, prefer the canonical docs rather than
+older browser-first wording in historical materials.
 
 ## Requirements Entry
 
-Use [docs/requirements_overview.md](docs/requirements_overview.md) as the single
-entry point for:
+Start here:
+
+- [docs/requirements/requirements_overview.md](docs/requirements/requirements_overview.md)
+- [docs/plan_eng_review/desktop_workstation_migration_status_v1.md](docs/plan_eng_review/desktop_workstation_migration_status_v1.md)
+
+Use those files as the current entry point for:
 
 - project goals and phase order
 - module and directory responsibilities
-- workspace / web UI requirement documents
-- task-by-task implementation references
+- desktop migration status and acceptance boundaries
+- task-by-task implementation references under the canonical docs tree
 
 ## 3 分钟跑起来
 
@@ -43,6 +56,8 @@ pip install -e .[dev]
 
 ### 2. 启动命令
 
+当前最容易本地启动的是过渡期 Web shell：
+
 ```bash
 python -m src.webapp.serve --profile dev_mock
 ```
@@ -52,6 +67,12 @@ python -m src.webapp.serve --profile dev_mock
 ```text
 http://127.0.0.1:8000/
 ```
+
+桌面迁移现状：
+
+- `src/desktop_app/` 已有第一版 bootstrap
+- 当前环境若未安装 `PySide6`，桌面入口会明确提示缺依赖
+- Windows 最终打包与桌面高帧率预览仍未完成
 
 ### 4. 最小可见流程
 
@@ -63,9 +84,9 @@ http://127.0.0.1:8000/
 
 ### 5. 当前边界
 
-- 当前可见的是 offline mock/replay/workspace 最小链路。
-- 当前不包含 live camera / live temp / live plc orchestration。
-- 这不是“真机全流程”，而是当前 scope 内的最小浏览器闭环。
+- 当前最稳定的可见链路仍是 offline mock/replay/workspace。
+- live run / real camera / temporal sampling 已有更深实现，但最终桌面交付尚在迁移中。
+- 这不是“Windows 桌面最终成品”，而是当前迁移中的主仓库工作树。
 
 ### 6. Camera Probe（受控单帧）
 
@@ -74,7 +95,7 @@ http://127.0.0.1:8000/
 - 现在支持两种模式：`Protocol Any` 和 `Pinned Device`。
 - `Protocol Any` 允许在 `serial_number` / `ip` 为空时按协议优先探测第一台可用设备。
 - `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
-- 仓库默认的 [prod_win.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
+- 仓库默认的 [prod_win.yaml](configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
 
 ### 7. Probe 失败怎么看
 
@@ -91,8 +112,8 @@ http://127.0.0.1:8000/
 
 ## Mac 本机联机准备
 
-1. [dev_lab.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.yaml) 仍然是仓库跟踪基线，不直接提交本机联机参数。
-2. 复制 [dev_lab.local.example.yaml](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/configs/dev_lab.local.example.yaml) 为 `configs/dev_lab.local.yaml`。
+1. [dev_lab.yaml](configs/dev_lab.yaml) 仍然是仓库跟踪基线，不直接提交本机联机参数。
+2. 复制 [dev_lab.local.example.yaml](configs/dev_lab.local.example.yaml) 为 `configs/dev_lab.local.yaml`。
 3. 在本机 local 文件里切到 `hik_gige_mvs + protocol_any`，不要把真实 `serial_number` / `ip` 提交回仓库。
 4. 即使相机未上电，也可以先看首页 precheck 里的 `camera_sdk_runtime`，确认本机 MVS Python/SDK import readiness 是否就绪。
 5. 真的要试一次受控探测时，再在首页点 `Probe Camera`。

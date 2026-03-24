@@ -43,7 +43,7 @@ Status: ACTIVE_DESKTOP_TRANSITION_SNAPSHOT
 
 当前仍未被宣布完成的部分：
 
-- `desktop_app` 还没有代码骨架
+- `desktop_app` 已有代码骨架，但还没有进入已验收的桌面运行时状态
 - Windows 打包与最终现场验收尚未开始
 - 真实温控闭环实验链尚未宣称完成
 
@@ -229,9 +229,9 @@ Status: NOT_STARTED_ON_WINDOWS
 
 当前桌面迁移最稳的下一步是：
 
-1. 开始 D5 的 `desktop_app` bootstrap
-2. 先接通最小工作流主链
-3. 在桌面壳能启动最小工作流后，再进入 D6
+1. 继续把 D5 从 bootstrap 推进到可运行的 Qt 工作台
+2. 补第一轮桌面端 runtime smoke
+3. 在桌面壳能稳定驱动最小工作流后，再进入 D6
 
 也就是说，当前最优执行顺序仍然是：
 
