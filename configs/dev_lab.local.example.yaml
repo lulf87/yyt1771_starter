@@ -14,6 +14,34 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+  setup_preview:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
+  measurement:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
+
+run:
+  preview_poll_ms: 50
+  preview_target_fps: 20
+  preview_display_max_width: 816
+  preview_display_max_height: 544
 
 temp:
   backend: lu92xx_modbus_rtu
@@ -39,3 +67,4 @@ temp:
   control:
     start_output_mode: power_nonzero
     startup_power_percent: 100.0
+    completion_mode: target_reached

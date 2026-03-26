@@ -222,6 +222,8 @@ def _load_live_run_config(raw_config: dict[str, Any]) -> LiveRunConfig:
             control=TempControlConfig(
                 start_output_mode=str(control.get("start_output_mode", "power_nonzero") or "power_nonzero"),
                 startup_power_percent=float(control.get("startup_power_percent", 100.0) or 100.0),
+                completion_mode=str(control.get("completion_mode", "target_reached") or "target_reached"),
+                mock_ramp_step_celsius=float(control.get("mock_ramp_step_celsius", 10.0) or 10.0),
             ),
         ),
         vision=VisionRuntimeConfig(
@@ -242,9 +244,18 @@ def _load_live_run_config(raw_config: dict[str, Any]) -> LiveRunConfig:
             preview_poll_ms=_int_with_default(run.get("preview_poll_ms"), 500),
             telemetry_poll_ms=_int_with_default(run.get("telemetry_poll_ms"), 500),
             capture_interval_ms=_int_with_default(run.get("capture_interval_ms"), 200),
+            manual_stop_max_samples=_int_with_default(run.get("manual_stop_max_samples"), 10_000),
             preview_target_fps=_float_with_default(
                 run.get("preview_target_fps"),
                 8.0,
+            ),
+            preview_display_max_width=_int_with_default(
+                run.get("preview_display_max_width"),
+                640,
+            ),
+            preview_display_max_height=_int_with_default(
+                run.get("preview_display_max_height"),
+                480,
             ),
             measurement_target_hz=_float_with_default(
                 run.get("measurement_target_hz"),

@@ -56,6 +56,10 @@ def build_live_run_result(
             "events": "events.jsonl",
             "detail": "detail.json",
             "result": "result.json",
+            "afas_dataset": "afas_dataset.json",
+            "afas_analysis": None,
+            "afas_plot": None,
+            "afas_report": None,
             "keyframes": keyframe_refs,
         },
     }

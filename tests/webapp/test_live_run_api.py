@@ -43,11 +43,16 @@ class IncrementingPreviewCamera:
 
 class NativePreviewImage:
     def __init__(self) -> None:
-        self.downsample_calls: list[tuple[int, int]] = []
+        self.bitmap_calls: list[tuple[int, int]] = []
+        self.row_calls: list[tuple[int, int]] = []
+
+    def downsample_bitmap_payload(self, *, max_width: int = 640, max_height: int = 480) -> tuple[int, int, bytes]:
+        self.bitmap_calls.append((max_width, max_height))
+        return (2, 2, bytes([1, 2, 3, 4]))
 
     def downsample_rows(self, *, max_width: int = 640, max_height: int = 480) -> list[list[int]]:
-        self.downsample_calls.append((max_width, max_height))
-        return [[1, 2], [3, 4]]
+        self.row_calls.append((max_width, max_height))
+        raise AssertionError("native preview image should prefer the bitmap fast path")
 
     def __len__(self) -> int:
         raise AssertionError("native preview image should not be normalized through the generic path")
@@ -78,6 +83,7 @@ def _mock_definition_payload() -> dict[str, object]:
         "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
         "point_a_px": {"x": 12, "y": 32},
         "point_b_px": {"x": 83, "y": 32},
+        "observation_axis": "long_axis",
         "foreground_polarity": "dark_on_light",
         "threshold_mode": "adaptive",
         "ignore_internal_texture": True,
@@ -167,6 +173,7 @@ def test_put_definition_saves_measurement_definition_and_advances_status(tmp_pat
             "metric_box": {"center_x": 640, "center_y": 360, "width": 900, "height": 120, "angle_deg": 12.0},
             "point_a_px": {"x": 210, "y": 320},
             "point_b_px": {"x": 980, "y": 402},
+            "observation_axis": "long_axis",
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -181,6 +188,7 @@ def test_put_definition_saves_measurement_definition_and_advances_status(tmp_pat
     assert payload["definition_complete"] is True
     assert payload["editor"] == {"state": "locked"}
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
+    assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
 
 
@@ -196,6 +204,7 @@ def test_put_definition_rejects_invalid_payload_with_422(tmp_path: Path) -> None
             "metric_box": {"center_x": 640, "center_y": 360, "width": 0, "height": 120, "angle_deg": 12.0},
             "point_a_px": {"x": 210, "y": 320},
             "point_b_px": {"x": 210, "y": 320},
+            "observation_axis": "long_axis",
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -204,6 +213,30 @@ def test_put_definition_rejects_invalid_payload_with_422(tmp_path: Path) -> None
     )
 
     assert response.status_code == 422
+
+
+def test_put_definition_accepts_tight_rotated_window_near_roi_boundary(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "guidewire"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 14, "y": 18, "width": 70, "height": 17},
+            "metric_box": {"center_x": 49, "center_y": 29, "width": 71, "height": 2, "angle_deg": 8.24632081446853},
+            "point_a_px": {"x": 14, "y": 24},
+            "point_b_px": {"x": 83, "y": 34},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "run_ready"
 
 
 def test_preview_frame_returns_png_and_marks_definition_editing_with_frozen_frame(tmp_path: Path) -> None:
@@ -216,6 +249,8 @@ def test_preview_frame_returns_png_and_marks_definition_editing_with_frozen_fram
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
+    assert response.headers["x-frame-source-width"] == "96"
+    assert response.headers["x-frame-source-height"] == "64"
     assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
     assert detail_response.status_code == 200
     assert detail_response.json()["status"] == "definition_editing"
@@ -275,6 +310,31 @@ def test_preview_frame_cached_query_reuses_frozen_frame(tmp_path: Path) -> None:
     assert cached.status_code == 200
     assert first.headers["X-Frame-Id"] == "1"
     assert cached.headers["X-Frame-Id"] == "1"
+
+
+def test_preview_frame_tracking_query_uses_cached_measurement_frame_without_marking_frozen(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    app.state.live_preview_service.cache_tracking_frame(
+        run_id=run_id,
+        frame=FramePacket(
+            timestamp_ms=1234,
+            source="measurement_camera",
+            image=[[0, 32], [64, 96]],
+            frame_id=9,
+        ),
+    )
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame?cached=1&tracking=1")
+    detail_response = client.get(f"/api/runs/{run_id}")
+
+    assert response.status_code == 200
+    assert response.headers["X-Frame-Id"] == "9"
+    assert detail_response.status_code == 200
+    assert detail_response.json()["status"] == "created"
+    assert detail_response.json()["preview"]["frozen_frame_available"] is False
+    assert detail_response.json()["editor"] == {"state": "empty"}
 
 
 def test_preview_stream_returns_multipart_jpeg_and_marks_preview_ready(tmp_path: Path) -> None:
@@ -343,7 +403,10 @@ def test_preview_frame_prefers_native_downsample_fast_path(tmp_path: Path) -> No
 
     assert response.status_code == 200
     assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
-    assert image.downsample_calls == [(640, 480)]
+    assert response.headers["x-frame-source-width"] == "2"
+    assert response.headers["x-frame-source-height"] == "2"
+    assert image.bitmap_calls == [(640, 480)]
+    assert image.row_calls == []
 
 
 def test_preview_stream_prefers_native_downsample_fast_path(tmp_path: Path) -> None:
@@ -376,7 +439,44 @@ def test_preview_stream_prefers_native_downsample_fast_path(tmp_path: Path) -> N
                 break
 
     assert b"\xff\xd8\xff" in chunks
-    assert image.downsample_calls == [(384, 256)]
+    assert image.bitmap_calls == [(640, 480)]
+    assert image.row_calls == []
+
+
+def test_preview_stream_uses_runtime_preview_display_size(tmp_path: Path) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.runtime_config.live.run.preview_display_max_width = 768
+    app.state.runtime_config.live.run.preview_display_max_height = 512
+    preview_service = app.state.live_preview_service
+
+    image = NativePreviewImage()
+
+    def fake_start_stream(runtime_config, *, run_id):
+        return object(), FramePacket(
+            timestamp_ms=123,
+            source="fast_preview_camera",
+            image=image,
+            frame_id=7,
+        )
+
+    def fake_stream_frames(active_stream, *, first_frame, frame_interval_ms):
+        yield first_frame
+
+    preview_service.start_stream = fake_start_stream
+    preview_service.stream_frames = fake_stream_frames
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    with client.stream("GET", f"/api/runs/{run_id}/preview/stream") as response:
+        assert response.status_code == 200
+        for chunk in response.iter_bytes():
+            if b"\xff\xd8\xff" in chunk:
+                break
+
+    assert image.bitmap_calls == [(768, 512)]
+    assert image.row_calls == []
 
 
 def test_live_preview_service_stream_frames_prefers_latest_frame_when_camera_outpaces_display() -> None:
@@ -513,7 +613,6 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
         f"/api/runs/{run_id}/definition/auto",
         json={
             "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
-            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -523,8 +622,32 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["definition"]["point_a_px"]["x"] < payload["definition"]["point_b_px"]["x"]
+    assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
     assert payload["quality"] > 0.75
+    assert payload["metric_raw"] is not None
+
+
+def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_aligned_roi(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 9, "y": 21, "width": 78, "height": 22},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
     assert payload["metric_raw"] is not None
 
 
@@ -539,6 +662,7 @@ def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path:
             "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
             "point_a_px": {"x": 12, "y": 32},
             "point_b_px": {"x": 12, "y": 32},
+            "observation_axis": "long_axis",
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -566,6 +690,7 @@ def test_put_definition_rejects_points_outside_analysis_roi(tmp_path: Path) -> N
             "metric_box": {"center_x": 50, "center_y": 50, "width": 60, "height": 20, "angle_deg": 0.0},
             "point_a_px": {"x": 10, "y": 10},
             "point_b_px": {"x": 150, "y": 10},
+            "observation_axis": "long_axis",
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -588,6 +713,7 @@ def test_put_definition_rejects_points_outside_metric_box(tmp_path: Path) -> Non
             "metric_box": {"center_x": 80, "center_y": 50, "width": 40, "height": 20, "angle_deg": 0.0},
             "point_a_px": {"x": 20, "y": 50},
             "point_b_px": {"x": 120, "y": 50},
+            "observation_axis": "long_axis",
             "foreground_polarity": "dark_on_light",
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
@@ -641,6 +767,8 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert telemetry_payload["latest"]["sample_index"] is not None
     assert telemetry_payload["latest"]["frame_id"] is not None
     assert telemetry_payload["latest"]["frame_timestamp_ms"] is not None
+    assert telemetry_payload["latest"]["point_a_px"] is not None
+    assert telemetry_payload["latest"]["point_b_px"] is not None
     assert telemetry_payload["curve"][1]["sample_interval_ms"] is not None
 
     assert result_response.status_code == 200
@@ -657,6 +785,7 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert result_payload["measurement_profile"]["exposure_us"] == 10000
     assert result_payload["warnings"] == []
     assert result_payload["artifacts"]["telemetry"] == "telemetry.csv"
+    assert result_payload["artifacts"]["afas_dataset"] == "afas_dataset.json"
     assert result_payload["artifacts"]["keyframes"]
 
     assert session_response.status_code == 200
@@ -672,6 +801,7 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert (session_dir / "telemetry.csv").exists()
     assert (session_dir / "events.jsonl").exists()
     assert (session_dir / "result.json").exists()
+    assert (session_dir / "afas_dataset.json").exists()
     assert (session_dir / "keyframes").exists()
 
 
@@ -815,6 +945,31 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
     assert telemetry_response.status_code == 200
     assert telemetry_response.json()["status"] == "aborted"
     assert result_response.status_code == 404
+
+
+def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.live.temp.control.completion_mode = "manual_stop_only"
+    app.state.runtime_config.live.temp.control.mock_ramp_step_celsius = 100.0
+    app.state.runtime_config.live.run.capture_interval_ms = 50
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 35.0},
+    )
+    time.sleep(0.25)
+    running_detail = client.get(f"/api/runs/{run_id}")
+    stop_response = client.post(f"/api/runs/{run_id}/stop")
+    aborted_detail = _wait_for_run_status(client, run_id, "aborted")
+
+    assert start_response.status_code == 200
+    assert running_detail.status_code == 200
+    assert running_detail.json()["status"] == "running"
+    assert stop_response.status_code == 200
+    assert stop_response.json()["status"] == "stopping"
+    assert aborted_detail["status"] == "aborted"
 
 
 def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_path: Path) -> None:

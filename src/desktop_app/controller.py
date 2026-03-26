@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from pathlib import Path
 from typing import Any
 
 from src.application.container import ApplicationContainer
+from src.application.live_preview_service import compute_preview_interval_ms
 from src.application.live_preview_service import LivePreviewService, PreviewStateSnapshot
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.live_run_service import LiveRunService
 from src.application.runtime_config import RuntimeConfig, load_runtime_config
-from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord
+from src.core.enums import RunStatus
+from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
 from src.workflow.precheck import build_system_precheck
 
 
@@ -96,6 +99,14 @@ class DesktopWorkbenchController:
         self._require_run(run_id)
         return self.preview_service.get_preview_state(run_id=run_id)
 
+    def get_cached_preview_frame(self, run_id: str) -> FramePacket | None:
+        self._require_run(run_id)
+        return self.preview_service.get_cached_frame(run_id=run_id)
+
+    def mark_preview_frame_presented(self, run_id: str, frame: FramePacket) -> None:
+        self._require_run(run_id)
+        self.preview_service.mark_frame_presented(run_id=run_id, frame=frame)
+
     def start_live_run(self, run_id: str, *, target_temperature_celsius: float) -> object:
         record = self._require_run(run_id)
         return self.live_run_service.start_run(
@@ -121,8 +132,127 @@ class DesktopWorkbenchController:
         self._require_run(run_id)
         return self.context.container.artifact_store.get_telemetry(run_id)
 
+    def run_bootstrap_smoke(
+        self,
+        *,
+        preset: str = "balloon",
+        target_temperature_celsius: float = 80.0,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
+        precheck = self.get_precheck()
+        run = self.create_run(preset=preset)
+        first_frame = self.start_preview(run.run_id)
+        stopped_snapshot = self.stop_preview(run.run_id)
+        updated = self.save_definition(run.run_id, _desktop_bootstrap_definition())
+        self.start_live_run(run.run_id, target_temperature_celsius=target_temperature_celsius)
+
+        deadline = time.time() + timeout_s
+        current = updated
+        while time.time() < deadline:
+            current = self.get_run(run.run_id)
+            assert current is not None
+            if current.status == RunStatus.COMPLETED:
+                break
+            time.sleep(0.05)
+        else:
+            active_snapshot = self.live_run_service.get_snapshot(run.run_id)
+            error_detail = ""
+            if active_snapshot is not None:
+                error_detail = getattr(active_snapshot, "error_detail", "") or ""
+            raise RuntimeError(
+                f"Desktop bootstrap smoke did not complete within {timeout_s:.1f}s; "
+                f"last status={current.status.value}; "
+                f"active_error={error_detail or 'none'}"
+            )
+
+        result = self.get_result(run.run_id)
+        detail = self.get_detail(run.run_id)
+        telemetry = self.get_telemetry(run.run_id)
+        return {
+            "profile": precheck["profile"],
+            "run_id": run.run_id,
+            "run_status": current.status.value,
+            "preview": {
+                "first_frame_id": first_frame.frame_id,
+                "first_frame_source": first_frame.source,
+                "frozen_frame_available": stopped_snapshot.frozen_frame_available,
+                "preview_display_fps": stopped_snapshot.preview_display_fps,
+            },
+            "definition_complete": bool(updated.definition and updated.definition.is_complete()),
+            "result_available": result is not None,
+            "detail_available": detail is not None,
+            "telemetry_points": 0 if telemetry is None else len(telemetry),
+        }
+
+    def run_preview_benchmark(
+        self,
+        *,
+        preset: str = "balloon",
+        duration_s: float = 1.5,
+    ) -> dict[str, Any]:
+        if duration_s <= 0:
+            raise ValueError("duration_s must be positive")
+        run = self.create_run(preset=preset)
+        first_frame = self.start_preview(run.run_id)
+        presented_frames = 1
+        self.mark_preview_frame_presented(run.run_id, first_frame)
+        first_presented_frame_id = first_frame.frame_id
+        last_presented_frame_id = first_frame.frame_id
+        last_seen_frame_id = first_frame.frame_id
+        start_monotonic = time.monotonic()
+        deadline = start_monotonic + duration_s
+        benchmark_interval_s = compute_preview_interval_ms(
+            target_fps=self.context.runtime_config.live.run.preview_target_fps,
+            fallback_ms=self.context.runtime_config.live.run.preview_poll_ms,
+        ) / 1000.0
+
+        while time.monotonic() < deadline:
+            snapshot = self.get_preview_state(run.run_id)
+            frame = self.get_cached_preview_frame(run.run_id)
+            if frame is not None and frame.frame_id is not None and frame.frame_id != last_seen_frame_id:
+                self.mark_preview_frame_presented(run.run_id, frame)
+                presented_frames += 1
+                last_seen_frame_id = frame.frame_id
+                last_presented_frame_id = frame.frame_id
+            if snapshot.stream_active:
+                time.sleep(max(0.005, benchmark_interval_s))
+            else:
+                break
+
+        snapshot = self.stop_preview(run.run_id)
+        elapsed_s = max(0.001, time.monotonic() - start_monotonic)
+        measured_presented_fps = presented_frames / elapsed_s
+        return {
+            "profile": self.context.profile,
+            "run_id": run.run_id,
+            "duration_s": round(elapsed_s, 3),
+            "presented_frames": presented_frames,
+            "first_frame_id": first_presented_frame_id,
+            "last_frame_id": last_presented_frame_id,
+            "measured_presented_fps": round(measured_presented_fps, 3),
+            "preview_display_fps": None
+            if snapshot.preview_display_fps is None
+            else round(snapshot.preview_display_fps, 3),
+            "frozen_frame_available": snapshot.frozen_frame_available,
+            "target_preview_fps": self.context.runtime_config.live.run.preview_target_fps,
+            "preview_poll_ms": self.context.runtime_config.live.run.preview_poll_ms,
+        }
+
     def _require_run(self, run_id: str) -> RunDraftRecord:
         record = self.registry.get(run_id)
         if record is None:
             raise LookupError(f"Run not found: {run_id}")
         return record
+
+
+def _desktop_bootstrap_definition() -> MeasurementDefinition:
+    return MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=96, height=64),
+        metric_box=MetricBox(center_x=48, center_y=32, width=80, height=24, angle_deg=0.0),
+        point_a_px=PixelPoint(x=12, y=32),
+        point_b_px=PixelPoint(x=83, y=32),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+    )

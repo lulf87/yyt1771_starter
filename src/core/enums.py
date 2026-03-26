@@ -36,3 +36,8 @@ class CaptureMode(str, Enum):
     SETUP_PREVIEW = "setup_preview"
     MEASUREMENT = "measurement"
     POST_RUN_REVIEW = "post_run_review"
+
+
+class ObservationAxis(str, Enum):
+    LONG_AXIS = "long_axis"
+    SHORT_AXIS = "short_axis"

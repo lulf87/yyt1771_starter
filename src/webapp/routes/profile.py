@@ -2,13 +2,23 @@
 
 from collections.abc import Callable
 from pathlib import Path
+import time
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 
+from src.application.container import ApplicationContainer
 from src.application.runtime_config import RuntimeConfig
-from src.webapp.deps import get_camera_probe_runner, get_runtime_config
-from src.webapp.schemas import CameraProbeRequest, CameraProbeResponse, PrecheckResponse, ProfileResponse
+from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
+from src.webapp.schemas import (
+    CameraProbeRequest,
+    CameraProbeResponse,
+    PrecheckResponse,
+    ProfileResponse,
+    TempCurrentResponse,
+    TempTargetRequest,
+    TempTargetResponse,
+)
 from src.workflow.precheck import build_system_precheck
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -39,3 +49,49 @@ def post_camera_probe(
 ) -> dict[str, Any]:
     override = None if probe_request is None else probe_request.model_dump(exclude_none=True)
     return runner(runtime_config, override)
+
+
+@router.get("/temp/current", response_model=TempCurrentResponse)
+def get_current_temperature(
+    container: ApplicationContainer = Depends(get_application_container),
+) -> dict[str, object]:
+    backend = str(container.runtime_config.live.temp.backend or container.runtime_config.adapters.get("temp", "") or "")
+    try:
+        reading = container.with_temp_controller(lambda controller: controller.read())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Current temperature unavailable: {exc}") from exc
+    return {
+        "backend": backend or "missing",
+        "temperature_celsius": float(reading.celsius),
+        "timestamp_ms": int(reading.timestamp_ms),
+        "source": str(reading.source),
+    }
+
+
+@router.post("/temp/target", response_model=TempTargetResponse)
+def post_target_temperature(
+    payload: TempTargetRequest,
+    container: ApplicationContainer = Depends(get_application_container),
+) -> dict[str, object]:
+    backend = str(container.runtime_config.live.temp.backend or container.runtime_config.adapters.get("temp", "") or "")
+    try:
+        result = container.with_temp_controller(
+            lambda controller: _write_and_confirm_target_temperature(controller, payload.target_temperature_celsius)
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Target temperature update unavailable: {exc}") from exc
+    return {
+        "backend": backend or "missing",
+        "target_temperature_celsius": float(payload.target_temperature_celsius),
+        "confirmed_target_temperature_celsius": float(result["confirmed_target_temperature_celsius"]),
+        "timestamp_ms": int(time.time() * 1000),
+        "source": str(result["source"]),
+    }
+
+
+def _write_and_confirm_target_temperature(controller: object, target_temperature_celsius: float) -> dict[str, object]:
+    controller.set_target_temperature(target_temperature_celsius)
+    return {
+        "confirmed_target_temperature_celsius": float(controller.read_target_temperature()),
+        "source": type(controller).__name__,
+    }

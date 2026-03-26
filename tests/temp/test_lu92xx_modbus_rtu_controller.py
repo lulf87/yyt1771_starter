@@ -120,6 +120,16 @@ def test_set_target_temperature_encodes_register_zero_with_x10_scale() -> None:
     assert transport.writes[0][:6] == bytes([1, 6, 0x00, 0x00, 0x02, 0xF3])
 
 
+def test_read_target_temperature_decodes_register_zero_with_x10_scale() -> None:
+    transport = FakeSerialTransport(responses=[_read_response(1, 3, [755])])
+    controller = LU92XXModbusRtuController(_config(), transport_factory=lambda serial: transport)
+
+    confirmed = controller.read_target_temperature()
+
+    assert confirmed == 75.5
+    assert transport.writes[0][:6] == bytes([1, 3, 0x00, 0x00, 0x00, 0x01])
+
+
 def test_start_output_writes_scaled_power_register() -> None:
     transport = FakeSerialTransport(responses=[_write_response(1, 6, 4, 25600)])
     controller = LU92XXModbusRtuController(_config(), transport_factory=lambda serial: transport)

@@ -92,6 +92,29 @@ class LU92XXModbusRtuController(TempReader, TempControllerPort):
         )
         self._write_register_values(register, encoded_value)
 
+    def read_target_temperature(self) -> float:
+        register = self.config.register_map.target_or_stop_value
+        response = self._transceive(
+            request=self._build_read_request(
+                TempRegisterConfig(
+                    function_code=3,
+                    start_address=register.start_address,
+                    register_count=register.register_count,
+                    signed=register.signed,
+                    decode_scale=1.0 / register.encode_scale if register.encode_scale != 0 else 1.0,
+                )
+            ),
+            expected_size=5 + register.register_count * 2,
+            function_code=3,
+        )
+        register_bytes = response[3:-2]
+        raw_value = self._decode_register_value(
+            register_bytes,
+            register_count=register.register_count,
+            signed=register.signed,
+        )
+        return float(raw_value) / register.encode_scale
+
     def start_output(self) -> None:
         register = self.config.register_map.output_power
         encoded_value = self._encode_register_values(

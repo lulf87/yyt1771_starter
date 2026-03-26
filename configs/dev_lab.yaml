@@ -20,8 +20,39 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+  setup_preview:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
+  measurement:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
 temp:
   backend: mock
+  control:
+    completion_mode: manual_stop_only
+    mock_ramp_step_celsius: 0.5
+run:
+  preview_poll_ms: 50
+  preview_target_fps: 20
+  manual_stop_max_samples: 10000
+  preview_display_max_width: 816
+  preview_display_max_height: 544
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
   artifact_dir: examples/runtime/artifacts

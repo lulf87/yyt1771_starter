@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from PIL import Image
 
-from src.core.enums import RunStatus
+from src.application.preview_render import PreviewBitmap, build_preview_bitmap, enhance_preview_bitmap
+from src.application.live_preview_service import compute_preview_interval_ms
+from src.core.enums import ObservationAxis, RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
 from src.storage.session_artifacts import SessionArtifactStore
 from src.application.runtime_config import RuntimeConfig
@@ -45,17 +47,11 @@ from src.webapp.schemas import (
     RunTelemetryPointResponse,
     RunTelemetryResponse,
 )
-from src.vision.metric_two_point_distance import (
-    TwoPointDistanceMetricExtractor,
-    downsample_grayscale_image,
-    normalize_frame_image,
-)
+from src.vision.metric_two_point_distance import RoiLongestSpanPointDetector
 from src.workflow.live_run import summarize_measurement_profile, summarize_rate_snapshot, summarize_rate_warnings
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 _PREVIEW_STREAM_BOUNDARY = "frame"
-_PREVIEW_STREAM_MAX_WIDTH = 384
-_PREVIEW_STREAM_MAX_HEIGHT = 256
 
 
 @router.post("", response_model=RunSummaryResponse)
@@ -123,6 +119,8 @@ def save_measurement_definition(
         threshold_mode=payload.threshold_mode,
         ignore_internal_texture=payload.ignore_internal_texture,
         min_target_area_px=payload.min_target_area_px,
+        sensitivity=payload.sensitivity,
+        observation_axis=ObservationAxis(payload.observation_axis),
     )
     try:
         record = registry.save_definition(run_id, definition)
@@ -140,6 +138,7 @@ def save_measurement_definition(
 def fetch_preview_frame(
     run_id: str,
     cached: bool = False,
+    tracking: bool = False,
     runtime_config: RuntimeConfig = Depends(get_runtime_config),
     registry: LiveRunDraftRegistry = Depends(get_live_run_registry),
     preview_service: LivePreviewService = Depends(get_live_preview_service),
@@ -147,21 +146,37 @@ def fetch_preview_frame(
     if registry.get(run_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
     try:
-        frame = preview_service.fetch_frame(runtime_config, run_id=run_id, prefer_cached=cached)
-        image = _preview_frame_image(frame.image)
+        if tracking:
+            frame = preview_service.get_tracking_frame(run_id=run_id)
+            if frame is None:
+                raise RuntimeError("tracking frame not available")
+        else:
+            frame = preview_service.fetch_frame(runtime_config, run_id=run_id, prefer_cached=cached)
+        bitmap = build_preview_bitmap(
+            frame.image,
+            max_width=runtime_config.live.run.preview_display_max_width,
+            max_height=runtime_config.live.run.preview_display_max_height,
+        )
+        bitmap = enhance_preview_bitmap(bitmap)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Preview frame fetch failed: {exc}",
         ) from exc
 
-    registry.mark_preview_frozen(run_id)
+    if not tracking:
+        registry.mark_preview_frozen(run_id)
+    source_width, source_height = _frame_image_dimensions(frame)
+    if source_width < 1 or source_height < 1:
+        source_width, source_height = bitmap.width, bitmap.height
     return Response(
-        content=_encode_grayscale_png(image),
+        content=_encode_grayscale_png_bitmap(bitmap),
         media_type="image/png",
         headers={
-            "X-Frame-Width": str(len(image[0])),
-            "X-Frame-Height": str(len(image)),
+            "X-Frame-Width": str(bitmap.width),
+            "X-Frame-Height": str(bitmap.height),
+            "X-Frame-Source-Width": str(source_width),
+            "X-Frame-Source-Height": str(source_height),
             "X-Frame-Id": str(frame.frame_id or 0),
         },
     )
@@ -190,6 +205,7 @@ def stream_preview_frames(
     registry.mark_preview_streaming(run_id)
     return StreamingResponse(
         _iter_preview_stream_payload(
+            runtime_config=runtime_config,
             preview_service=preview_service,
             run_id=run_id,
             active_stream=active_stream,
@@ -250,14 +266,16 @@ def auto_detect_measurement_definition(
         ) from exc
 
     registry.mark_preview_frozen(run_id)
-    extractor = TwoPointDistanceMetricExtractor(
+    detector = RoiLongestSpanPointDetector(
         analysis_roi=RectRegion(
             x=payload.analysis_roi.x,
             y=payload.analysis_roi.y,
             width=payload.analysis_roi.width,
             height=payload.analysis_roi.height,
         ),
-        metric_box=MetricBox(
+        roi_box=None
+        if payload.metric_box is None
+        else MetricBox(
             center_x=payload.metric_box.center_x,
             center_y=payload.metric_box.center_y,
             width=payload.metric_box.width,
@@ -270,40 +288,23 @@ def auto_detect_measurement_definition(
         ignore_internal_texture=payload.ignore_internal_texture,
         min_target_area_px=payload.min_target_area_px,
         quality_threshold=runtime_config.live.vision.quality_threshold,
+        sensitivity=payload.sensitivity,
+        selection_strategy="roi_local_horizontal_boundary"
+        if payload.metric_box is not None
+        else "axis_aligned_span",
     )
-    metric = extractor.extract(frame)
+    metric = detector.extract(frame)
     if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Auto detection failed: {metric.meta.get('reason', 'unknown_error')}",
         )
-
-    definition = MeasurementDefinition(
-        analysis_roi=RectRegion(
-            x=payload.analysis_roi.x,
-            y=payload.analysis_roi.y,
-            width=payload.analysis_roi.width,
-            height=payload.analysis_roi.height,
-        ),
-        metric_box=MetricBox(
-            center_x=payload.metric_box.center_x,
-            center_y=payload.metric_box.center_y,
-            width=payload.metric_box.width,
-            height=payload.metric_box.height,
-            angle_deg=payload.metric_box.angle_deg,
-        ),
-        point_a_px=PixelPoint(x=metric.point_a_px[0], y=metric.point_a_px[1]),
-        point_b_px=PixelPoint(x=metric.point_b_px[0], y=metric.point_b_px[1]),
-        foreground_polarity=payload.foreground_polarity,
-        threshold_mode=payload.threshold_mode,
-        ignore_internal_texture=payload.ignore_internal_texture,
-        min_target_area_px=payload.min_target_area_px,
-    )
     detail = ""
     if metric.quality < runtime_config.live.vision.quality_threshold:
         detail = "Auto detection succeeded with low confidence. Please verify or adjust points manually."
     return AutoDetectDefinitionResponse(
-        definition=_build_measurement_definition(definition),
+        point_a_px=PixelPointResponse(x=metric.point_a_px[0], y=metric.point_a_px[1]),
+        point_b_px=PixelPointResponse(x=metric.point_b_px[0], y=metric.point_b_px[1]),
         quality=metric.quality,
         metric_raw=metric.metric_raw,
         detail=detail,
@@ -435,6 +436,23 @@ def _build_run_summary(record: RunDraftRecord) -> RunSummaryResponse:
     )
 
 
+def _frame_image_dimensions(frame) -> tuple[int, int]:
+    image = frame.image
+    if hasattr(image, "shape"):
+        shape = getattr(image, "shape")
+        if len(shape) >= 2:
+            return int(shape[1]), int(shape[0])
+    if isinstance(image, (list, tuple)):
+        height = len(image)
+        if height == 0:
+            return (0, 0)
+        first_row = image[0]
+        if isinstance(first_row, (list, tuple)):
+            return (len(first_row), height)
+        return (height, 1)
+    return (0, 0)
+
+
 def _build_run_detail(
     record: RunDraftRecord,
     *,
@@ -539,20 +557,37 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         ),
         point_a_px=PixelPointResponse(x=definition.point_a_px.x, y=definition.point_a_px.y),
         point_b_px=PixelPointResponse(x=definition.point_b_px.x, y=definition.point_b_px.y),
+        observation_axis=definition.observation_axis.value,
         foreground_polarity=definition.foreground_polarity,
         threshold_mode=definition.threshold_mode,
         ignore_internal_texture=definition.ignore_internal_texture,
         min_target_area_px=definition.min_target_area_px,
+        sensitivity=definition.sensitivity,
     )
 
 
-def _encode_grayscale_png(image: list[list[int]]) -> bytes:
-    width = len(image[0]) if image else 1
-    height = len(image) if image else 1
-    raw = bytearray()
-    for row in image:
-        raw.append(0)
-        raw.extend(max(0, min(255, int(value))) for value in row)
+def _encode_grayscale_jpeg_bitmap(bitmap: PreviewBitmap, *, quality: int = 55) -> bytes:
+    jpeg_image = Image.frombytes("L", (bitmap.width, bitmap.height), bitmap.pixels)
+    from io import BytesIO
+
+    buffer = BytesIO()
+    jpeg_image.save(buffer, format="JPEG", quality=quality, optimize=False)
+    return buffer.getvalue()
+
+
+def _encode_grayscale_png_bitmap(bitmap: PreviewBitmap) -> bytes:
+    width = bitmap.width
+    height = bitmap.height
+    raw = bytearray(height * (width + 1))
+    write_index = 0
+    pixel_index = 0
+    for _ in range(height):
+        raw[write_index] = 0
+        write_index += 1
+        row_end = pixel_index + width
+        raw[write_index : write_index + width] = bitmap.pixels[pixel_index:row_end]
+        write_index += width
+        pixel_index = row_end
 
     def _chunk(chunk_type: bytes, data: bytes) -> bytes:
         return (
@@ -569,40 +604,9 @@ def _encode_grayscale_png(image: list[list[int]]) -> bytes:
     return signature + ihdr + idat + iend
 
 
-def _encode_grayscale_jpeg(image: list[list[int]], *, quality: int = 70) -> bytes:
-    width = len(image[0]) if image else 1
-    height = len(image) if image else 1
-    flat = bytearray()
-    for row in image:
-        flat.extend(max(0, min(255, int(value))) for value in row)
-    jpeg_image = Image.frombytes("L", (width, height), bytes(flat))
-    from io import BytesIO
-
-    buffer = BytesIO()
-    jpeg_image.save(buffer, format="JPEG", quality=quality, optimize=False)
-    return buffer.getvalue()
-
-
-def _preview_frame_image(
-    image: object,
-    *,
-    max_width: int = 640,
-    max_height: int = 480,
-) -> list[list[int]]:
-    native_downsample = getattr(image, "downsample_rows", None)
-    if callable(native_downsample):
-        preview_rows = native_downsample(max_width=max_width, max_height=max_height)
-        if preview_rows:
-            return preview_rows
-    return downsample_grayscale_image(
-        normalize_frame_image(image),
-        max_width=max_width,
-        max_height=max_height,
-    )
-
-
 def _iter_preview_stream_payload(
     *,
+    runtime_config: RuntimeConfig,
     preview_service: LivePreviewService,
     run_id: str,
     active_stream: object,
@@ -615,16 +619,17 @@ def _iter_preview_stream_payload(
         frame_interval_ms=frame_interval_ms,
     ):
         preview_service.cache_frame(run_id=run_id, frame=frame)
-        image = _preview_frame_image(
+        bitmap = build_preview_bitmap(
             frame.image,
-            max_width=_PREVIEW_STREAM_MAX_WIDTH,
-            max_height=_PREVIEW_STREAM_MAX_HEIGHT,
+            max_width=runtime_config.live.run.preview_display_max_width,
+            max_height=runtime_config.live.run.preview_display_max_height,
         )
-        payload = _encode_grayscale_jpeg(image)
+        bitmap = enhance_preview_bitmap(bitmap)
+        payload = _encode_grayscale_jpeg_bitmap(bitmap)
         yield _encode_preview_stream_part(
             payload=payload,
-            width=len(image[0]) if image else 1,
-            height=len(image),
+            width=bitmap.width,
+            height=bitmap.height,
             frame_id=int(frame.frame_id or 0),
             content_type="image/jpeg",
         )
@@ -632,9 +637,10 @@ def _iter_preview_stream_payload(
 
 def _preview_stream_interval_ms(runtime_config: RuntimeConfig) -> int:
     preview_target_fps = float(runtime_config.live.run.preview_target_fps or 0.0)
-    if preview_target_fps > 0:
-        return max(50, int(round(1000.0 / preview_target_fps)))
-    return max(50, int(runtime_config.live.run.preview_poll_ms))
+    return compute_preview_interval_ms(
+        target_fps=preview_target_fps,
+        fallback_ms=runtime_config.live.run.preview_poll_ms,
+    )
 
 
 def _encode_preview_stream_part(

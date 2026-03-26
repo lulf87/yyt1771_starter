@@ -34,10 +34,15 @@ def test_load_runtime_config_reads_known_profile() -> None:
     assert runtime_config.live.temp.serial.baudrate == 19_200
     assert runtime_config.live.temp.register_map.process_value.start_address == 264
     assert runtime_config.live.temp.control.startup_power_percent == 100.0
+    assert runtime_config.live.temp.control.completion_mode == "target_reached"
+    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 10.0
     assert runtime_config.live.vision.foreground_polarity == "dark_on_light"
     assert runtime_config.live.analysis.engine == "afas"
     assert runtime_config.live.run.capture_interval_ms == 200
+    assert runtime_config.live.run.manual_stop_max_samples == 10_000
     assert runtime_config.live.run.preview_target_fps == 8.0
+    assert runtime_config.live.run.preview_display_max_width == 640
+    assert runtime_config.live.run.preview_display_max_height == 480
     assert runtime_config.live.run.measurement_target_hz == 5.0
     assert runtime_config.live.run.artifact_capture_hz == 5.0
 
@@ -73,8 +78,39 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+  setup_preview:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
+  measurement:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
 temp:
   backend: mock
+  control:
+    completion_mode: manual_stop_only
+    mock_ramp_step_celsius: 0.5
+run:
+  preview_poll_ms: 50
+  preview_target_fps: 20
+  manual_stop_max_samples: 10000
+  preview_display_max_width: 816
+  preview_display_max_height: 544
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
   artifact_dir: examples/runtime/artifacts
@@ -93,13 +129,27 @@ replay:
     assert runtime_config.camera["transport"] == "gige_vision"
     assert runtime_config.live.camera.pixel_format == "mono8"
     assert runtime_config.live.camera.setup_preview.pixel_format == "mono8"
+    assert runtime_config.live.camera.setup_preview.exposure_us == 50_000
+    assert runtime_config.live.camera.setup_preview.gain_db == 12.0
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 2048
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 1364
     assert runtime_config.live.camera.measurement.pixel_format == "mono8"
+    assert runtime_config.live.camera.measurement.exposure_us == 50_000
+    assert runtime_config.live.camera.measurement.gain_db == 12.0
+    assert runtime_config.live.camera.measurement.device_roi.width == 2048
+    assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.camera.transport == "gige_vision"
     assert runtime_config.live.temp.protocol == "modbus_rtu"
     assert runtime_config.live.temp.backend == "mock"
     assert runtime_config.live.temp.serial.timeout_ms == 500
     assert runtime_config.live.temp.register_map.process_value.start_address == 264
-    assert runtime_config.live.run.preview_target_fps == 8.0
+    assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
+    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.5
+    assert runtime_config.live.run.preview_target_fps == 20.0
+    assert runtime_config.live.run.preview_poll_ms == 50
+    assert runtime_config.live.run.manual_stop_max_samples == 10_000
+    assert runtime_config.live.run.preview_display_max_width == 816
+    assert runtime_config.live.run.preview_display_max_height == 544
     assert runtime_config.live.run.measurement_target_hz == 5.0
 
 
@@ -217,6 +267,8 @@ temp:
   control:
     start_output_mode: power_nonzero
     startup_power_percent: 80.0
+    completion_mode: manual_stop_only
+    mock_ramp_step_celsius: 1.5
 vision:
   foreground_polarity: dark_on_light
   threshold_mode: adaptive
@@ -233,7 +285,10 @@ run:
   preview_poll_ms: 600
   telemetry_poll_ms: 700
   capture_interval_ms: 250
+  manual_stop_max_samples: 1234
   preview_target_fps: 8
+  preview_display_max_width: 720
+  preview_display_max_height: 540
   measurement_target_hz: 50
   artifact_capture_hz: 25
   stop_on_invalid_tracking: false
@@ -276,10 +331,15 @@ storage:
     assert runtime_config.live.temp.register_map.process_value.start_address == 258
     assert runtime_config.live.temp.register_map.output_power.encode_scale == 128.0
     assert runtime_config.live.temp.control.startup_power_percent == 80.0
+    assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
+    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 1.5
     assert runtime_config.live.vision.ignore_internal_texture is True
     assert runtime_config.live.vision.min_target_area_px == 300
     assert runtime_config.live.analysis.af_fit_point_count == 7
+    assert runtime_config.live.run.manual_stop_max_samples == 1234
     assert runtime_config.live.run.preview_target_fps == 8.0
+    assert runtime_config.live.run.preview_display_max_width == 720
+    assert runtime_config.live.run.preview_display_max_height == 540
     assert runtime_config.live.run.measurement_target_hz == 50.0
     assert runtime_config.live.run.artifact_capture_hz == 25.0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
@@ -310,7 +370,12 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
     assert runtime_config.live.temp.register_map.target_or_stop_value.encode_scale == 10.0
     assert runtime_config.live.temp.register_map.output_power.start_address == 4
     assert runtime_config.live.temp.control.startup_power_percent == 100.0
+    assert runtime_config.live.temp.control.completion_mode == "target_reached"
+    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 10.0
+    assert runtime_config.live.run.manual_stop_max_samples == 10_000
     assert runtime_config.live.run.preview_target_fps == 8.0
+    assert runtime_config.live.run.preview_display_max_width == 640
+    assert runtime_config.live.run.preview_display_max_height == 480
     assert runtime_config.live.run.measurement_target_hz == 5.0
     assert runtime_config.live.run.artifact_capture_hz == 5.0
 

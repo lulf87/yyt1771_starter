@@ -1,10 +1,12 @@
 """Request and response models for the web application layer."""
 
 import math
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic import model_validator
+
+ANALYSIS_ROI_FLOAT_EPSILON = 0.5
 
 
 class HealthResponse(BaseModel):
@@ -24,6 +26,25 @@ class ProfileResponse(BaseModel):
     mode: str
     webapp: WebAppSettingsResponse
     adapters: dict[str, str]
+
+
+class TempCurrentResponse(BaseModel):
+    backend: str
+    temperature_celsius: float
+    timestamp_ms: int
+    source: str
+
+
+class TempTargetRequest(BaseModel):
+    target_temperature_celsius: float = Field(gt=0)
+
+
+class TempTargetResponse(BaseModel):
+    backend: str
+    target_temperature_celsius: float
+    confirmed_target_temperature_celsius: float
+    timestamp_ms: int
+    source: str
 
 
 class SessionSummaryResponse(BaseModel):
@@ -70,13 +91,16 @@ class MeasurementDefinitionRequest(BaseModel):
     metric_box: MetricBoxRequest
     point_a_px: PixelPointRequest
     point_b_px: PixelPointRequest
+    observation_axis: Literal["long_axis", "short_axis"]
     foreground_polarity: Literal["dark_on_light", "light_on_dark"]
     threshold_mode: Literal["adaptive", "binary", "otsu"]
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
+    sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
+        self.analysis_roi = _normalize_region_for_metric_box(self.analysis_roi, self.metric_box)
         if self.point_a_px == self.point_b_px:
             raise ValueError("point_a_px and point_b_px must be distinct")
         if not _metric_box_within_region(self.analysis_roi, self.metric_box):
@@ -100,23 +124,27 @@ class MeasurementDefinitionResponse(MeasurementDefinitionRequest):
 
 class AutoDetectDefinitionRequest(BaseModel):
     analysis_roi: RectRegionRequest
-    metric_box: MetricBoxRequest
+    metric_box: MetricBoxRequest | None = None
     foreground_polarity: Literal["dark_on_light", "light_on_dark"]
     threshold_mode: Literal["adaptive", "binary", "otsu"]
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
+    sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
-        if not _metric_box_within_region(self.analysis_roi, self.metric_box):
-            raise ValueError("metric_box must stay inside analysis_roi")
-        if not _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y):
-            raise ValueError("metric_box center must stay inside analysis_roi")
+        if self.metric_box is not None:
+            self.analysis_roi = _normalize_region_for_metric_box(self.analysis_roi, self.metric_box)
+            if not _metric_box_within_region(self.analysis_roi, self.metric_box):
+                raise ValueError("metric_box must stay inside analysis_roi")
+            if not _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y):
+                raise ValueError("metric_box center must stay inside analysis_roi")
         return self
 
 
 class AutoDetectDefinitionResponse(BaseModel):
-    definition: MeasurementDefinitionResponse
+    point_a_px: PixelPointResponse
+    point_b_px: PixelPointResponse
     quality: float
     metric_raw: float | None
     detail: str = ""
@@ -189,6 +217,8 @@ class RunTelemetryPointResponse(BaseModel):
     temperature_celsius: float
     space1_px: float
     tracking_quality: float
+    point_a_px: list[int] | None = None
+    point_b_px: list[int] | None = None
     sample_index: int | None = None
     sample_interval_ms: int | None = None
     frame_id: int | None = None
@@ -211,6 +241,10 @@ class RunArtifactRefsResponse(BaseModel):
     events: str
     detail: str
     result: str
+    afas_dataset: str | None = None
+    afas_analysis: str | None = None
+    afas_plot: str | None = None
+    afas_report: str | None = None
     keyframes: list[str] = []
 
 
@@ -297,6 +331,44 @@ class AdjustmentStateResponse(BaseModel):
     applied_versions: list[AppliedAdjustmentVersionResponse]
 
 
+class AfasWorkspaceAnalysisRequest(BaseModel):
+    channel_name: str | None = None
+    group_by_temperature: bool | None = None
+    outlier_window: int | None = Field(default=None, ge=3)
+    outlier_threshold: float | None = Field(default=None, gt=0)
+    outlier_max_iterations: int | None = Field(default=None, ge=1)
+    savgol_window_length: int | None = Field(default=None, ge=3)
+    savgol_polyorder: int | None = Field(default=None, ge=1)
+    low_range_celsius: tuple[float, float] | None = None
+    high_range_celsius: tuple[float, float] | None = None
+    tangent_offset: int | None = None
+
+
+class AfasOverviewSeriesResponse(BaseModel):
+    temperature_celsius: list[float]
+    values: list[float]
+
+
+class AfasOverviewItemResponse(BaseModel):
+    channel_name: str
+    point_count: int
+    outlier_count: int
+    result_status: str
+    as_value: float | None = None
+    af_tan: float | None = None
+    max_slope_temp: float | None = None
+    series: AfasOverviewSeriesResponse
+
+
+class AfasWorkspaceAnalysisResponse(BaseModel):
+    session_id: str
+    active_channel: str
+    available_channels: list[str]
+    overview: list[AfasOverviewItemResponse]
+    preprocessing: dict[str, Any]
+    analysis: dict[str, Any]
+
+
 class PrecheckItemResponse(BaseModel):
     name: str
     status: str
@@ -360,6 +432,24 @@ def _metric_box_within_region(region: RectRegionRequest, box: MetricBoxRequest) 
     return all(_point_in_region_float(region, x, y) for x, y in _metric_box_corners(box))
 
 
+def _normalize_region_for_metric_box(region: RectRegionRequest, box: MetricBoxRequest) -> RectRegionRequest:
+    corners = _metric_box_corners(box)
+    box_min_x = math.floor(min(x for x, _ in corners))
+    box_min_y = math.floor(min(y for _, y in corners))
+    box_max_x = math.ceil(max(x for x, _ in corners))
+    box_max_y = math.ceil(max(y for _, y in corners))
+    region_min_x = min(region.x, box_min_x)
+    region_min_y = min(region.y, box_min_y)
+    region_max_x = max(region.x + region.width, box_max_x)
+    region_max_y = max(region.y + region.height, box_max_y)
+    return RectRegionRequest(
+        x=max(0, region_min_x),
+        y=max(0, region_min_y),
+        width=max(1, region_max_x - region_min_x),
+        height=max(1, region_max_y - region_min_y),
+    )
+
+
 def _point_in_metric_box(box: MetricBoxRequest, x: int, y: int) -> bool:
     angle_rad = math.radians(box.angle_deg)
     cos_theta = math.cos(angle_rad)
@@ -394,4 +484,7 @@ def _metric_box_corners(box: MetricBoxRequest) -> list[tuple[float, float]]:
 
 
 def _point_in_region_float(region: RectRegionRequest, x: float, y: float) -> bool:
-    return region.x <= x <= (region.x + region.width) and region.y <= y <= (region.y + region.height)
+    return (
+        (region.x - ANALYSIS_ROI_FLOAT_EPSILON) <= x <= (region.x + region.width + ANALYSIS_ROI_FLOAT_EPSILON)
+        and (region.y - ANALYSIS_ROI_FLOAT_EPSILON) <= y <= (region.y + region.height + ANALYSIS_ROI_FLOAT_EPSILON)
+    )

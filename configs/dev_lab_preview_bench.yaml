@@ -1,0 +1,40 @@
+profile: dev_lab_preview_bench
+platform: mac
+mode: lab
+webapp:
+  host: 127.0.0.1
+  port: 8000
+adapters:
+  camera: hik_gige_mvs
+  temp: mock
+  plc: mock
+camera:
+  transport: gige_vision
+  sdk: hik_mvs
+  probe_mode: protocol_any
+  allowed_models: []
+  serial_number: ""
+  ip: ""
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 0.0
+  timeout_ms: 1000
+  setup_preview:
+    pixel_format: mono8
+    exposure_us: 10000
+    gain_db: 0.0
+    timeout_ms: 1000
+    device_roi:
+      x: 0
+      y: 0
+      width: 384
+      height: 384
+temp:
+  backend: mock
+run:
+  preview_target_fps: 60
+  preview_poll_ms: 16
+storage:
+  sqlite_path: examples/runtime/dev_lab_preview_bench.sqlite3
+  artifact_dir: examples/runtime/dev_lab_preview_bench_artifacts

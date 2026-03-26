@@ -28,6 +28,18 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-curve"' in response.text
     assert 'id="workspace-curve-title"' in response.text
     assert 'id="workspace-active-point"' in response.text
+    assert 'id="workspace-afas-panel"' in response.text
+    assert 'id="workspace-afas-run-btn"' in response.text
+    assert 'id="workspace-afas-export-png-btn"' in response.text
+    assert 'id="workspace-afas-export-xlsx-btn"' in response.text
+    assert 'id="workspace-afas-channel"' in response.text
+    assert 'id="workspace-afas-savgol-window"' in response.text
+    assert 'id="workspace-afas-low-start"' in response.text
+    assert 'id="workspace-afas-high-end"' in response.text
+    assert 'id="workspace-afas-overview-chart"' in response.text
+    assert 'id="workspace-afas-analysis-chart"' in response.text
+    assert 'id="workspace-afas-result-status"' in response.text
+    assert 'id="workspace-afas-warning-list"' in response.text
     assert 'id="workspace-keyframes"' in response.text
     assert 'data-testid="workspace-step"' in response.text
     assert 'data-testid="workspace-step-status"' in response.text
@@ -93,6 +105,7 @@ def test_workspace_route_keeps_empty_state_when_detail_is_missing(tmp_path: Path
 
     assert response.status_code == 200
     assert "No replay detail available." in response.text
+    assert "AFAS analysis has not been loaded yet." in response.text
     assert 'id="workspace-detail-status"' in response.text
     assert 'id="workspace-active-selection"' in response.text
     assert 'id="workspace-adjustment-preview"' in response.text
@@ -110,6 +123,13 @@ def test_workspace_static_js_contains_selection_linking_hooks(tmp_path: Path) ->
 
     assert response.status_code == 200
     assert "setActiveWorkspacePoint" in response.text
+    assert "loadWorkspaceAfasAnalysis" in response.text
+    assert "exportWorkspaceAfasArtifact" in response.text
+    assert "/afas/analysis" in response.text
+    assert "export.png" in response.text
+    assert "report.xlsx" in response.text
+    assert "workspace-afas-run-btn" in response.text
+    assert "workspace-afas-overview-chart" in response.text
     assert "workspace-active-label" in response.text
     assert "workspace-active-point" in response.text
     assert "updateWorkspaceAdjustmentPreview" in response.text

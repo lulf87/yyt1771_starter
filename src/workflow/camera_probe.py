@@ -30,6 +30,7 @@ def run_camera_probe(
     override: dict[str, Any] | None = None,
     camera_factory: Callable[[], Any] | None = None,
     diagnostics_store: Any | None = None,
+    active_probe_payload_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     backend = str(runtime_config.adapters.get("camera", "") or "")
     camera_config = _merge_camera_override(runtime_config.camera, override)
@@ -39,6 +40,18 @@ def run_camera_probe(
     contract_error = _validate_probe_contract(backend=backend, policy=policy)
     if contract_error is not None:
         return _finalize_probe_response(runtime_config, _apply_failure(response, contract_error), diagnostics_store)
+
+    active_probe_payload = _resolve_active_probe_payload(active_probe_payload_provider)
+    if active_probe_payload is not None:
+        _apply_probe_payload(response, active_probe_payload, policy=policy)
+        detected_error = _validate_detected_device(policy=policy, payload=response)
+        if detected_error is not None:
+            return _finalize_probe_response(runtime_config, _apply_failure(response, detected_error), diagnostics_store)
+        response["status"] = "ok"
+        response["error_code"] = None
+        response["error_stage"] = None
+        response["detail"] = "Camera probe reused the active live preview stream."
+        return _finalize_probe_response(runtime_config, response, diagnostics_store)
 
     if camera_factory is None:
         sdk_runtime_error = _validate_sdk_runtime_import()
@@ -68,22 +81,7 @@ def run_camera_probe(
             diagnostics_store,
         )
 
-    response["matched_by"] = _normalize_matched_by(policy["probe_mode"], str(probe_payload.get("matched_by", "")))
-    response["identity"] = {
-        "serial_number": str(probe_payload.get("detected_serial_number", "") or ""),
-        "ip": str(probe_payload.get("detected_ip", "") or ""),
-    }
-    response["device"] = {
-        "model": str(probe_payload.get("detected_model", "") or ""),
-    }
-    frame_shape = probe_payload.get("frame_shape") or {}
-    response["frame"] = {
-        "width": int(frame_shape.get("width", 0)),
-        "height": int(frame_shape.get("height", 0)),
-        "pixel_format": str(probe_payload.get("pixel_format", policy["pixel_format"])),
-        "frame_id": int(probe_payload.get("frame_id", 0)),
-        "timestamp_ms": int(probe_payload.get("timestamp_ms", 0)),
-    }
+    _apply_probe_payload(response, probe_payload, policy=policy)
 
     detected_error = _validate_detected_device(policy=policy, payload=response)
     if detected_error is not None:
@@ -94,6 +92,39 @@ def run_camera_probe(
     response["error_stage"] = None
     response["detail"] = "Camera probe succeeded with one frame capture."
     return _finalize_probe_response(runtime_config, response, diagnostics_store)
+
+
+def _resolve_active_probe_payload(
+    active_probe_payload_provider: Callable[[], dict[str, Any] | None] | None,
+) -> dict[str, Any] | None:
+    if active_probe_payload_provider is None:
+        return None
+    try:
+        payload = active_probe_payload_provider()
+    except Exception:
+        return None
+    if not payload:
+        return None
+    return payload
+
+
+def _apply_probe_payload(response: dict[str, Any], payload: dict[str, Any], *, policy: dict[str, Any]) -> None:
+    response["matched_by"] = _normalize_matched_by(policy["probe_mode"], str(payload.get("matched_by", "")))
+    response["identity"] = {
+        "serial_number": str(payload.get("detected_serial_number", "") or ""),
+        "ip": str(payload.get("detected_ip", "") or ""),
+    }
+    response["device"] = {
+        "model": str(payload.get("detected_model", "") or ""),
+    }
+    frame_shape = payload.get("frame_shape") or {}
+    response["frame"] = {
+        "width": int(frame_shape.get("width", 0)),
+        "height": int(frame_shape.get("height", 0)),
+        "pixel_format": str(payload.get("pixel_format", policy["pixel_format"])),
+        "frame_id": int(payload.get("frame_id", 0) or 0),
+        "timestamp_ms": int(payload.get("timestamp_ms", 0) or 0),
+    }
 
 
 def resolve_camera_probe_policy(
@@ -294,6 +325,12 @@ def _classify_probe_exception(exc: Exception) -> dict[str, str]:
         return _failure("SDK_IMPORT_NOT_READY", ERROR_STAGE_SDK_RUNTIME, detail)
     if "Camera identity is missing" in detail:
         return _failure("PINNED_IDENTITY_MISSING", ERROR_STAGE_CONFIG, detail)
+    if "open device" in detail and "0x80000203" in detail:
+        return _failure(
+            "DEVICE_ACCESS_DENIED",
+            ERROR_STAGE_DEVICE_DISCOVERY,
+            _enrich_sdk_access_denied_detail(detail),
+        )
     if "enumerate devices" in detail:
         return _failure(
             "DEVICE_DISCOVERY_FAILED",
@@ -339,6 +376,42 @@ def _enrich_sdk_discovery_failure_detail(detail: str) -> str:
         f"{detail}. Raw GVCP discovery still found {len(devices)} device(s): "
         f"{'; '.join(snippets)}. This points to a Hik MVS GigE runtime/driver initialization problem "
         "on this host rather than a missing camera response."
+    )
+
+
+def _enrich_sdk_access_denied_detail(detail: str) -> str:
+    try:
+        devices = discover_gige_vision_devices()
+    except Exception:
+        devices = []
+    if not devices:
+        return (
+            f"{detail}. The camera rejected the current control attempt. "
+            "Another client or controller may already hold the device."
+        )
+
+    snippets: list[str] = []
+    for device in devices[:3]:
+        parts = [
+            f"interface={device.get('interface', '')}",
+            f"host_ip={device.get('host_ip', '')}",
+            f"ip={device.get('ip', '')}",
+        ]
+        model = str(device.get("model", "") or "").strip()
+        if model:
+            parts.append(f"model={model}")
+        serial_number = str(device.get("serial_number", "") or "").strip()
+        if serial_number:
+            parts.append(f"serial_number={serial_number}")
+        user_defined_name = str(device.get("user_defined_name", "") or "").strip()
+        if user_defined_name:
+            parts.append(f"user_defined_name={user_defined_name}")
+        snippets.append(", ".join(parts))
+
+    return (
+        f"{detail}. Raw GVCP discovery still found {len(devices)} device(s): "
+        f"{'; '.join(snippets)}. This points to another control client, MVS process, or host runtime "
+        "still holding camera access rather than a missing device."
     )
 
 

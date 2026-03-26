@@ -36,17 +36,14 @@
         <div class="actions">
           <div>
             <h2>Live Setup</h2>
-            <p>Phase 2 preview and definition flow for ROI, metric box, and two locked measurement points.</p>
+            <p>Freeze-first setup flow with auto-live preview, ROI-first geometry, and two locked measurement points.</p>
           </div>
           <div class="button-row live-toolbar">
             <select id="live-run-preset-select" data-testid="live-run-preset-select">
               <option value="balloon">Balloon</option>
               <option value="guidewire">Guidewire</option>
             </select>
-            <button id="create-live-run-btn" type="button">Create Live Run</button>
-            <button id="fetch-live-preview-btn" type="button" disabled>Fetch Preview</button>
-            <button id="start-live-preview-stream-btn" type="button" disabled>Start Live Preview</button>
-            <button id="stop-live-preview-stream-btn" type="button" disabled>Stop Live Preview</button>
+            <button id="stop-live-preview-stream-btn" type="button" disabled>Freeze</button>
           </div>
         </div>
         <dl class="facts detail-facts">
@@ -74,12 +71,19 @@
         <div class="live-setup-grid">
           <article class="live-preview-panel">
             <div class="button-row live-toolbar">
-              <button id="auto-detect-definition-btn" type="button" disabled>Auto Detect Points</button>
               <button id="save-live-definition-btn" type="button" disabled>Save Definition</button>
               <button id="start-live-run-btn" type="button" disabled>Start Live Run</button>
               <button id="stop-live-run-btn" type="button" disabled>Stop Live Run</button>
             </div>
             <div class="button-row live-toolbar">
+              <label for="live-current-temperature">Current Temp (°C)</label>
+              <input
+                id="live-current-temperature"
+                data-testid="live-current-temperature"
+                type="text"
+                readonly
+                value="--"
+              />
               <label for="live-target-temperature">Target Temp (°C)</label>
               <input
                 id="live-target-temperature"
@@ -89,11 +93,10 @@
                 step="0.1"
                 value="75"
               />
+              <button id="confirm-target-temperature-btn" type="button">Confirm Target</button>
             </div>
             <div class="button-row live-toolbar">
               <button id="draw-analysis-roi-btn" type="button" disabled>Draw ROI</button>
-              <button id="draw-observation-window-btn" type="button" disabled>Draw Window</button>
-              <button id="rotate-observation-window-btn" type="button" disabled>Rotate Window</button>
               <button id="pick-point-a-btn" type="button" disabled>Point A</button>
               <button id="pick-point-b-btn" type="button" disabled>Point B</button>
             </div>
@@ -102,6 +105,18 @@
             </p>
             <div class="live-preview-frame">
               <div id="live-preview-stage" class="live-preview-stage" hidden>
+                <div
+                  id="live-point-prompt"
+                  data-testid="live-point-prompt"
+                  class="live-point-prompt"
+                  hidden
+                  aria-live="polite"
+                >
+                  <div id="live-point-prompt-title" class="live-point-prompt__title">Selecting Point</div>
+                  <p id="live-point-prompt-body" class="live-point-prompt__body">
+                    Click on the preview to place the current measurement point.
+                  </p>
+                </div>
                 <img id="live-preview-img" data-testid="live-preview-img" alt="Live preview frame" hidden />
                 <svg
                   id="live-preview-overlay"
@@ -112,42 +127,28 @@
                 ></svg>
               </div>
               <p id="live-preview-empty" class="session-item--empty" data-testid="live-preview-empty">
-                Create a live run and fetch a preview frame to start setup.
+                Connecting to live preview...
               </p>
             </div>
             <p id="live-run-message" class="live-message live-message--neutral" data-testid="live-run-message">
-              Create a live run draft to begin the setup flow.
+              Preparing the live setup session...
             </p>
           </article>
 
           <article class="live-definition-panel">
             <section class="live-form-section">
-              <h3>Analysis ROI</h3>
+              <h3>ROI</h3>
               <div class="live-form-grid">
-                <label for="live-analysis-roi-x">X</label>
+                <label for="live-analysis-roi-x">Center X</label>
                 <input id="live-analysis-roi-x" data-testid="live-analysis-roi-x" type="number" min="0" />
-                <label for="live-analysis-roi-y">Y</label>
+                <label for="live-analysis-roi-y">Center Y</label>
                 <input id="live-analysis-roi-y" data-testid="live-analysis-roi-y" type="number" min="0" />
                 <label for="live-analysis-roi-width">Width</label>
                 <input id="live-analysis-roi-width" data-testid="live-analysis-roi-width" type="number" min="1" />
                 <label for="live-analysis-roi-height">Height</label>
                 <input id="live-analysis-roi-height" data-testid="live-analysis-roi-height" type="number" min="1" />
-              </div>
-            </section>
-
-            <section class="live-form-section">
-              <h3>Observation Window</h3>
-              <div class="live-form-grid">
-                <label for="live-metric-box-center-x">Center X</label>
-                <input id="live-metric-box-center-x" data-testid="live-metric-box-center-x" type="number" min="0" />
-                <label for="live-metric-box-center-y">Center Y</label>
-                <input id="live-metric-box-center-y" data-testid="live-metric-box-center-y" type="number" min="0" />
-                <label for="live-metric-box-width">Width</label>
-                <input id="live-metric-box-width" data-testid="live-metric-box-width" type="number" min="1" />
-                <label for="live-metric-box-height">Height</label>
-                <input id="live-metric-box-height" data-testid="live-metric-box-height" type="number" min="1" />
-                <label for="live-metric-box-angle">Angle</label>
-                <input id="live-metric-box-angle" data-testid="live-metric-box-angle" type="number" step="0.1" />
+                <label for="live-analysis-roi-angle">Angle</label>
+                <input id="live-analysis-roi-angle" data-testid="live-analysis-roi-angle" type="number" step="0.1" />
               </div>
             </section>
 
@@ -179,6 +180,8 @@
                   <option value="binary">Binary</option>
                   <option value="otsu">Otsu</option>
                 </select>
+                <label for="live-sensitivity">Sensitivity</label>
+                <input id="live-sensitivity" data-testid="live-sensitivity" type="number" min="0" max="100" step="1" value="50" />
                 <label for="live-min-target-area">Min Area</label>
                 <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
                 <label for="live-ignore-internal-texture">Ignore Texture</label>

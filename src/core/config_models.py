@@ -118,6 +118,8 @@ class TempRegisterMapConfig:
 class TempControlConfig:
     start_output_mode: str = "power_nonzero"
     startup_power_percent: float = 100.0
+    completion_mode: str = "target_reached"
+    mock_ramp_step_celsius: float = 10.0
 
 
 @dataclass(slots=True)
@@ -153,7 +155,10 @@ class RunRuntimeConfig:
     preview_poll_ms: int = 500
     telemetry_poll_ms: int = 500
     capture_interval_ms: int = 200
+    manual_stop_max_samples: int = 10_000
     preview_target_fps: float | None = None
+    preview_display_max_width: int = 640
+    preview_display_max_height: int = 480
     measurement_target_hz: float | None = None
     artifact_capture_hz: float | None = None
     stop_on_invalid_tracking: bool = True

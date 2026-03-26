@@ -1,13 +1,31 @@
-"""JSON-backed storage for lightweight session detail artifacts."""
+"""JSON-backed storage for live-run artifacts, including AFAS datasets."""
 
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import struct
 from typing import Any
 import zlib
+
+from src.vision.metric_two_point_distance import downsample_grayscale_image, normalize_frame_image
+
+_DETAIL_KEYFRAME_MAX_WIDTH = 160
+_DETAIL_KEYFRAME_MAX_HEIGHT = 120
+_ARTIFACT_KEYFRAME_MAX_WIDTH = 512
+_ARTIFACT_KEYFRAME_MAX_HEIGHT = 512
+_AFAS_ANALYSIS_ARTIFACT_NAME = "afas_analysis.json"
+_AFAS_PLOT_ARTIFACT_NAME = "afas_plot.png"
+_AFAS_REPORT_ARTIFACT_NAME = "afas_report.xlsx"
+
+
+@dataclass(slots=True)
+class _PreviewBitmap:
+    width: int
+    height: int
+    pixels: bytes
 
 
 class SessionArtifactStore:
@@ -38,6 +56,7 @@ class SessionArtifactStore:
         detail: dict[str, Any],
         result: dict[str, Any],
         events: list[dict[str, Any]],
+        afas_dataset: dict[str, Any] | None = None,
         keyframes: list[dict[str, Any]] | None = None,
     ) -> Path:
         session_dir = self._session_dir(session_id)
@@ -47,14 +66,20 @@ class SessionArtifactStore:
             json.dumps(definition, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        serializable_detail = _serialize_live_detail(detail)
         (session_dir / "detail.json").write_text(
-            json.dumps(detail, ensure_ascii=True, indent=2),
+            json.dumps(serializable_detail, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
         (session_dir / "result.json").write_text(
             json.dumps(result, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        if afas_dataset is not None:
+            (session_dir / "afas_dataset.json").write_text(
+                json.dumps(afas_dataset, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
 
         telemetry_path = session_dir / "telemetry.csv"
         with telemetry_path.open("w", encoding="utf-8", newline="") as handle:
@@ -94,6 +119,39 @@ class SessionArtifactStore:
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def get_afas_dataset(self, session_id: str) -> dict[str, Any] | None:
+        path = self._session_dir(session_id) / "afas_dataset.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_afas_analysis(self, session_id: str, payload: dict[str, Any]) -> Path:
+        path = self._session_dir(session_id) / _AFAS_ANALYSIS_ARTIFACT_NAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+        self._merge_result_artifact_refs(session_id, afas_analysis=_AFAS_ANALYSIS_ARTIFACT_NAME)
+        return path
+
+    def get_afas_analysis(self, session_id: str) -> dict[str, Any] | None:
+        path = self._session_dir(session_id) / _AFAS_ANALYSIS_ARTIFACT_NAME
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_afas_plot(self, session_id: str, png_bytes: bytes) -> Path:
+        path = self._session_dir(session_id) / _AFAS_PLOT_ARTIFACT_NAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(png_bytes)
+        self._merge_result_artifact_refs(session_id, afas_plot=_AFAS_PLOT_ARTIFACT_NAME)
+        return path
+
+    def save_afas_report(self, session_id: str, workbook_bytes: bytes) -> Path:
+        path = self._session_dir(session_id) / _AFAS_REPORT_ARTIFACT_NAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(workbook_bytes)
+        self._merge_result_artifact_refs(session_id, afas_report=_AFAS_REPORT_ARTIFACT_NAME)
+        return path
+
     def get_telemetry(self, session_id: str) -> list[dict[str, Any]] | None:
         path = self._session_dir(session_id) / "telemetry.csv"
         if not path.exists():
@@ -109,6 +167,12 @@ class SessionArtifactStore:
         for name in ("definition.json", "telemetry.csv", "events.jsonl", "detail.json", "result.json"):
             if not (session_dir / name).exists():
                 missing.append(name)
+        result = self.get_result(session_id)
+        artifact_refs = {} if result is None else dict(result.get("artifacts", {}))
+        for key in ("afas_dataset", "afas_analysis", "afas_plot", "afas_report"):
+            artifact_ref = artifact_refs.get(key)
+            if artifact_ref and not (session_dir / str(artifact_ref)).exists():
+                missing.append(str(artifact_ref))
         for keyframe in expected_keyframes or []:
             if not (session_dir / keyframe).exists():
                 missing.append(keyframe)
@@ -131,16 +195,39 @@ class SessionArtifactStore:
             if not label or image is None:
                 continue
             path = keyframe_dir / f"{label}.png"
-            path.write_bytes(_encode_grayscale_png(image))
+            bitmap = _build_preview_bitmap(
+                image,
+                max_width=_ARTIFACT_KEYFRAME_MAX_WIDTH,
+                max_height=_ARTIFACT_KEYFRAME_MAX_HEIGHT,
+            )
+            path.write_bytes(_encode_grayscale_png_bitmap(bitmap))
+
+    def _merge_result_artifact_refs(self, session_id: str, **refs: str | None) -> None:
+        result_path = self._session_dir(session_id) / "result.json"
+        if not result_path.exists():
+            return
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        artifact_payload = dict(payload.get("artifacts", {}))
+        for key, value in refs.items():
+            if value is not None:
+                artifact_payload[key] = value
+        payload["artifacts"] = artifact_payload
+        result_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
-def _encode_grayscale_png(image: list[list[int]]) -> bytes:
-    width = len(image[0]) if image else 1
-    height = len(image) if image else 1
-    raw = bytearray()
-    for row in image:
-        raw.append(0)
-        raw.extend(max(0, min(255, int(value))) for value in row)
+def _encode_grayscale_png_bitmap(bitmap: _PreviewBitmap) -> bytes:
+    width = bitmap.width
+    height = bitmap.height
+    raw = bytearray(height * (width + 1))
+    write_index = 0
+    pixel_index = 0
+    for _ in range(height):
+        raw[write_index] = 0
+        write_index += 1
+        row_end = pixel_index + width
+        raw[write_index : write_index + width] = bitmap.pixels[pixel_index:row_end]
+        write_index += width
+        pixel_index = row_end
 
     def _chunk(chunk_type: bytes, data: bytes) -> bytes:
         return (
@@ -155,6 +242,56 @@ def _encode_grayscale_png(image: list[list[int]]) -> bytes:
     idat = _chunk(b"IDAT", zlib.compress(bytes(raw)))
     iend = _chunk(b"IEND", b"")
     return signature + ihdr + idat + iend
+
+
+def _serialize_live_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(detail)
+    key_frames = payload.get("key_frames")
+    if not isinstance(key_frames, list):
+        return payload
+    sanitized_key_frames: list[dict[str, Any]] = []
+    for key_frame in key_frames:
+        if isinstance(key_frame, dict):
+            sanitized_key_frame = dict(key_frame)
+            image = sanitized_key_frame.get("image")
+            if image is not None:
+                sanitized_key_frame["image"] = _build_preview_rows(
+                    image,
+                    max_width=_DETAIL_KEYFRAME_MAX_WIDTH,
+                    max_height=_DETAIL_KEYFRAME_MAX_HEIGHT,
+                )
+            sanitized_key_frames.append(sanitized_key_frame)
+        else:
+            sanitized_key_frames.append(key_frame)
+    payload["key_frames"] = sanitized_key_frames
+    return payload
+
+
+def _build_preview_rows(image: Any, *, max_width: int, max_height: int) -> list[list[int]]:
+    native_downsample = getattr(image, "downsample_rows", None)
+    if callable(native_downsample):
+        preview_rows = native_downsample(max_width=max_width, max_height=max_height)
+        if preview_rows:
+            return preview_rows
+    return downsample_grayscale_image(
+        normalize_frame_image(image),
+        max_width=max_width,
+        max_height=max_height,
+    )
+
+
+def _build_preview_bitmap(image: Any, *, max_width: int, max_height: int) -> _PreviewBitmap:
+    native_bitmap_payload = getattr(image, "downsample_bitmap_payload", None)
+    if callable(native_bitmap_payload):
+        width, height, pixels = native_bitmap_payload(max_width=max_width, max_height=max_height)
+        return _PreviewBitmap(width=width, height=height, pixels=pixels)
+    rows = _build_preview_rows(image, max_width=max_width, max_height=max_height)
+    width = len(rows[0]) if rows else 1
+    height = len(rows) if rows else 1
+    pixels = bytearray()
+    for row in rows:
+        pixels.extend(max(0, min(255, int(value))) for value in row)
+    return _PreviewBitmap(width=width, height=height, pixels=bytes(pixels))
 
 
 def _decode_telemetry_row(row: dict[str, str]) -> dict[str, Any]:

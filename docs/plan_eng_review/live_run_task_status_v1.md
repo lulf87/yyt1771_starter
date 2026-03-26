@@ -1,6 +1,6 @@
 # Live Run Task Status v1
 
-Updated on 2026-03-24
+Updated on 2026-03-26
 Status: ACTIVE_WORKTREE_SNAPSHOT
 
 ## Purpose
@@ -35,17 +35,23 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 
 1. [requirements_overview.md](../requirements/requirements_overview.md)
 2. [office_hours_requirement_baseline_v1.md](../requirements/office_hours_requirement_baseline_v1.md)
-3. [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
-4. [live_capture_temporal_sampling_requirement_v1.md](../requirements/live_capture_temporal_sampling_requirement_v1.md)
-5. [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md)
-6. [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
-7. [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
-8. [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
-9. [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)
-10. [live_run_execution_plan_v1.md](./live_run_execution_plan_v1.md)
-11. [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
-12. [live_run_test_plan_v1.md](./live_run_test_plan_v1.md)
-13. [lu92xx_modbus_rtu_requirement_v1.md](../requirements/lu92xx_modbus_rtu_requirement_v1.md)
+3. [live_setup_freeze_roi_tracking_requirement_v1.md](../requirements/live_setup_freeze_roi_tracking_requirement_v1.md)
+4. [live_setup_roi_ab_window_requirement_v1.md](../requirements/live_setup_roi_ab_window_requirement_v1.md)
+5. [afas_full_postprocessing_migration_requirement_v1.md](../requirements/afas_full_postprocessing_migration_requirement_v1.md)
+6. [live_setup_freeze_roi_tracking_plan_lock_v1.md](./live_setup_freeze_roi_tracking_plan_lock_v1.md)
+7. [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
+8. [afas_full_postprocessing_migration_plan_lock_v1.md](./afas_full_postprocessing_migration_plan_lock_v1.md)
+9. [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
+10. [live_capture_temporal_sampling_requirement_v1.md](../requirements/live_capture_temporal_sampling_requirement_v1.md)
+11. [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md)
+12. [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
+13. [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
+14. [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
+15. [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)
+16. [live_run_execution_plan_v1.md](./live_run_execution_plan_v1.md)
+17. [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
+18. [live_run_test_plan_v1.md](./live_run_test_plan_v1.md)
+19. [lu92xx_modbus_rtu_requirement_v1.md](../requirements/lu92xx_modbus_rtu_requirement_v1.md)
 
 ### 3. Latest locked conclusions
 
@@ -54,6 +60,24 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 - 最小闭环是 `preview -> measurement definition -> live coordinator -> result/artifacts`
 - live run 属于 `Experiment & Analysis Lane` 主链；`precheck/probe` 属于 `Commissioning Lane`
 - replay / workspace 继续保留，但定位为离线验证与复盘能力
+- 当前 operator-facing live setup workflow 已再次 refreeze：
+  - app load 后自动进入 live preview
+  - `Freeze` 是唯一 preview lifecycle action
+  - ROI 成为 setup 与 live tracking 的唯一主几何
+  - `A-B` 在 ROI 局部横轴上定义
+  - ROI / sensitivity 变化必须触发 recapture + recompute
+  - `Draw Window / Rotate Window` 已不再属于当前最高优先级用户流
+- live setup 的最新几何语义已经单独 refreeze：
+  - `ROI` 是 auto-detect 主搜索区域
+  - `A-B` 是主几何锚点，可手工点或自动生成
+  - `observation_window` 只能在 `A-B` 之后生成
+  - `observation_axis` 只能是 `long_axis | short_axis`
+- `ROI-first, A-B-before-window` 几何链已在当前 Web baseline 落地：
+  - auto-detect 以 `ROI` 为主搜索区域
+  - auto-detect 只会在横向或纵向中选择主跨度更显著的一组 `A-B`
+  - `A-B` 先于 `Draw Window`
+  - default `observation_window` 由 `A-B` 连线生成
+  - `observation_axis` 继续限制为 `long_axis | short_axis`
 - 最终交付方向已新增锁定：
   - 保留现有 workflow 语义
   - 不再以 Web 作为最终交付形态
@@ -76,6 +100,9 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
   - `artifact_capture_hz`
 - `50 Hz synchronized measurement` 已锁成 baseline gate
 - `100 Hz synchronized measurement` 仅是 stretch goal
+- 当前 `Phase 3` 已完成的是轻量 live AFAS adapter / result contract
+- “完整 AFAS 后处理能力迁移”现在已被拆成独立 workstream
+  - 以后不得再把当前轻量 `afas.py` 误写成 full AFAS parity
 - 桌面可视预览 `preview_display_fps >= 50` 已被单独锁成 desktop migration gate
 - `analysis_roi` / `metric_box` 不能再被当成 camera-side acquisition ROI 的替代品
 
@@ -215,7 +242,7 @@ Status: VERIFIED_DONE
 
 ## Phase 2: Preview, measurement definition, and run gating
 
-Status: VERIFIED_DONE_FOR_CURRENT_WEB_BASELINE_WITH_ROUTE_NAMING_DEVIATION
+Status: VERIFIED_DONE_FOR_FREEZE_FIRST_AND_ROI_FIRST_WEB_BASELINE
 
 已验证完成项：
 
@@ -247,19 +274,137 @@ Status: VERIFIED_DONE_FOR_CURRENT_WEB_BASELINE_WITH_ROUTE_NAMING_DEVIATION
 - 计划文档早期草稿写的是 `POST /api/runs/{run_id}/definition/auto-detect`
 - 当前实现和前端使用的是 `POST /api/runs/{run_id}/definition/auto`
 - 这属于 route naming deviation，不影响当前 Phase 2 的 mock/browser 完成判断
-- 当前这项完成判断尚未包含单独的真机 operator-side UI 手感复核
+- 当前这项完成判断已包含：
+  - `dev_mock` 浏览器端到端验证
+  - guidewire-like / balloon-like fixture 回归
+  - 当前真机页面上的 ROI-first operator sanity QA
+- 当前仍保留的限制是：
+  - 真机页面上的现有现场画面不是 guidewire / balloon 标准场景
+  - 因此真实相机 QA 目前是 operator-side sanity check，不等于代表性目标图像集验证
 
 补充说明：
 
 - 这里的完成判断只表示当前 Web baseline 已经达到 freeze-first 交互语义
+- 并且已经补齐最新 `ROI-first, A-B-before-window` 几何语义
 - 它不等于桌面迁移已经完成
 - 桌面迁移的交付进度应另看：
   - [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
+- 几何语义改造的实施计划应看：
+  - [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
 
 建议：
 
 - 若后续要做 route naming 统一，应作为单独契约清理任务处理
-- 在重新接入真实相机后，再补一次 operator-side 真机 UI smoke test
+- 若后续继续优化 auto-detect，应以代表性 guidewire / balloon 真机图像为准，不要回退到 window-first 语义
+
+---
+
+## Live setup freeze / ROI / tracking workstream
+
+Status: VERIFIED_DONE_FOR_CURRENT_OPERATOR_BASELINE
+
+这部分是 2026-03-25 最新 requirement / plan refreeze 后的工程主线。
+
+当前最高优先级锁定文档：
+
+- [live_setup_freeze_roi_tracking_requirement_v1.md](../requirements/live_setup_freeze_roi_tracking_requirement_v1.md)
+- [live_setup_freeze_roi_tracking_plan_lock_v1.md](./live_setup_freeze_roi_tracking_plan_lock_v1.md)
+
+历史文档仍保留参考价值，但在 operator workflow scope 上已被覆盖：
+
+- [live_setup_roi_ab_window_requirement_v1.md](../requirements/live_setup_roi_ab_window_requirement_v1.md)
+- [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
+
+锁定结论：
+
+- app load 后自动进入 live preview
+- `Freeze` 成为唯一 preview lifecycle action
+- `ROI` 成为 setup 与 live tracking 的唯一主几何
+- `A-B` 改为 ROI-local horizontal 边界点
+- `Draw Window / Rotate Window` 已从 operator-facing 流程移除
+- `ROI` / sensitivity 变化必须触发 still recapture + point recompute
+- 当前温度和目标温度确认都进入了 setup UI
+- `Start Live Run` 后实时画面和 `A-B` 都会持续刷新
+
+当前代码状态：
+
+- 前端 operator-facing 按钮流已切成：
+  - `Freeze`
+  - `Start Live Run`
+  - `Stop Live Run`
+  - `Confirm Target`
+- 旧的：
+  - `Create Live Run`
+  - `Fetch Preview`
+  - `Start Live Preview`
+  - `Draw Window`
+  - `Rotate Window`
+  已降级为内部兼容实现细节，不再出现在 operator-facing UI
+- ROI 已支持：
+  - 图上拖拽
+  - 缩放
+  - 旋转手柄
+  - 参数面板双向同步
+- `A-B` 自动检测已改为 ROI-local horizontal 边界点
+- live run 期间已具备实时 `A-B` tracking overlay 刷新路径
+
+锁定实施顺序：
+
+1. `FRT-1`
+   Status: VERIFIED_DONE
+   Scope: auto-preview boot flow、移除旧 preview 按钮、`Freeze` 命名切换
+
+2. `FRT-2`
+   Status: VERIFIED_DONE
+   Scope: ROI center / size / angle contract、overlay rotation handle、panel sync
+
+3. `FRT-3`
+   Status: VERIFIED_DONE
+   Scope: sensitivity contract、still recapture + recompute、ROI-local horizontal `A-B`
+
+4. `FRT-4`
+   Status: VERIFIED_DONE
+   Scope: current temp display、target temp confirm action、confirmed / unconfirmed UI state
+
+5. `FRT-5`
+   Status: VERIFIED_DONE
+   Scope: start run resumes live preview、live `A-B` overlay refresh、tracking frame path
+
+6. `FRT-6`
+   Status: VERIFIED_DONE_WITH_REAL_DEVICE_AND_SAFE_RUN_QA
+   Scope: browser regression、real camera QA、real temp-controller smoke
+
+补充验证：
+
+- 2026-03-25 已通过：
+  - `tests/webapp/test_ui_shell.py`
+  - `tests/webapp/test_live_run_api.py`
+  - `tests/workflow/test_live_run.py`
+  - `tests/webapp/test_profile_api.py`
+  - 组合回归结果：`51 passed`
+- 当前 operator-facing shell HTML 已确认仅保留：
+  - `Freeze`
+  - `Start Live Run`
+  - `Confirm Target`
+- `dev_mock` 安全启动链已通过 API/QA 验证：
+  - `save_status = run_ready`
+  - `start_status = running`
+  - 终态 `detail_status = completed`
+  - tracking 后的 `A-B = [7, 32] / [88, 32]`
+  - `curve_points = 5`
+- 真机 `dev_lab` 设备链已确认：
+  - `GET /health` 正常
+  - `GET /api/system/profile` 显示 `camera = hik_gige_mvs`, `temp = lu92xx_modbus_rtu`
+  - `GET /api/system/temp/current` 可读真实温度，当前为 `21.8 C`
+  - `POST /api/system/camera/probe` 可复用当前活动 live preview，并返回真实相机帧信息：
+    - `2048 x 1364`
+    - `mono8`
+- 兼容层限制说明：
+  - 当 operator-facing auto-live preview 已占用真机相机时，直接对另一个新 run 调旧的兼容 API
+    `POST /api/runs/{run_id}/preview/frame`
+    仍可能返回 `503 / 0x80000203`
+  - 这说明旧兼容 API 不能与当前 auto-preview operator flow 并行争用设备
+  - 但这不再是当前 operator workflow 的主路径，也不构成 FRT 主链 blocker
 
 ---
 
@@ -396,6 +541,9 @@ Status: VERIFIED_DONE
 
 - 当前实现是“轻量 tangent-style AFAS 分析”，不是外部专有分析引擎
 - `af95` 仍然复用 [af95.py](/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter/src/curve/af95.py) 的估计逻辑，这不影响本阶段“adapter + contract”完成判断
+- 若后续目标改成“迁入 `AFAS/` 中拿到数据后的全部功能”，应改看：
+  - [afas_full_postprocessing_migration_requirement_v1.md](../requirements/afas_full_postprocessing_migration_requirement_v1.md)
+  - [afas_full_postprocessing_migration_plan_lock_v1.md](./afas_full_postprocessing_migration_plan_lock_v1.md)
 
 ---
 
@@ -519,10 +667,11 @@ Status: PARTIAL
    Scope: Phase 1 合同、状态、schema、route skeleton
 
 2. Task-B
-   Status: VERIFIED_DONE_FOR_CURRENT_WEB_BASELINE_WITH_ROUTE_NAMING_DEVIATION
-   Scope: preview、definition validation、auto detect、run gating
+   Status: VERIFIED_DONE_FOR_FREEZE_ROI_TRACKING_OPERATOR_BASELINE
+   Scope: auto-preview boot flow、Freeze、rotated ROI、ROI-local horizontal A-B、target confirm、live A-B tracking
    Follow-up:
-   若要继续做契约清理，可统一 `auto` vs `auto-detect` 路径；若要继续推进最终交付，应转入桌面迁移 D5-D7，而不是再把当前 Web baseline 误报成未完成
+   若后续继续优化，应围绕代表性 guidewire / balloon 真实图像质量继续调参，并继续清理旧
+   preview compatibility API 与 operator flow 的设备争用边界
 
 3. Task-C
    Status: VERIFIED_DONE
@@ -534,8 +683,8 @@ Status: PARTIAL
    Scope: live coordinator、stop/abort/fail/invalidation 状态流
 
 5. Task-E
-   Status: VERIFIED_DONE_WITHOUT_BENCH
-   Scope: LU92XX Modbus RTU adapter、profile defaults、config contract
+   Status: VERIFIED_DONE_WITH_READ_ONLY_REAL_DEVICE_SMOKE
+   Scope: LU92XX Modbus RTU adapter、profile defaults、config contract、current-temperature read path
 
 6. Task-F
    Status: BLOCKED_ON_PHYSICAL_BENCH
@@ -545,6 +694,51 @@ Status: PARTIAL
    Status: NOT_STARTED_AT_UI_LEVEL
    Scope: workspace/history/result integration
 
+8. Task-H
+   Status: APM_1_TO_APM_6_VERIFIED_DONE
+   Scope: `AFAS/` 全量后处理迁移
+   Plan:
+   [afas_full_postprocessing_migration_plan_lock_v1.md](./afas_full_postprocessing_migration_plan_lock_v1.md)
+   Note:
+   当前 `Task-C` 完成的只是轻量 live AFAS adapter，不等同于 full AFAS parity
+   Current progress:
+   - `APM-1` canonical `afas_dataset.json` contract 已落地并进入 artifact refs
+   - `APM-2` preprocessing parity 已落地：
+     - temperature grouping
+     - outlier detection / repair
+     - Savitzky-Golay smoothing
+   - `APM-3` parameterized tangent analysis parity 已落地：
+     - derivative
+     - max slope point
+     - low/high baseline fit
+     - tangent intersection
+     - outlier count / parameter snapshot
+   - `APM-4` analysis UI parity 已落地：
+     - session API `/api/session/{session_id}/afas/analysis`
+     - workspace 内独立 AFAS analysis panel
+     - overview chart
+     - selected-channel tangent chart
+     - result / warning summary
+     - parameter controls for smoothing and tangent ranges
+   - `APM-5` export parity 已落地：
+     - PNG analysis export
+     - Excel report export
+     - workspace export actions
+   - `APM-6` fixture parity / acceptance 已落地：
+     - 直接使用 sibling `AFAS/` 代表性 `AFReport` 输入样例
+     - 对比 preprocessing outputs
+     - 对比 `As / Af-tan`
+     - 对比 tangent / baseline params
+     - 对比 PNG / Excel export artifact existence 与 summary values
+   - post-APM release 收口已落地：
+     - `POST /api/session/{session_id}/afas/analysis` 现在会持久化 `afas_analysis.json`
+     - `POST /api/session/{session_id}/afas/export.png` 现在会持久化 `afas_plot.png`
+     - `POST /api/session/{session_id}/afas/report.xlsx` 现在会持久化 `afas_report.xlsx`
+     - 若 session 已有 `result.json`，这些 artifact refs 会自动回填到 `result.json.artifacts`
+     - root `README.md` 与 plan-entry docs 已同步到当前 shipped state
+   Acceptance note:
+   当前 `Task-H` 的最终 acceptance 依赖本地存在的 sibling `AFAS/` 代表性样例目录；在当前工作区内，这条对照已实际验证通过。
+
 ---
 
 ## Recommended next step
@@ -552,17 +746,17 @@ Status: PARTIAL
 如果你要“顺利往下继续”，推荐先明确自己是在推进哪条主线：
 
 - 若继续补 live run 组件完成度：按下面 bench / integration 顺序走
+- 若继续扩展 AFAS 体验：当前 full postprocessing parity 以及 artifact persistence / release 文档收口都已完成；后续应进入 polish 或新的产品增量，而不是继续把 `Task-H` 误报成未完成
 - 若开始桌面迁移：改看 [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md) 并从 D5 开始
 
 若当前目标仍是 live run 组件收口，推荐按照下面顺序进行，而不是重新猜需求：
 
-1. 把当前并行进程的 live run 代码先形成一个提交点
-2. 在这个提交点上，把 [live_run_task_status_v1.md](./live_run_task_status_v1.md) 当成当前状态板
-3. 下一步优先做 Phase 6 bench continuation
+1. 若当前关注的是温控现场 readiness，先做 Phase 6 bench continuation
    - 前提：物理 LU92XX 串口链路出现在本机或 Windows bench 环境
-4. bench 到位后先裁决 `264 vs 258`
+2. bench 到位后先裁决 `264 vs 258`
    - 再确认 reg `0` / reg `4` 的现场业务语义
-5. 在 bench 未到位前，不要把“代码 ready”误报成“真机 ready”
+3. 在 bench 未到位前，不要把“代码 ready”误报成“真机 ready”
+4. 若后续继续 polish Web setup，优先补代表性真机图像集 QA，而不是继续重做 geometry contract
 
 ### Safest immediate continuation
 
@@ -577,4 +771,4 @@ Status: PARTIAL
 
 ## One-line summary
 
-当前最新需求基线已经由 repo 内的 requirement / migration 文档统一收口；当前代码已经完成并验证了 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5，以及 real-camera cadence gate 下的 TS-5；桌面迁移 D1-D4 已经完成，但真实 LU92XX 现场 bench 仍 blocked，Task-G 仍未完成，桌面迁移 D5-D7 也尚未开始代码实施。
+当前最新需求基线已经由 repo 内的 requirement / migration 文档统一收口；当前代码已经完成并验证了 Phase 1、Phase 3 的轻量 live AFAS adapter、Phase 4、Phase 5，以及新的 `FRT-1..FRT-6` operator workflow baseline（auto-preview、Freeze、rotated ROI、ROI-local A-B、target confirm、live A-B tracking）；真实 LU92XX 的读取烟测已通过，但真实加热命令 bench 仍未宣称完成，Task-G 仍未完成；完整 AFAS 后处理迁移 `Task-H` 已完成 `APM-1` dataset contract、`APM-2` preprocessing parity、`APM-3` parameterized tangent analysis parity、`APM-4` analysis UI parity、`APM-5` export parity、`APM-6` fixture-based parity acceptance，以及 artifact persistence / release 文档收口；桌面迁移 D5-D7 也尚未开始代码实施。

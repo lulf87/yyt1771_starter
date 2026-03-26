@@ -33,7 +33,9 @@ def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_pre
 def build_temp_controller(runtime_config: RuntimeConfig) -> object:
     backend = str(runtime_config.live.temp.backend or runtime_config.adapters.get("temp", "") or "")
     if backend == "mock":
-        return MockTempController()
+        return MockTempController(
+            ramp_step_celsius=runtime_config.live.temp.control.mock_ramp_step_celsius,
+        )
     if backend == "lu92xx_modbus_rtu":
         return LU92XXModbusRtuController(runtime_config.live.temp)
     raise ValueError(f"Temperature backend does not support Phase 3 live runs yet: {backend or 'missing'}")

@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Protocol
 
 from src.core.config_models import CameraAcquisitionProfileConfig, CameraRuntimeConfig, RunRuntimeConfig
-from src.core.enums import CaptureMode, RunStatus
+from src.core.enums import CaptureMode, ObservationAxis, RunStatus
 from src.core.contracts import CameraPort, TempControllerPort, TempReader
 from src.core.models import (
     FramePacket,
@@ -22,6 +22,7 @@ from src.core.models import (
 )
 from src.curve.af95 import normalize_sync_points
 from src.curve.afas import AfasAnalysisResult, analyze_afas
+from src.curve.afas_postprocessing_dataset import build_afas_postprocessing_dataset
 from src.report.summary import build_live_run_result
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SessionSummary
@@ -145,14 +146,21 @@ class LockedDefinitionMetricSource:
     """Definition-locked extractor used when mock metric generation is unavailable."""
 
     def __init__(self, definition: MeasurementDefinition) -> None:
+        measurement_axis_deg = float(definition.metric_box.angle_deg)
+        selection_strategy = "roi_local_horizontal_boundary"
+        if definition.observation_axis == ObservationAxis.SHORT_AXIS:
+            measurement_axis_deg += 90.0
+            selection_strategy = "auto_extremes"
         self._extractor = TwoPointDistanceMetricExtractor(
             analysis_roi=definition.analysis_roi,
             metric_box=definition.metric_box,
+            measurement_axis_deg=measurement_axis_deg,
             foreground_polarity=definition.foreground_polarity,
             threshold_mode=definition.threshold_mode,
             ignore_internal_texture=definition.ignore_internal_texture,
             min_target_area_px=definition.min_target_area_px,
-            locked_points=(definition.point_a_px, definition.point_b_px),
+            sensitivity=definition.sensitivity,
+            selection_strategy=selection_strategy,
         )
 
     def extract(
@@ -194,10 +202,12 @@ class LiveRunCoordinator:
         temp_controller: TempControllerPort,
         metric_source: LiveMetricSource,
         quality_threshold: float = 0.75,
+        stop_on_target_reached: bool = True,
         stop_requested: Callable[[], bool] | None = None,
         wait_for_next_sample: Callable[[float], bool] | None = None,
         status_callback: Callable[[RunStatus, dict[str, Any]], None] | None = None,
         telemetry_callback: Callable[[dict[str, Any]], None] | None = None,
+        sample_callback: Callable[[SyncPoint, dict[str, Any]], None] | None = None,
     ) -> LiveRunExecution:
         started_at_ms = _now_ms()
         events = [
@@ -229,7 +239,11 @@ class LiveRunCoordinator:
             if status_callback is not None:
                 status_callback(RunStatus.RUNNING, {"started_at_ms": started_at_ms})
 
-            max_samples = _max_samples(target_temperature_celsius)
+            max_samples = (
+                _max_samples(target_temperature_celsius)
+                if stop_on_target_reached
+                else max(1, int(run_config.manual_stop_max_samples))
+            )
             for sample_index in range(max_samples):
                 if stop_requested is not None and stop_requested():
                     stop_detail = "Run stop requested before the next sample."
@@ -290,6 +304,8 @@ class LiveRunCoordinator:
                 telemetry.append(telemetry_row)
                 if telemetry_callback is not None:
                     telemetry_callback(telemetry_row)
+                if sample_callback is not None:
+                    sample_callback(sync_point, telemetry_row)
                 events.append(
                     _event(
                         sync_point.timestamp_ms,
@@ -303,7 +319,7 @@ class LiveRunCoordinator:
                     )
                 )
 
-                if temp.celsius >= target_temperature_celsius and len(sync_points) >= 3:
+                if stop_on_target_reached and temp.celsius >= target_temperature_celsius and len(sync_points) >= 3:
                     break
                 next_sample_due_ms += sample_interval_ms
                 remaining_wait_s = max(0.0, (next_sample_due_ms - _now_ms()) / 1000.0)
@@ -313,7 +329,9 @@ class LiveRunCoordinator:
                         status_callback(RunStatus.STOPPING, {"reason": "user_stop"})
                     raise LiveRunStopRequested("user_stop", "Run stop requested while waiting for the next sample.")
             else:
-                raise RuntimeError("target_temperature_not_reached")
+                if stop_on_target_reached:
+                    raise RuntimeError("target_temperature_not_reached")
+                raise RuntimeError("manual_stop_timeout")
         finally:
             stop_timestamp_ms = _now_ms()
             if output_started:
@@ -335,6 +353,8 @@ class LiveRunCoordinator:
             target_measurement_hz=run_config.measurement_target_hz,
             is_terminal=True,
         )
+        rates_payload = _rate_snapshot_payload(rate_snapshot)
+        measurement_profile_payload = _measurement_profile_payload(measurement_profile)
         detail = build_live_detail(
             session_id=session_id,
             sync_points=sync_points,
@@ -344,6 +364,26 @@ class LiveRunCoordinator:
             warnings=warnings,
         )
         keyframe_refs = _keyframe_artifact_refs(detail["key_frames"])
+        afas_dataset = build_afas_postprocessing_dataset(
+            session_id=session_id,
+            definition=definition,
+            sync_points=sync_points,
+            channel_name=channel_name,
+            analysis_engine=analysis_engine,
+            capture_mode=CaptureMode.POST_RUN_REVIEW.value,
+            rates=rates_payload,
+            measurement_profile=measurement_profile_payload,
+            warnings=warnings,
+            live_result_snapshot={
+                "result_status": afas_result.result_status,
+                "result_reason": afas_result.reason,
+                "result_detail": afas_result.detail,
+                "af95": afas_result.af95,
+                "as_value": afas_result.as_value,
+                "af_value": afas_result.af_value,
+                "point_count": detail["point_count"],
+            },
+        )
         if warnings:
             events.append(
                 _event(
@@ -371,8 +411,8 @@ class LiveRunCoordinator:
             point_count=detail["point_count"],
             keyframe_refs=keyframe_refs,
             capture_mode=CaptureMode.POST_RUN_REVIEW.value,
-            rates=_rate_snapshot_payload(rate_snapshot),
-            measurement_profile=_measurement_profile_payload(measurement_profile),
+            rates=rates_payload,
+            measurement_profile=measurement_profile_payload,
             warnings=warnings,
         )
         self.artifact_store.save_live_bundle(
@@ -382,6 +422,7 @@ class LiveRunCoordinator:
             detail=detail,
             result=result,
             events=events,
+            afas_dataset=afas_dataset,
             keyframes=detail["key_frames"],
         )
 
@@ -519,10 +560,12 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
             "x": definition.point_b_px.x,
             "y": definition.point_b_px.y,
         },
+        "observation_axis": definition.observation_axis.value,
         "foreground_polarity": definition.foreground_polarity,
         "threshold_mode": definition.threshold_mode,
         "ignore_internal_texture": definition.ignore_internal_texture,
         "min_target_area_px": definition.min_target_area_px,
+        "sensitivity": definition.sensitivity,
     }
 
 
@@ -549,6 +592,12 @@ def _telemetry_row(
         "temperature_celsius": sync_point.temp.celsius,
         "space1_px": sync_point.metric.metric_raw,
         "tracking_quality": sync_point.metric.quality,
+        "point_a_px": None
+        if sync_point.metric.point_a_px is None
+        else [int(sync_point.metric.point_a_px[0]), int(sync_point.metric.point_a_px[1])],
+        "point_b_px": None
+        if sync_point.metric.point_b_px is None
+        else [int(sync_point.metric.point_b_px[0]), int(sync_point.metric.point_b_px[1])],
     }
 
 

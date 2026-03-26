@@ -653,6 +653,46 @@ def test_default_factory_official_sdk_frame_supports_native_downsample_rows(
     assert downsampled == [[1, 3], [9, 11]]
 
 
+def test_default_factory_official_sdk_frame_supports_native_bitmap_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk_module = _FakeOfficialSdkModule(
+        device_infos=[
+            _FakeOfficialDeviceInfo(
+                model="MV-CA060-11GM",
+                serial_number="MV-SERIAL-001",
+                ip="192.168.1.11",
+                transport_code=_FakeOfficialSdkModule.MV_GIGE_DEVICE,
+            )
+        ],
+        frame_rows=[
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+        ],
+    )
+    monkeypatch.setattr(hik_gige_mvs_module, "import_hik_mvs_sdk_module", lambda: sdk_module)
+
+    camera = HikGigeMvsCamera(
+        model="MV-CA060-11GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        serial_number="MV-SERIAL-001",
+        pixel_format="mono8",
+        timeout_ms=750,
+    )
+
+    packet = camera.read_frame()
+    camera.close()
+
+    width, height, pixels = packet.image.downsample_bitmap_payload(max_width=2, max_height=2)
+
+    assert (width, height) == (2, 2)
+    assert isinstance(pixels, bytes)
+    assert len(pixels) == 4
+
+
 def test_default_factory_applies_measurement_roi_to_official_hik_sdk_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

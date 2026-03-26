@@ -5,6 +5,7 @@ Primary requirements:
 
 - [requirements_overview.md](../requirements/requirements_overview.md)
 - [office_hours_requirement_baseline_v1.md](../requirements/office_hours_requirement_baseline_v1.md)
+- [live_setup_roi_ab_window_requirement_v1.md](../requirements/live_setup_roi_ab_window_requirement_v1.md)
 - [architecture_lock.md](../requirements/architecture_lock.md)
 - [module_map.md](../requirements/module_map.md)
 - [lu92xx_modbus_rtu_requirement_v1.md](../requirements/lu92xx_modbus_rtu_requirement_v1.md)
@@ -15,12 +16,20 @@ Supporting review inputs:
 - [live_run_implementation_breakdown_v1.md](./live_run_implementation_breakdown_v1.md)
 - [live_run_test_plan_v1.md](./live_run_test_plan_v1.md)
 - [live_run_task_status_v1.md](./live_run_task_status_v1.md)
+- [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
 
 Status: LOCKED_FOR_IMPLEMENTATION_AFTER_REQUIREMENT_REFREEZE
 
 Migration note:
 
 - This file remains authoritative for live-run workflow, state, and contract decisions.
+- Geometry semantics for live setup are now additionally constrained by
+  [live_setup_roi_ab_window_requirement_v1.md](../requirements/live_setup_roi_ab_window_requirement_v1.md)
+  and
+  [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md).
+- Where this file still reflects the historical `analysis_roi + metric_box + point_a/point_b`
+  setup ordering, interpret that as the pre-refreeze implementation baseline, not the latest
+  requirement-aligned geometry flow.
 - Final delivery-shell direction is now additionally constrained by
   [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
   and
@@ -52,6 +61,12 @@ Migration note:
 2. Phase 2 的 freeze-first live setup 语义是硬门槛，不是后续 UI polish。
 3. v1 继续采用单协调循环和 HTTP 轮询 / multipart stream，不引入 WebSocket、事件总线、多进程采集。
 4. 真实 LU92XX bench 必须排在 Phase 2 语义闭环之后，而不是并行把 UI 和硬件一起搅乱。
+
+补充约束：
+
+- 本文档仍锁定 live run workflow 主边界，但 live setup 的几何编辑与 auto-detect 语义，后续必须以
+  [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
+  为最终覆盖计划。
 
 ---
 

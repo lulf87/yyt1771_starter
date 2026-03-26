@@ -308,6 +308,54 @@ def test_camera_probe_api_enriches_sdk_discovery_failure_with_gvcp_fallback(
     assert "runtime/driver initialization problem" in payload["detail"]
 
 
+def test_camera_probe_api_enriches_open_device_access_denied_with_gvcp_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+
+    class AccessDeniedHandle(FakeProbeHandle):
+        def open(self) -> None:
+            raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+
+    monkeypatch.setattr(
+        camera_probe_module,
+        "discover_gige_vision_devices",
+        lambda: [
+            {
+                "interface": "en7",
+                "host_ip": "192.168.188.22",
+                "ip": "192.168.3.211",
+                "model": "MV-CA060-11GM",
+                "serial_number": "00J67378626",
+                "user_defined_name": "Watch",
+            }
+        ],
+    )
+
+    def fake_runner(runtime_config, override=None):
+        return run_camera_probe(
+            runtime_config,
+            override=override,
+            camera_factory=lambda: AccessDeniedHandle(),
+        )
+
+    client.app.dependency_overrides[get_camera_probe_runner] = lambda: fake_runner
+
+    response = client.post("/api/system/camera/probe")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    assert payload["error_code"] == "DEVICE_ACCESS_DENIED"
+    assert payload["error_stage"] == "device_discovery"
+    assert "Raw GVCP discovery still found 1 device" in payload["detail"]
+    assert "serial_number=00J67378626" in payload["detail"]
+    assert "another control client" in payload["detail"]
+
+
 def test_camera_probe_api_writes_failure_diagnostic_record(tmp_path: Path) -> None:
     client = _make_client(tmp_path, profile="prod_win")
     store = ProbeDiagnosticStore(tmp_path / "logs")
@@ -398,3 +446,47 @@ def test_camera_probe_api_request_body_overrides_profile_default_mode(tmp_path: 
     assert payload["error_stage"] is None
     assert payload["probe_mode"] == "protocol_any"
     assert payload["matched_by"] == "first_discovered"
+
+
+def test_camera_probe_api_reuses_active_preview_payload_when_camera_is_already_streaming(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    def broken_import() -> object:
+        raise AssertionError("sdk import should not run when active preview payload is available")
+
+    monkeypatch.setattr(camera_probe_module, "import_hik_mvs_sdk_module", broken_import)
+    client.app.state.application_container.live_preview_service.get_active_probe_payload = lambda: {
+        "backend": "hik_gige_mvs",
+        "transport": "gige_vision",
+        "sdk": "hik_mvs",
+        "matched_by": "active_preview",
+        "detected_model": "MV-CU060-10GM",
+        "detected_serial_number": "MV-SERIAL-001",
+        "detected_ip": "192.168.1.88",
+        "frame_shape": {"width": 816, "height": 543},
+        "pixel_format": "mono8",
+        "frame_id": 42,
+        "timestamp_ms": 123456789,
+    }
+
+    response = client.post(
+        "/api/system/camera/probe",
+        json={
+            "probe_mode": "pinned",
+            "allowed_models": ["MV-CU060-10GM"],
+            "serial_number": "MV-SERIAL-001",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["matched_by"] == "active_preview"
+    assert payload["device"]["model"] == "MV-CU060-10GM"
+    assert payload["identity"]["serial_number"] == "MV-SERIAL-001"
+    assert payload["frame"]["width"] == 816
+    assert payload["frame"]["height"] == 543
+    assert payload["detail"] == "Camera probe reused the active live preview stream."

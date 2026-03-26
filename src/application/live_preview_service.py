@@ -18,13 +18,18 @@ class _ActivePreviewStream:
     camera: object
     stop_event: threading.Event
     started_at_monotonic: float
-    frames_emitted: int = 0
+    frames_presented: int = 0
+    first_presented_at_monotonic: float | None = None
+    last_presented_at_monotonic: float | None = None
     latest_frame: FramePacket | None = None
     latest_sequence: int = 0
+    last_presented_signature: tuple[object, ...] | None = None
     frame_event: threading.Event = field(default_factory=threading.Event)
     frame_lock: threading.Lock = field(default_factory=threading.Lock)
+    close_lock: threading.Lock = field(default_factory=threading.Lock)
     reader_thread: threading.Thread | None = None
     reader_error: str = ""
+    closed: bool = False
 
 
 @dataclass(slots=True)
@@ -43,6 +48,8 @@ class LivePreviewService:
         self._active_stream: _ActivePreviewStream | None = None
         self._latest_frame: FramePacket | None = None
         self._latest_frame_run_id = ""
+        self._latest_tracking_frame: FramePacket | None = None
+        self._latest_tracking_frame_run_id = ""
         self._last_preview_display_fps: float | None = None
         self._last_preview_display_fps_run_id = ""
 
@@ -119,7 +126,10 @@ class LivePreviewService:
         frame_interval_ms: int,
     ) -> Iterator[FramePacket]:
         assert isinstance(active_stream, _ActivePreviewStream)
-        minimum_interval_ms = max(50, int(frame_interval_ms))
+        hardware_paced = _frame_is_hardware_paced(first_frame)
+        minimum_interval_ms = (
+            0 if hardware_paced else compute_preview_interval_ms(fallback_ms=frame_interval_ms)
+        )
         frame_interval_s = minimum_interval_ms / 1000.0
         last_emitted_sequence = 1
         last_emit_monotonic = time.monotonic()
@@ -186,7 +196,10 @@ class LivePreviewService:
         active_stream.frame_event.set()
         close = getattr(active_stream.camera, "close", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception:
+                pass
         reader_thread = active_stream.reader_thread
         if reader_thread is not None and reader_thread.is_alive():
             reader_thread.join(timeout=0.25)
@@ -218,12 +231,71 @@ class LivePreviewService:
             return
         self._store_latest_frame(run_id, frame)
 
+    def get_cached_frame(self, *, run_id: str) -> FramePacket | None:
+        return self._latest_frame_for_run(run_id)
+
+    def cache_tracking_frame(self, *, run_id: str, frame: FramePacket) -> None:
+        if not run_id:
+            return
+        with self._state_lock:
+            self._latest_tracking_frame = frame
+            self._latest_tracking_frame_run_id = run_id
+
+    def get_tracking_frame(self, *, run_id: str) -> FramePacket | None:
+        if not run_id:
+            return None
+        with self._state_lock:
+            if self._latest_tracking_frame_run_id != run_id:
+                return None
+            return self._latest_tracking_frame
+
+    def get_active_probe_payload(self) -> dict[str, object] | None:
+        with self._state_lock:
+            active_stream = self._active_stream
+            if active_stream is None:
+                return None
+            frame = active_stream.latest_frame
+            camera = active_stream.camera
+        if frame is None:
+            return None
+
+        width, height = _frame_dimensions(frame)
+        return {
+            "backend": str(getattr(camera, "backend_name", "") or frame.meta.get("backend", "")),
+            "transport": str(getattr(camera, "transport", "") or frame.meta.get("transport", "")),
+            "sdk": str(getattr(camera, "sdk_name", "") or frame.meta.get("sdk", "")),
+            "matched_by": "active_preview",
+            "detected_model": str(getattr(camera, "model", "") or frame.meta.get("model", "")),
+            "detected_serial_number": str(
+                getattr(camera, "serial_number", "") or frame.meta.get("serial_number", "")
+            ),
+            "detected_ip": str(getattr(camera, "ip", "") or frame.meta.get("ip", "")),
+            "frame_shape": {
+                "width": width,
+                "height": height,
+            },
+            "pixel_format": str(getattr(camera, "pixel_format", "") or frame.meta.get("pixel_format", "")),
+            "frame_id": None if frame.frame_id is None else int(frame.frame_id),
+            "timestamp_ms": int(frame.timestamp_ms),
+        }
+
+    def mark_frame_presented(self, *, run_id: str, frame: FramePacket) -> None:
+        with self._state_lock:
+            active_stream = self._active_stream
+            if active_stream is None or active_stream.run_id != run_id:
+                return
+            self._record_presented_frame_locked(active_stream, frame)
+            self._latest_frame = frame
+            self._latest_frame_run_id = run_id
+
     def close(self) -> None:
         with self._state_lock:
             active_stream = self._active_stream
             self._active_stream = None
             self._latest_frame = None
             self._latest_frame_run_id = ""
+            self._latest_tracking_frame = None
+            self._latest_tracking_frame_run_id = ""
             self._last_preview_display_fps = None
             self._last_preview_display_fps_run_id = ""
         if active_stream is None:
@@ -232,7 +304,10 @@ class LivePreviewService:
         active_stream.frame_event.set()
         close = getattr(active_stream.camera, "close", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception:
+                pass
         reader_thread = active_stream.reader_thread
         if reader_thread is not None and reader_thread.is_alive():
             reader_thread.join(timeout=0.25)
@@ -251,6 +326,10 @@ class LivePreviewService:
             self._latest_frame_run_id = run_id
 
     def _close_stream(self, active_stream: _ActivePreviewStream) -> None:
+        with active_stream.close_lock:
+            if active_stream.closed:
+                return
+            active_stream.closed = True
         with self._state_lock:
             if self._active_stream is active_stream:
                 self._active_stream = None
@@ -260,7 +339,10 @@ class LivePreviewService:
         active_stream.frame_event.set()
         close = getattr(active_stream.camera, "close", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception:
+                pass
         reader_thread = active_stream.reader_thread
         if (
             reader_thread is not None
@@ -273,9 +355,20 @@ class LivePreviewService:
         with self._state_lock:
             if self._active_stream is not active_stream:
                 return
-            active_stream.frames_emitted += 1
+            self._record_presented_frame_locked(active_stream, frame)
             self._latest_frame = frame
             self._latest_frame_run_id = active_stream.run_id
+
+    def _record_presented_frame_locked(self, active_stream: _ActivePreviewStream, frame: FramePacket) -> None:
+        signature = _frame_signature(frame)
+        if signature == active_stream.last_presented_signature:
+            return
+        now = time.monotonic()
+        active_stream.frames_presented += 1
+        if active_stream.first_presented_at_monotonic is None:
+            active_stream.first_presented_at_monotonic = now
+        active_stream.last_presented_at_monotonic = now
+        active_stream.last_presented_signature = signature
 
     def _preview_reader_worker(self, active_stream: _ActivePreviewStream) -> None:
         try:
@@ -291,6 +384,8 @@ class LivePreviewService:
                 active_stream.reader_error = str(exc)
                 active_stream.stop_event.set()
                 active_stream.frame_event.set()
+        finally:
+            self._close_stream(active_stream)
 
     def _read_from_camera(self, camera: object) -> FramePacket:
         read_frame = getattr(camera, "read_frame")
@@ -308,9 +403,53 @@ class LivePreviewService:
 
 
 def _preview_display_fps(active_stream: _ActivePreviewStream) -> float | None:
-    if active_stream.frames_emitted < 2:
+    if active_stream.frames_presented < 2:
         return None
-    elapsed_s = max(0.0, time.monotonic() - active_stream.started_at_monotonic)
+    first_presented_at = active_stream.first_presented_at_monotonic
+    last_presented_at = active_stream.last_presented_at_monotonic
+    if first_presented_at is None or last_presented_at is None:
+        return None
+    elapsed_s = max(0.0, last_presented_at - first_presented_at)
     if elapsed_s <= 0:
         return None
-    return active_stream.frames_emitted / elapsed_s
+    return (active_stream.frames_presented - 1) / elapsed_s
+
+
+def compute_preview_interval_ms(
+    *,
+    target_fps: float | None = None,
+    fallback_ms: int | None = None,
+    minimum_interval_ms: int = 10,
+) -> int:
+    if target_fps is not None and target_fps > 0:
+        return max(minimum_interval_ms, int(1000.0 / target_fps))
+    fallback = 120 if fallback_ms is None else int(fallback_ms)
+    return max(minimum_interval_ms, fallback)
+
+
+def _frame_signature(frame: FramePacket) -> tuple[object, ...]:
+    if frame.frame_id is not None:
+        return ("frame_id", int(frame.frame_id))
+    return ("timestamp_source", int(frame.timestamp_ms), frame.source)
+
+
+def _frame_is_hardware_paced(frame: FramePacket) -> bool:
+    meta = frame.meta or {}
+    return bool(meta.get("camera_target_frame_rate_hz") or meta.get("camera_resulting_fps"))
+
+
+def _frame_dimensions(frame: FramePacket) -> tuple[int, int]:
+    image = frame.image
+    if hasattr(image, "shape"):
+        shape = getattr(image, "shape")
+        if len(shape) >= 2:
+            return int(shape[1]), int(shape[0])
+    if isinstance(image, (list, tuple)):
+        height = len(image)
+        if height == 0:
+            return (0, 0)
+        first_row = image[0]
+        if isinstance(first_row, (list, tuple)):
+            return (len(first_row), height)
+        return (height, 1)
+    raise RuntimeError("Unable to determine frame dimensions from active preview image")

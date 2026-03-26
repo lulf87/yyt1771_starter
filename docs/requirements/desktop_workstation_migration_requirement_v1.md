@@ -3,6 +3,25 @@
 Updated on 2026-03-24
 Status: CANONICAL_REQUIREMENT_ADDENDUM
 
+## Scope Note
+
+这份 requirement 仍然定义桌面迁移路线本身的边界与价值。
+
+但从 2026-03-24 起，若讨论的问题是：
+
+- 最终交付是否仍可保留 Web 壳
+- operator preview 目标是否只需约 `18 fps`
+- “更大、更亮”的 Web preview 是否足够
+
+则应先以
+[web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md)
+为更新后的优先 requirement。
+
+也就是说：
+
+- 本文档继续定义 desktop migration 路线
+- 但 delivery-shell 的最终选择已不再默认只剩 desktop 一条路
+
 ## Purpose
 
 这份文档用于锁定一个新的产品与交付方向：

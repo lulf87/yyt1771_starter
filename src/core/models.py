@@ -6,10 +6,11 @@ from dataclasses import dataclass, field
 import math
 from typing import Any
 
-from src.core.enums import CaptureMode, RunStatus, SessionState
+from src.core.enums import CaptureMode, ObservationAxis, RunStatus, SessionState
 
 
 ScalarPointValue = bool | float | int | str
+ANALYSIS_ROI_FLOAT_EPSILON = 0.5
 
 
 @dataclass(slots=True)
@@ -53,21 +54,38 @@ class MeasurementDefinition:
     threshold_mode: str
     ignore_internal_texture: bool
     min_target_area_px: int
+    sensitivity: float = 50.0
+    observation_axis: ObservationAxis = ObservationAxis.LONG_AXIS
+
+    def has_valid_roi(self) -> bool:
+        return self.analysis_roi.width > 0 and self.analysis_roi.height > 0
+
+    def has_valid_points(self) -> bool:
+        return (
+            self.has_valid_roi()
+            and _point_in_region(self.analysis_roi, self.point_a_px.x, self.point_a_px.y)
+            and _point_in_region(self.analysis_roi, self.point_b_px.x, self.point_b_px.y)
+            and (self.point_a_px.x, self.point_a_px.y) != (self.point_b_px.x, self.point_b_px.y)
+        )
+
+    def has_valid_window(self) -> bool:
+        return (
+            self.has_valid_roi()
+            and self.metric_box.width > 0
+            and self.metric_box.height > 0
+            and _metric_box_within_region(self.analysis_roi, self.metric_box)
+            and _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y)
+        )
 
     def is_complete(self) -> bool:
         return (
-            self.analysis_roi.width > 0
-            and self.analysis_roi.height > 0
-            and self.metric_box.width > 0
-            and self.metric_box.height > 0
+            self.has_valid_points()
+            and self.has_valid_window()
             and self.min_target_area_px > 0
-            and _metric_box_within_region(self.analysis_roi, self.metric_box)
-            and _point_in_region(self.analysis_roi, self.metric_box.center_x, self.metric_box.center_y)
-            and _point_in_region(self.analysis_roi, self.point_a_px.x, self.point_a_px.y)
-            and _point_in_region(self.analysis_roi, self.point_b_px.x, self.point_b_px.y)
+            and 0.0 <= float(self.sensitivity) <= 100.0
             and _point_in_metric_box(self.metric_box, self.point_a_px.x, self.point_a_px.y)
             and _point_in_metric_box(self.metric_box, self.point_b_px.x, self.point_b_px.y)
-            and (self.point_a_px.x, self.point_a_px.y) != (self.point_b_px.x, self.point_b_px.y)
+            and self.observation_axis in {ObservationAxis.LONG_AXIS, ObservationAxis.SHORT_AXIS}
         )
 
 
@@ -221,4 +239,7 @@ def _metric_box_corners(box: MetricBox) -> list[tuple[float, float]]:
 
 
 def _point_in_region_float(region: RectRegion, x: float, y: float) -> bool:
-    return region.x <= x <= (region.x + region.width) and region.y <= y <= (region.y + region.height)
+    return (
+        (region.x - ANALYSIS_ROI_FLOAT_EPSILON) <= x <= (region.x + region.width + ANALYSIS_ROI_FLOAT_EPSILON)
+        and (region.y - ANALYSIS_ROI_FLOAT_EPSILON) <= y <= (region.y + region.height + ANALYSIS_ROI_FLOAT_EPSILON)
+    )

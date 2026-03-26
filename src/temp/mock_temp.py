@@ -27,6 +27,9 @@ class MockTempController(TempReader, TempControllerPort):
             raise ValueError("target temperature must be greater than zero")
         self._target_celsius = float(celsius)
 
+    def read_target_temperature(self) -> float:
+        return float(self._target_celsius if self._target_celsius is not None else self._current_celsius)
+
     def start_output(self) -> None:
         if self._target_celsius is None:
             raise RuntimeError("target temperature must be set before starting output")

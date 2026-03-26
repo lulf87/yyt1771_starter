@@ -63,6 +63,145 @@
               No point selected.
             </p>
           </article>
+          <article class="panel workspace-card" id="workspace-afas-panel" data-testid="workspace-afas-panel">
+            <div class="workspace-section-head">
+              <div>
+                <h2>AFAS Analysis</h2>
+                <p>Full postprocessing review with preprocessing and parameterized tangent analysis.</p>
+              </div>
+              <div class="workspace-adjustment-editor-actions">
+                <button
+                  id="workspace-afas-run-btn"
+                  data-testid="workspace-afas-run-btn"
+                  type="button"
+                  class="workspace-action-btn"
+                >
+                  Run AFAS Analysis
+                </button>
+                <button
+                  id="workspace-afas-export-png-btn"
+                  data-testid="workspace-afas-export-png-btn"
+                  type="button"
+                  class="workspace-action-btn workspace-action-btn--secondary"
+                >
+                  Export PNG
+                </button>
+                <button
+                  id="workspace-afas-export-xlsx-btn"
+                  data-testid="workspace-afas-export-xlsx-btn"
+                  type="button"
+                  class="workspace-action-btn workspace-action-btn--secondary"
+                >
+                  Export Excel
+                </button>
+              </div>
+            </div>
+            <div class="workspace-afas-controls" data-testid="workspace-afas-controls">
+              <label class="workspace-adjustment-editor-field">
+                <span>Channel</span>
+                <select id="workspace-afas-channel" data-testid="workspace-afas-channel"></select>
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>Savgol Window</span>
+                <input id="workspace-afas-savgol-window" data-testid="workspace-afas-savgol-window" type="number" min="3" step="2" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>Savgol Polyorder</span>
+                <input id="workspace-afas-savgol-polyorder" data-testid="workspace-afas-savgol-polyorder" type="number" min="1" step="1" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>Low Range Start (°C)</span>
+                <input id="workspace-afas-low-start" data-testid="workspace-afas-low-start" type="number" step="0.1" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>Low Range End (°C)</span>
+                <input id="workspace-afas-low-end" data-testid="workspace-afas-low-end" type="number" step="0.1" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>High Range Start (°C)</span>
+                <input id="workspace-afas-high-start" data-testid="workspace-afas-high-start" type="number" step="0.1" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>High Range End (°C)</span>
+                <input id="workspace-afas-high-end" data-testid="workspace-afas-high-end" type="number" step="0.1" />
+              </label>
+              <label class="workspace-adjustment-editor-field">
+                <span>Tangent Offset</span>
+                <input id="workspace-afas-tangent-offset" data-testid="workspace-afas-tangent-offset" type="number" step="1" />
+              </label>
+            </div>
+            <p id="workspace-afas-status" data-testid="workspace-afas-status" class="workspace-adjustment-status">
+              AFAS analysis has not been loaded yet.
+            </p>
+            <div class="workspace-afas-grid">
+              <section class="workspace-adjustment-card" data-testid="workspace-afas-overview-card">
+                <h3>Channel Overview</h3>
+                <svg
+                  id="workspace-afas-overview-chart"
+                  data-testid="workspace-afas-overview-chart"
+                  viewBox="0 0 640 220"
+                  class="curve-svg workspace-afas-chart-svg"
+                  role="img"
+                  aria-label="AFAS overview chart"
+                >
+                  <rect x="0" y="0" width="640" height="220" class="curve-bg"></rect>
+                  <g id="workspace-afas-overview-series"></g>
+                </svg>
+                <div id="workspace-afas-overview-summary" data-testid="workspace-afas-overview-summary" class="workspace-afas-overview-summary">
+                  <p class="session-item--empty">AFAS analysis is unavailable.</p>
+                </div>
+              </section>
+              <section class="workspace-adjustment-card" data-testid="workspace-afas-analysis-card">
+                <h3>Selected Channel Analysis</h3>
+                <svg
+                  id="workspace-afas-analysis-chart"
+                  data-testid="workspace-afas-analysis-chart"
+                  viewBox="0 0 640 280"
+                  class="curve-svg workspace-afas-chart-svg"
+                  role="img"
+                  aria-label="AFAS tangent analysis chart"
+                >
+                  <rect x="0" y="0" width="640" height="280" class="curve-bg"></rect>
+                  <g id="workspace-afas-analysis-layers"></g>
+                </svg>
+                <p id="workspace-afas-analysis-empty" data-testid="workspace-afas-analysis-empty" class="session-item--empty">
+                  Run AFAS analysis to render the full postprocessing chart.
+                </p>
+              </section>
+              <section class="workspace-adjustment-card" data-testid="workspace-afas-results-card">
+                <h3>Results &amp; Parameters</h3>
+                <dl class="facts workspace-adjustment-facts">
+                  <div>
+                    <dt>Result Status</dt>
+                    <dd id="workspace-afas-result-status">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>As</dt>
+                    <dd id="workspace-afas-result-as">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Af-tan</dt>
+                    <dd id="workspace-afas-result-af-tan">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Max Slope Temp</dt>
+                    <dd id="workspace-afas-result-max-slope">N/A</dd>
+                  </div>
+                  <div>
+                    <dt>Outlier Count</dt>
+                    <dd id="workspace-afas-outlier-count">0</dd>
+                  </div>
+                  <div>
+                    <dt>Smoothed Points</dt>
+                    <dd id="workspace-afas-smoothed-count">0</dd>
+                  </div>
+                </dl>
+                <div id="workspace-afas-warning-list" data-testid="workspace-afas-warning-list" class="workspace-adjustment-notes-list">
+                  <p class="session-item--empty">Warnings will appear here when analysis runs.</p>
+                </div>
+              </section>
+            </div>
+          </article>
           <article class="panel workspace-card">
             <div class="workspace-section-head">
               <div>

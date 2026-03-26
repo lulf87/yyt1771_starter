@@ -13,6 +13,24 @@ Primary requirements:
 
 Status: LOCKED_FOR_DESKTOP_TRANSITION
 
+## Scope Note
+
+这份 plan lock 继续定义 desktop migration 路线本身的工程顺序与边界。
+
+但从 2026-03-24 起，若讨论的问题是：
+
+- 在 operator preview 目标收窄到约 `18 fps` 后，Web 是否还能保留为最终交付壳
+- desktop 是否仍是默认唯一主路
+
+则应先以
+[web_preview_18fps_plan_lock_v1.md](./web_preview_18fps_plan_lock_v1.md)
+为更新后的优先工程结论。
+
+也就是说：
+
+- 本文档继续锁 desktop transition
+- 但 final delivery shell 的决策顺序已不再默认由 desktop 直接胜出
+
 ## Purpose
 
 这份文档把“在原仓库里做桌面迁移”的方向锁成可执行工程计划。

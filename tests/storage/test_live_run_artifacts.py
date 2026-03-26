@@ -67,10 +67,17 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
                 "events": "events.jsonl",
                 "detail": "detail.json",
                 "result": "result.json",
+                "afas_dataset": "afas_dataset.json",
                 "keyframes": ["keyframes/first.png"],
             },
         },
         events=[{"timestamp_ms": 1000, "type": "run_started", "payload": {}}],
+        afas_dataset={
+            "schema_version": "afas_postprocessing_dataset.v1",
+            "session_id": "run-001",
+            "active_channel": "Space1",
+            "channel_map": {"Space1": {"values": [71.0, 72.5]}},
+        },
         keyframes=[
             {
                 "label": "first",
@@ -88,10 +95,12 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     assert (session_dir / "events.jsonl").exists()
     assert (session_dir / "result.json").exists()
     assert (session_dir / "detail.json").exists()
+    assert (session_dir / "afas_dataset.json").exists()
     assert (session_dir / "keyframes" / "first.png").exists()
 
     assert store.get_detail("run-001")["source"] == "live_run"
     assert store.get_result("run-001")["af95"] == 74.0
+    assert store.get_afas_dataset("run-001")["active_channel"] == "Space1"
     assert store.get_result("run-001")["rates"]["measurement_sample_hz"] == 5.0
     telemetry = store.get_telemetry("run-001")
     assert telemetry is not None
@@ -103,3 +112,76 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
         "measurement cadence below target: achieved 5.00 Hz < target 50.00 Hz"
     ]
     assert store.validate_live_bundle("run-001", expected_keyframes=["keyframes/first.png"]) == []
+
+
+class _NativeKeyframeImage:
+    def downsample_rows(self, *, max_width: int, max_height: int) -> list[list[int]]:
+        return [[0, 64], [128, 255]]
+
+
+def test_save_live_bundle_serializes_keyframe_images_in_detail_payload(tmp_path) -> None:
+    store = SessionArtifactStore(tmp_path / "artifacts")
+
+    store.save_live_bundle(
+        "run-serializable",
+        definition={"point_a_px": {"x": 1, "y": 2}},
+        telemetry=[],
+        detail={
+            "session_id": "run-serializable",
+            "source": "live_run",
+            "points": [],
+            "key_frames": [
+                {
+                    "label": "first",
+                    "timestamp_ms": 1000,
+                    "image": _NativeKeyframeImage(),
+                    "feature_point_px": [1, 1],
+                    "metric_raw": 71.0,
+                }
+            ],
+            "point_count": 0,
+            "af95": None,
+        },
+        result={
+            "session_id": "run-serializable",
+            "state": "completed",
+            "analysis_engine": "afas",
+            "channel_name": "Space1",
+            "result_status": "ok",
+            "result_reason": None,
+            "result_detail": "",
+            "af95": 74.0,
+            "as_value": 41.2,
+            "af_value": 57.8,
+            "point_count": 0,
+            "capture_mode": "post_run_review",
+            "rates": {},
+            "measurement_profile": {},
+            "warnings": [],
+            "artifacts": {
+                "definition": "definition.json",
+                "telemetry": "telemetry.csv",
+                "events": "events.jsonl",
+                "detail": "detail.json",
+                "result": "result.json",
+                "afas_dataset": "afas_dataset.json",
+                "keyframes": ["keyframes/first.png"],
+            },
+        },
+        events=[],
+        afas_dataset={"schema_version": "afas_postprocessing_dataset.v1", "session_id": "run-serializable"},
+        keyframes=[
+            {
+                "label": "first",
+                "timestamp_ms": 1000,
+                "image": _NativeKeyframeImage(),
+                "feature_point_px": [1, 1],
+                "metric_raw": 71.0,
+            }
+        ],
+    )
+
+    detail = store.get_detail("run-serializable")
+    assert detail is not None
+    assert detail["key_frames"][0]["label"] == "first"
+    assert detail["key_frames"][0]["image"] == [[0, 64], [128, 255]]

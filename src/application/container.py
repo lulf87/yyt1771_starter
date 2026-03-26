@@ -5,12 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 import os
 from pathlib import Path, PureWindowsPath
+import threading
 from typing import Any
 
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.live_run_service import LiveRunService
 from src.application.runtime_config import RuntimeConfig
+from src.application.device_factory import build_temp_controller
 from src.storage.probe_diagnostics import ProbeDiagnosticStore
 from src.storage.session_adjustments import SessionAdjustmentStore
 from src.storage.session_artifacts import SessionArtifactStore
@@ -36,6 +38,7 @@ class ApplicationContainer:
         self._adjustment_store_key: str | None = None
         self._probe_diagnostic_store: ProbeDiagnosticStore | None = None
         self._probe_diagnostic_store_key: str | None = None
+        self._temp_io_lock = threading.Lock()
 
     @property
     def session_repo(self) -> SqliteSessionRepo:
@@ -90,11 +93,30 @@ class ApplicationContainer:
 
     def build_camera_probe_runner(self) -> Callable[[RuntimeConfig, dict[str, Any] | None], dict[str, Any]]:
         diagnostics_store = self.probe_diagnostic_store
+        preview_service = self.live_preview_service
 
         def _runner(runtime_config: RuntimeConfig, override: dict[str, Any] | None = None) -> dict[str, Any]:
-            return run_camera_probe(runtime_config, override=override, diagnostics_store=diagnostics_store)
+            return run_camera_probe(
+                runtime_config,
+                override=override,
+                diagnostics_store=diagnostics_store,
+                active_probe_payload_provider=preview_service.get_active_probe_payload,
+            )
 
         return _runner
+
+    def build_temp_controller(self) -> object:
+        return build_temp_controller(self.runtime_config)
+
+    def with_temp_controller(self, handler: Callable[[object], Any]) -> Any:
+        with self._temp_io_lock:
+            controller = self.build_temp_controller()
+            try:
+                return handler(controller)
+            finally:
+                close = getattr(controller, "close", None)
+                if callable(close):
+                    close()
 
     def _resolve_artifact_path(self) -> Path:
         artifact_dir = self.runtime_config.storage.get("artifact_dir", "var/artifacts")

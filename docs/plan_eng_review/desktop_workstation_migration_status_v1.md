@@ -33,7 +33,8 @@ Status: ACTIVE_DESKTOP_TRANSITION_SNAPSHOT
 
 当前已经锁定且不应再被反复重开的问题：
 
-- 最终交付方向是 Windows 桌面工作站，而不是浏览器
+- desktop migration 仍然是 active fallback / contingency path
+- 但在 operator preview 目标收窄到约 `18 fps` 后，Web 是否还能保留为最终交付壳，必须先看独立的 Web viability gate
 - 当前仓库继续作为唯一实现主线
 - 若继续使用 Python，默认桌面技术路线是 `PySide6 / Qt`
 - 必须先抽 `src/webapp/config.py` 与 `src/webapp/deps.py` 中的应用层职责
@@ -175,19 +176,52 @@ Status: PARTIAL_IN_CODE
   - metric box
   - point A / point B
   - target temperature
+- 最小窗口现在也已经包含第一版 preview panel：
+  - 可显示当前 preview frame
+  - start preview 后会定时拉取最新 cached frame
+  - stop / freeze 后会保留最后一帧
+- 桌面 preview panel 现在已接入第一版原生 overlay 编辑：
+  - `Draw ROI`
+  - `Draw Window`
+  - `Rotate Window`
+  - `Point A`
+  - `Point B`
+  - overlay 改动会同步回 definition 表单
+- 已新增不依赖 Qt 的 headless desktop smoke mode：
+  - `python -m src.desktop_app.main --profile dev_mock --smoke-run`
+  - 可在未安装 `PySide6` 的环境里验证最小桌面 workflow 主链
+- 已补桌面运行时 bootstrap：
+  - 会显式设置 Qt plugin 搜索路径
+  - 当前可避免“路径未注入”这类入口级错误
+- 已在本机验证一套可工作的桌面 Qt 运行时：
+  - 本地 conda 环境 `.conda-desktop`
+  - `python 3.11`
+  - `conda-forge pyside6 6.10.2`
+  - 该环境下已通过真实 `QApplication` 初始化、窗口 preview smoke、desktop main / window 测试
 - 当前窗口仍是 bootstrap 形态：
   - 主要用于验证桌面壳可以直接消费共享 controller
-  - 还没有最终的图上 ROI / A-B / 观测窗口原生编辑体验
-  - 也还没有最终的 native preview rendering 实现
+  - 虽然已经有第一版图上编辑，但桌面壳仍未进入最终交付级 UI 完成态
+  - 也还没有最终的高 FPS native preview rendering 实现
+  - 本机原先的 pip venv `.venv-desktop-qt` 仍存在独立的 QPA plugin 初始化问题：
+    - `QApplication` 创建时报 `Could not find the Qt platform plugin "cocoa/offscreen"`
+    - plugin 文件本身存在，但该环境当前不应再视为桌面验证基线
 
 已验证：
 
 - `desktop_app` controller 回归通过
+- shared preview render helper 回归通过
+- desktop main 的 headless smoke 回归通过
+- overlay geometry helper 回归通过
+- `.conda-desktop` 环境下的真实桌面窗口 smoke 已通过：
+  - create run
+  - start preview
+  - stop / freeze
+  - preview bitmap retained
 - 在未安装 `PySide6` 的环境里，桌面入口会给出明确缺依赖提示，而不是静默崩溃
 
 ### D6. Desktop preview optimization
 
-Status: NOT_STARTED_IN_CODE
+Status: PARTIAL_IN_CODE
 
 计划内显式交付：
 
@@ -199,6 +233,67 @@ Status: NOT_STARTED_IN_CODE
 - real camera + `512 x 512` measurement ROI 已验证 `measurement_sample_hz = 50.13`
 - 当前 Web preview 经过减重后大约在 `8.58 - 8.89 fps`
 - 这些结果证明“相机 / workflow cadence”与“Web preview display”不是同一个 gate
+
+当前已经进入代码的部分：
+
+- shared preview interval 已不再被 `50ms` floor 硬锁
+- interval 现在可由 `preview_target_fps` 直接驱动到 `20ms` 级别
+- desktop shell 已开始把“真正显示到界面上的帧”回写到 `preview_display_fps`
+- desktop `QTimer` 已改成按 preview target 驱动，而不是固定 `120ms`
+- 已新增 headless desktop preview benchmark 入口：
+  - `python -m src.desktop_app.main --profile dev_mock --preview-benchmark --duration-s 1.5`
+  - 可输出 `presented_frames`、`measured_presented_fps`、`preview_display_fps`
+  - 这条 bench path 设计为后续切到真实相机 / Windows 时继续复用
+- 已新增 Qt-driven desktop preview benchmark 入口：
+  - `python -m src.desktop_app.main --profile dev_mock --qt-preview-benchmark --duration-s 1.5`
+  - 会通过真实 `DesktopMainWindow` 和 Qt 事件循环驱动 preview
+  - 可输出窗口级 `stream_presented_frames`、`measured_presented_fps`、`preview_display_fps`
+- 两条 benchmark 入口都已支持运行时 override：
+  - `--target-preview-fps`
+  - `--preview-poll-ms`
+  - `--setup-preview-roi-x/y/width/height`
+  - 便于直接对同一 profile 做高 FPS bench，而不必先改 profile 文件
+- desktop runtime bootstrap 现在会自动恢复本机 Hik MVS patched runtime 所需的 `/tmp/mvs` sidecar symlink：
+  - `libMVGigEVisionSDK.dylib`
+  - `libMVU3VisionSDK.dylib`
+  - `libMediaProcess.dylib`
+- preview bitmap 构建已补 image-native fast path：
+  - `HikGigeMvsCamera` 的 `_Mono8ImageView` 现在可直接提供 downsampled bitmap payload
+  - desktop preview 不再必须先构造嵌套 Python `list[list[int]]` 再 flatten
+- desktop preview canvas 已切到 `FastTransformation`
+  - 以优先保证高 FPS preview，而不是优先保证最平滑缩放
+- 当前已有第一份本机 mock benchmark 基线：
+  - `dev_mock`
+  - `target_preview_fps = 50`
+  - `preview_poll_ms = 20`
+  - headless benchmark 约 `31 fps`
+  - Qt-driven benchmark 约 `30 fps`
+  - 这说明 benchmark 路径已可用，但 desktop preview `>50 Hz` gate 仍未达成
+- 当前真实相机 desktop benchmark 已经真正进入出帧阶段：
+  - `dev_lab + x86_64 headless benchmark`
+  - MVS SDK import / patched dylib / sidecar symlink 已自动 bootstrap
+  - full-frame baseline 约 `13.09 fps`
+  - `512 x 512` setup-preview ROI 下约 `42.64 fps`
+  - 这说明 desktop preview 的真实相机 blocker 已从“设备枚举失败”切换成“显示链性能”
+- `dev_lab + x86_64 Qt-driven benchmark` 现在也已能真实出帧：
+  - 本地 `.conda-desktop-x86` 环境已验证可创建 `x86_64` `QApplication`
+  - full-frame baseline 约 `1.35 fps`
+  - `512 x 512` setup-preview ROI 下约 `25.57 fps`
+  - `384 x 384` + `target_preview_fps=50` + `preview_poll_ms=20` 下约 `49.91 fps`
+  - `384 x 384` + `target_preview_fps=60` + `preview_poll_ms=16` 下：
+    - `preview_display_fps = 57.496`
+    - `measured_presented_fps = 57.496`
+  - 这说明桌面 preview `>50 Hz` gate 已在本机 Mac 代理 bench 条件下被真实击穿
+- `dev_lab + arm64 Qt-driven benchmark` 仍然不是可用基线：
+  - arm64 `PySide6` 进程无法加载 x86_64 的 patched Hik MVS dylib
+  - 当前不应用它作为真实相机桌面 bench 环境
+
+当前仍未完成的部分：
+
+- 还没有在 Windows bench profile 上验证 `preview_display_fps >= 50`
+- 还没有把当前 Mac 代理 bench 条件固化成正式 bench profile / env script
+- 还没有在 Windows 最终运行时上复现同一组 preview gate
+- 因为 requirement 明确把 desktop preview gate 锁在 Windows bench profile 上，所以 D6 还不能诚实地标为完成
 
 ### D7. Windows packaging and field gate
 
@@ -229,10 +324,7 @@ Status: NOT_STARTED_ON_WINDOWS
 
 当前桌面迁移最稳的下一步是：
 
-1. 继续把 D5 从 bootstrap 推进到可运行的 Qt 工作台
-2. 补第一轮桌面端 runtime smoke
-3. 在桌面壳能稳定驱动最小工作流后，再进入 D6
-
-也就是说，当前最优执行顺序仍然是：
-
-`shared config -> application services -> web thin adapter -> desktop shell`
+1. 先按 [web_preview_18fps_plan_lock_v1.md](./web_preview_18fps_plan_lock_v1.md) 跑完 Web viability gate
+2. 如果 Web gate 失败，再继续把这组 Mac 代理 bench 条件固化成正式 desktop preview bench profile / script
+3. 准备 Windows bench 环境，复现 `384 x 384 / target 60 / poll 16` 这组 gate 条件
+4. 在 Windows 上完成 `preview_display_fps >= 50` 的正式收口

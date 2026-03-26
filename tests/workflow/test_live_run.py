@@ -1,10 +1,11 @@
 from src.application.runtime_config import RuntimeConfig, WebAppConfig
 from src.camera.mock_camera import MockCamera
-from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
+from src.core.enums import ObservationAxis
+from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, ShapeMetric, TempReading
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.temp.mock_temp import MockTempController
-from src.workflow.live_run import LiveRunCoordinator, MockLiveMetricSource, resolve_measurement_interval_ms
+from src.workflow.live_run import LiveRunCoordinator, LockedDefinitionMetricSource, MockLiveMetricSource, resolve_measurement_interval_ms
 
 
 def _definition() -> MeasurementDefinition:
@@ -69,6 +70,31 @@ class SequencedTempController:
         return TempReading(timestamp_ms=timestamp_ms, celsius=celsius, source="sequenced_temp")
 
 
+class LowQualityMetricSource:
+    def extract(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+    ) -> ShapeMetric:
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name="two_point_distance",
+            metric_raw=71.0,
+            quality=0.2,
+            point_a_px=(12, 32),
+            point_b_px=(83, 32),
+            baseline_px=71.0,
+            meta={
+                "reason": "test_low_quality",
+                "sample_index": sample_index,
+                "total_samples": total_samples,
+            },
+        )
+
+
 def test_live_run_coordinator_completes_and_persists_bundle(tmp_path) -> None:
     definition = _definition()
     repo = SqliteSessionRepo(tmp_path / "sessions.db")
@@ -103,9 +129,11 @@ def test_live_run_coordinator_completes_and_persists_bundle(tmp_path) -> None:
     assert execution.result["result_status"] == "ok"
     assert execution.result["as_value"] is not None
     assert execution.result["af_value"] is not None
+    assert execution.result["artifacts"]["afas_dataset"] == "afas_dataset.json"
     assert execution.result["artifacts"]["keyframes"]
     assert repo.get_summary("run-001") == execution.summary
     assert (tmp_path / "artifacts" / "run-001" / "result.json").exists()
+    assert (tmp_path / "artifacts" / "run-001" / "afas_dataset.json").exists()
     assert (tmp_path / "artifacts" / "run-001" / "keyframes" / "first.png").exists()
 
 
@@ -215,6 +243,96 @@ def test_live_run_coordinator_raises_when_temp_read_fails_during_running(tmp_pat
         assert str(exc) == "temp read failed"
     else:
         raise AssertionError("expected read failure to propagate")
+
+
+def test_live_run_coordinator_manual_stop_mode_does_not_auto_complete_on_target_reached(tmp_path) -> None:
+    definition = _definition()
+    repo = SqliteSessionRepo(tmp_path / "sessions.db")
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    coordinator = LiveRunCoordinator(repo=repo, artifact_store=artifact_store)
+    temp_controller = MockTempController(ramp_step_celsius=100.0)
+    run_config = _runtime_run_config()
+    run_config.capture_interval_ms = 500
+    run_config.manual_stop_max_samples = 25
+
+    def _stop_while_waiting(seconds: float) -> bool:
+        return True
+
+    try:
+        coordinator.run(
+            session_id="run-manual-stop-mode",
+            definition=definition,
+            target_temperature_celsius=35.0,
+            run_config=run_config,
+            analysis_engine="afas",
+            channel_name="Space1",
+            as_fit_point_count=5,
+            af_fit_point_count=5,
+            camera=MockCamera(),
+            temp_reader=temp_controller,
+            temp_controller=temp_controller,
+            metric_source=MockLiveMetricSource(definition=definition, target_temperature_celsius=35.0),
+            stop_on_target_reached=False,
+            wait_for_next_sample=_stop_while_waiting,
+        )
+    except Exception as exc:
+        assert exc.__class__.__name__ == "LiveRunStopRequested"
+        assert getattr(exc, "reason", None) == "user_stop"
+    else:
+        raise AssertionError("expected manual-stop mode to keep running until stop is requested")
+
+
+def test_live_run_coordinator_keeps_running_when_invalid_tracking_does_not_abort(tmp_path) -> None:
+    definition = _definition()
+    repo = SqliteSessionRepo(tmp_path / "sessions.db")
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    coordinator = LiveRunCoordinator(repo=repo, artifact_store=artifact_store)
+    temp_controller = MockTempController()
+    run_config = _runtime_run_config()
+    run_config.stop_on_invalid_tracking = False
+
+    execution = coordinator.run(
+        session_id="run-low-quality-allowed",
+        definition=definition,
+        target_temperature_celsius=35.0,
+        run_config=run_config,
+        analysis_engine="afas",
+        channel_name="Space1",
+        as_fit_point_count=5,
+        af_fit_point_count=5,
+        camera=MockCamera(),
+        temp_reader=temp_controller,
+        temp_controller=temp_controller,
+        metric_source=LowQualityMetricSource(),
+    )
+
+    assert execution.summary.state == "completed"
+    assert execution.telemetry
+    assert all(row["tracking_quality"] == 0.2 for row in execution.telemetry)
+    assert any(event["type"] == "tracking_invalidated" for event in execution.events)
+
+
+def test_locked_definition_metric_source_respects_short_axis_observation_direction() -> None:
+    definition = _definition()
+    definition.observation_axis = ObservationAxis.SHORT_AXIS
+    definition.metric_box = MetricBox(center_x=48, center_y=32, width=80, height=24, angle_deg=0.0)
+    image = [[220 for _ in range(96)] for _ in range(64)]
+    for row in range(20, 44):
+        for col in range(24, 72):
+            image[row][col] = 40
+
+    source = LockedDefinitionMetricSource(definition=definition)
+    metric = source.extract(
+        FramePacket(timestamp_ms=1, source="fixture", image=image),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=1,
+    )
+
+    assert metric.metric_raw == 23.0
+    assert metric.point_a_px == (47, 20)
+    assert metric.point_b_px == (47, 43)
+    assert metric.meta["measurement_axis_deg"] == 90.0
 
 
 def test_live_run_coordinator_raises_when_artifact_finalize_fails(tmp_path) -> None:

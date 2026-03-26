@@ -471,6 +471,42 @@ class _Mono8ImageView(Sequence[Sequence[int]]):
             rows.append(row)
         return rows
 
+    def downsample_bitmap_payload(
+        self,
+        *,
+        max_width: int = 640,
+        max_height: int = 480,
+    ) -> tuple[int, int, bytes]:
+        if self.width < 1 or self.height < 1:
+            return (1, 1, b"\x00")
+        scale = max(self.width / max_width, self.height / max_height, 1.0)
+        if scale <= 1.0:
+            return (self.width, self.height, bytes(self._buffer))
+
+        output_width = max(1, int(self.width / scale))
+        output_height = max(1, int(self.height / scale))
+        try:
+            from PIL import Image
+
+            resampling = getattr(getattr(Image, "Resampling", Image), "NEAREST")
+            resized = Image.frombytes("L", (self.width, self.height), self._buffer).resize(
+                (output_width, output_height),
+                resample=resampling,
+            )
+            return (output_width, output_height, resized.tobytes())
+        except Exception:
+            pass
+        x_positions = [min(self.width - 1, int(output_x * scale)) for output_x in range(output_width)]
+        pixels = bytearray(output_width * output_height)
+        write_index = 0
+        for output_y in range(output_height):
+            source_y = min(self.height - 1, int(output_y * scale))
+            row_offset = source_y * self.width
+            for source_x in x_positions:
+                pixels[write_index] = self._buffer[row_offset + source_x]
+                write_index += 1
+        return (output_width, output_height, bytes(pixels))
+
 
 class _OfficialHikMvsHandle:
     """Compatibility bridge for Hik's official `MvCamera` Python binding."""

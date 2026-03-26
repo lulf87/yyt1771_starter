@@ -126,3 +126,20 @@ def test_measurement_definition_is_incomplete_when_points_fall_outside_metric_bo
     )
 
     assert definition.is_complete() is False
+
+
+def test_measurement_definition_accepts_tight_rotated_window_near_roi_boundary() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=14, y=18, width=70, height=17),
+        metric_box=MetricBox(center_x=49, center_y=29, width=71, height=2, angle_deg=8.24632081446853),
+        point_a_px=PixelPoint(x=14, y=24),
+        point_b_px=PixelPoint(x=83, y=34),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+    )
+
+    assert definition.has_valid_points() is True
+    assert definition.has_valid_window() is True
+    assert definition.is_complete() is True

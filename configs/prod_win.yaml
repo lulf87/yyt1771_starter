@@ -54,6 +54,7 @@ temp:
   control:
     start_output_mode: power_nonzero
     startup_power_percent: 100.0
+    completion_mode: target_reached
 storage:
   sqlite_path: C:/yyt1771/data/prod.sqlite3
   artifact_dir: C:/yyt1771/artifacts

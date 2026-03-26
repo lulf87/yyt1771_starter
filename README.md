@@ -7,6 +7,7 @@ YY/T 1771 visual-analysis workstation baseline with:
 - browser shell kept as transition / debug route
 - final delivery now migrating toward a Windows desktop workstation
 - replay detail visualization and workspace analysis views
+- full AFAS postprocessing workspace parity with persisted analysis/export artifacts
 - adjustment contract and Adjustment MVP state flow
 
 The repository is no longer at the Task-000 scaffold stage. It now reflects the
@@ -80,15 +81,36 @@ http://127.0.0.1:8000/
 2. 确认能看到 `Health / Profile / Mode / System Precheck`。
 3. 点击 `Run Replay Session`。
 4. 点击 `Open Workspace`。
-5. 在 workspace 中看到 `Replay Curve`、`Key Frames`、`Adjustment MVP`、`Version History`。
+5. 在 workspace 中看到 `Replay Curve`、`AFAS Analysis`、`Key Frames`、`Adjustment MVP`、`Version History`。
 
-### 5. 当前边界
+### 5. AFAS Workspace And Persisted Artifacts
+
+- workspace 里的 `AFAS Analysis` 面板现在已经接通：
+  - preprocessing parity
+  - parameterized tangent analysis parity
+  - overview chart
+  - single-channel analysis chart
+  - PNG export
+  - Excel report export
+- 当你调用这些 session 级 AFAS 接口时，结果不再只是瞬时响应，而会落到对应 session artifact 目录：
+  - `afas_dataset.json`
+  - `afas_analysis.json`
+  - `afas_plot.png`
+  - `afas_report.xlsx`
+- 默认路径形如：
+  - `<artifact_dir>/<session_id>/afas_dataset.json`
+  - `<artifact_dir>/<session_id>/afas_analysis.json`
+  - `<artifact_dir>/<session_id>/afas_plot.png`
+  - `<artifact_dir>/<session_id>/afas_report.xlsx`
+- 若该 session 已有 `result.json`，AFAS analysis / export 路由也会把这些 artifact refs 回填到 `result.json.artifacts`。
+
+### 6. 当前边界
 
 - 当前最稳定的可见链路仍是 offline mock/replay/workspace。
 - live run / real camera / temporal sampling 已有更深实现，但最终桌面交付尚在迁移中。
 - 这不是“Windows 桌面最终成品”，而是当前迁移中的主仓库工作树。
 
-### 6. Camera Probe（受控单帧）
+### 7. Camera Probe（受控单帧）
 
 - 首页现在有 `Probe Camera` 按钮，对应 `POST /api/system/camera/probe`。
 - 这个入口只做一次受控单帧探测，不会进入 workspace live。
@@ -97,13 +119,13 @@ http://127.0.0.1:8000/
 - `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
 - 仓库默认的 [prod_win.yaml](configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
 
-### 7. Probe 失败怎么看
+### 8. Probe 失败怎么看
 
 - `error_stage` 先告诉你失败落在哪一层，例如 `config_contract`、`sdk_runtime`、`device_discovery`、`frame_read`、`device_validation`。
 - `error_code` 再给出稳定分类，例如 `SDK_IMPORT_NOT_READY`、`PINNED_IDENTITY_MISSING`、`FRAME_READ_FAILED`。
 - `detail` 保留现场可读说明，但排障时优先看 `error_stage + error_code`，这样比自然语言字符串更稳定。
 
-### 8. Probe 轻量留痕
+### 9. Probe 轻量留痕
 
 - 每次 `POST /api/system/camera/probe` 成功或失败，都会追加一条轻量诊断记录。
 - 记录只保存摘要字段：时间、profile、probe_mode、matched_by、backend/transport/sdk、命中设备信息、frame 摘要、status、error_code、error_stage、detail。

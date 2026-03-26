@@ -21,6 +21,9 @@ class TempControllerPort(Protocol):
     def set_target_temperature(self, celsius: float) -> None:
         """Set the requested controller temperature."""
 
+    def read_target_temperature(self) -> float:
+        """Return the configured target temperature from the controller."""
+
     def start_output(self) -> None:
         """Enable controller output for a run."""
 

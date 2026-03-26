@@ -145,6 +145,7 @@ class LiveRunService:
                 temp_controller=temp_controller,
                 metric_source=metric_source,
                 quality_threshold=runtime_config.live.vision.quality_threshold,
+                stop_on_target_reached=runtime_config.live.temp.control.completion_mode != "manual_stop_only",
                 stop_requested=active_run.stop_event.is_set,
                 wait_for_next_sample=active_run.stop_event.wait,
                 status_callback=lambda status_value, payload: self._update_status(
@@ -154,6 +155,7 @@ class LiveRunService:
                     payload=payload,
                 ),
                 telemetry_callback=lambda row: self._append_telemetry(active_run, row),
+                sample_callback=lambda sync_point, row: self._cache_tracking_frame(record.run_id, sync_point),
             )
         except LiveRunTrackingInvalidated as exc:
             self._store_error(active_run, exc.detail)
@@ -207,6 +209,12 @@ class LiveRunService:
     def _append_telemetry(self, active_run: _ActiveLiveRun, row: dict[str, Any]) -> None:
         with self._state_lock:
             active_run.telemetry.append(dict(row))
+
+    def _cache_tracking_frame(self, run_id: str, sync_point) -> None:
+        frame = getattr(sync_point, "frame", None)
+        if frame is None:
+            return
+        self.preview_service.cache_tracking_frame(run_id=run_id, frame=frame)
 
     def _store_error(self, active_run: _ActiveLiveRun, detail: str) -> None:
         with self._state_lock:
