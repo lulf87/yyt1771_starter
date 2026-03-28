@@ -19,6 +19,8 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     response = client.get(f"/workspace/{session_id}")
 
     assert response.status_code == 200
+    assert "Analysis Studio" in response.text
+    assert 'data-afas-available="0"' in response.text
     assert '/static/app.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert 'id="workspace-shell"' in response.text
@@ -138,6 +140,8 @@ def test_workspace_static_js_contains_selection_linking_hooks(tmp_path: Path) ->
     assert "/api/session/${sessionId}/adjustment" in response.text
     assert "/adjustment/draft" in response.text
     assert "/adjustment/apply" in response.text
+    assert "document.body.dataset.afasAvailable" in response.text
+    assert "syncWorkspaceAfasAvailability" in response.text
     assert "renderAdjustmentState" in response.text
 
 

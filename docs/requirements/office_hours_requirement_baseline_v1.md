@@ -1,6 +1,6 @@
 # Office-Hours Requirement Baseline v1
 
-Updated on 2026-03-22
+Updated on 2026-03-27
 Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 
 ## Purpose
@@ -21,7 +21,7 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 
 ## Source Lineage
 
-当前与本项目直接相关的 `/office-hours` 输出共有 3 份：
+当前与本项目直接相关的 `/office-hours` 输出共有 4 份：
 
 1. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260321-140012.md`
    标题：`YY/T 1771 浏览器分析工作台需求收敛 v1`
@@ -34,11 +34,16 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
    标题：`Live Setup 交互需求澄清与冻结建议 v1`
    `Supersedes: lulingfeng-main-design-20260321-141929.md`
 
+4. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260327-102500.md`
+   标题：`首页 Launch & Control Cockpit 与 Workspace Analysis Studio 信息架构收敛 v1`
+   `Follows: lulingfeng-main-design-20260322-222900.md`
+
 因此从 lineage 看：
 
 - 第 1 份不是“当前最新需求”，而是最早的 framing
 - 第 2 份覆盖了第 1 份的主产品定义
 - 第 3 份不是推翻第 2 份，而是在第 2 份已经确定“要做 full-chain live workstation”的前提下，进一步冻结 live setup 的交互需求
+- 第 4 份不是推翻前 3 份，而是在 live setup requirement 已冻结后，把首页和 workspace 的页面职责、信息架构和视觉系统收口成当前产品 shell
 
 ---
 
@@ -97,13 +102,34 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 
 它把“measurement definition”从后端字段，推进成了真实 UI 工作流。
 
+### Round 4 added
+
+第 4 份文档不是再次改产品目标，也不是再改一次 live setup requirement。
+
+它补的是此前一直没有冻结的浏览器 shell 层问题：
+
+- 首页到底承担什么
+- workspace 到底承担什么
+- `ROI` 和 `Point A / Point B` 在首页中应如何分层
+- `af-analyzer` 应该借什么，不该借什么
+
+这轮真正锁定的是：
+
+- 首页收敛为 `Launch & Control Cockpit`
+- workspace 收敛为 `Analysis Studio`
+- 首页不再承担完整 replay / AFAS 分析页职责
+- workspace 保留三栏分析骨架，但强化中心主工作区和右侧 sticky summary
+- `ROI` 是首页主几何，`A-B` 保留但降级为次级层
+- `Future Adjustment Controls` 收进折叠区或抽屉，不占默认主视区
+- 首页和 workspace 应共享一套 dark glass + Morandi 风格的视觉 token，而不是继续各自一套卡片语义
+
 ---
 
 ## Why The Old Docs Felt Duplicated
 
-如果只看标题，3 份文档容易显得像 3 套需求。
+如果只看标题，4 份文档容易显得像 4 套需求。
 
-其实它们分别解决的是 3 个不同层次的问题：
+其实它们分别解决的是 4 个不同层次的问题：
 
 1. 第 1 份：
    先把“这到底是 replay 工具还是设备工作站”的叙事梳理出来
@@ -114,11 +140,15 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 3. 第 3 份：
    把 live workstation 里最容易返工的一段，也就是 live setup 交互，冻结成可实现规则
 
+4. 第 4 份：
+   把首页和 workspace 的页面职责、信息架构与视觉收口冻结下来
+
 所以真实关系不是“互相冲突”，而是：
 
 - `Round 1` 提供结构视角
 - `Round 2` 提供产品主目标
 - `Round 3` 提供 live setup 交互冻结
+- `Round 4` 提供首页 / workspace 的产品壳层分工与视觉收口
 
 ---
 
@@ -166,6 +196,36 @@ replay、workspace、adjustment 仍然重要，但定位已经变化：
 - 它们是 full-chain live 路线的离线验证和复盘能力
 
 因此后续文档和实现中，不应再把 replay/workspace 写成“项目真正目标”。
+
+### 3A. Screen Architecture
+
+当前推荐的页面职责分工冻结为：
+
+- Home = `Launch & Control Cockpit`
+- Workspace = `Analysis Studio`
+
+它们不是一页的两个 tab，也不是谁替代谁，而是：
+
+- 首页承接系统状态、live setup、launch / control、diagnostics、最近结果入口
+- workspace 承接 replay、AFAS、adjustment、version history 和决策支持
+
+这意味着：
+
+- 首页不再承担完整 replay / AFAS analysis 展示
+- workspace 也不再只是“打开看一眼结果”的附属页
+
+当前 baseline 已经倾向保留两个不同入口，但让它们的职责边界更清楚。
+
+如果讨论的问题是：
+
+- 首页 `Compact Result` 应该把用户带去哪个 workspace
+- 首页是否还允许 `observation_window / metric_box` 回到默认 operator path
+- `Point A / Point B` 在什么状态下必须重新显性供人工复核
+- 首轮 shell refactor 能否重排 DOM 但保持现有 `id` / `data-testid` / API contract 稳定
+
+则必须优先联读：
+
+- [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
 
 ### 4. Result Scope
 
@@ -263,20 +323,25 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 6. auto-detect 的建议结果应以 overlay 呈现，而不是只改表单数值
 
-7. `Draw Window` 不是 `Auto Detect Points` 的前置条件
+7. 在当前首页的信息架构里，`ROI` 必须继续作为主几何出现
 
-8. 正确顺序应为：
+8. `Point A / Point B` 必须保留可见和可校正能力，但视觉层级必须低于 `ROI`
+   它们更适合作为 detection result、advanced setup 或次级编辑层，而不是与 ROI 并列的一级主操作
+
+9. `Draw Window` 不是 `Auto Detect Points` 的前置条件
+
+10. 正确顺序应为：
    `Draw ROI -> manual A/B or Auto Detect Points -> Draw Window`
 
-9. Auto Detect Points 必须在 `ROI` 内寻找目标物体横向或纵向主跨度对应的两点，而不是在预定义 observation window 内沿固定轴取极值，也不应输出任意斜向直径
+11. Auto Detect Points 必须在 `ROI` 内寻找目标物体横向或纵向主跨度对应的两点，而不是在预定义 observation window 内沿固定轴取极值，也不应输出任意斜向直径
 
-10. observation window 必须在 `A-B` 已确定后，根据 `A-B` 连线方向生成默认姿态
+12. observation window 必须在 `A-B` 已确定后，根据 `A-B` 连线方向生成默认姿态
 
-11. 后续观测方向必须绑定到 observation window 的：
+13. 后续观测方向必须绑定到 observation window 的：
    - `long_axis`
    - 或 `short_axis`
 
-但从 2026-03-25 当前轮新的 operator workflow 冻结开始，上面第 7-11 条不再代表当前最高优先级用户流。
+但从 2026-03-25 当前轮新的 operator workflow 冻结开始，上面第 9-13 条不再代表当前最高优先级用户流。
 只要问题涉及：
 
 - 取消 `Draw Window / Rotate Window`
@@ -291,25 +356,84 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 为准。
 
-### 7. Live Setup UX Direction
+### 7. Product Shell Direction
 
-如果要把交互方案收成一句话，当前推荐的是：
+如果要把当前产品壳层方向收成一句话，当前推荐的是：
 
-`Freeze-first, ROI-first, A-B-before-Window 实验设置向导`
+`Home = Launch & Control Cockpit；Workspace = Analysis Studio`
 
-建议的操作顺序是：
+首页只保留 4 个一级区块：
 
-1. Start Live Preview
-2. Freeze Current Frame
-3. Draw ROI
-4. Place / adjust A and B, or run Auto Detect Points inside ROI
-5. Draw / adjust Observation Window after A-B exists
-6. Save Definition
-7. Optional Resume Preview
+1. `Hero / Status`
+   - `System / Profile / Mode / Current Temp`
 
-这不是一个“设计偏好”问题，而是当前最能解释真实操作反馈的一条主线。
+2. `Main Stage`
+   - `Live Preview + Freeze + Start/Stop`
+   - `Setup Definition`
+     - `ROI`
+     - `Detection`
+     - `Temperature`
 
-### 8. Hardware / Runtime Direction
+3. `Ops & Diagnostics`
+   - `System Precheck / Probe Camera`
+   - `Session Launcher / Recent Sessions`
+
+4. `Compact Result`
+   - 最新一次 session 摘要
+   - `Open Workspace`
+
+这条方向的意思不是删掉首页已有能力，而是：
+
+- 让首页重新聚焦 live setup 和控制
+- 把深度 replay / AFAS analysis 收回 workspace
+
+### 8. Workspace Direction
+
+workspace 不需要推翻重来，当前推荐继续保留三栏逻辑，但把信息层级收紧：
+
+- Topbar
+  - `Session / State / 快速状态`
+
+- Grid
+  - 左：更细、更轻的 sticky `Flow Rail`
+  - 中：`Replay + AFAS + Adjustment` 主工作区
+  - 右：sticky `Summary / Version / Quick Actions`
+
+更具体地说：
+
+- 中间第一屏优先显示 `Replay Curve + AFAS KPI strip + AFAS Analysis`
+- `AFAS Analysis` 主面板继续分成：
+  - `Overview`
+  - `Selected Channel`
+  - `Results & Parameters`
+- 导出按钮保留在右上
+- `Key Frames` 和 `Adjustment MVP` 下沉到第二屏
+- 右侧 summary 只保留：
+  - `Current Stage`
+  - `Session Summary`
+  - `Active Selection`
+  - `Adjustment Status`
+  - `Version History`
+  - `Quick Actions`
+- 当前只读占位的 `Future Adjustment Controls` 不应继续占据默认可视区，应收进折叠区或抽屉
+
+### 9. Visual System Direction
+
+`af-analyzer` 当前最值得借的是视觉语言，而不是页面结构。
+
+当前 baseline 推荐：
+
+- 首页与 workspace 共用一套 theme token
+- 采用 dark glass + Morandi accent 的视觉方向
+- 收敛 `.panel`、`.workspace-summary-card`、`.workspace-adjustment-card`、`.live-preview-panel`、`.live-definition-panel`
+  到同一套 glass-card 规则
+
+也就是说：
+
+- 借皮肤
+- 不借骨架
+
+### 10. Hardware / Runtime Direction
 
 第 2 份文档锁定的硬件方向继续有效：
 
@@ -332,7 +456,7 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 在 bench 之前，不应把这些写成“真机已确认事实”。
 
-### 9. Temporal Sampling Follow-up
+### 11. Temporal Sampling Follow-up
 
 在 2026-03-23 的后续 requirement 收口里，新增了一条正式 follow-up：
 
@@ -363,7 +487,7 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 ## Frozen Conclusions
 
-把 3 份 `/office-hours` 合并后，当前可以正式冻结的结论如下。
+把 4 份 `/office-hours` 合并后，当前可以正式冻结的结论如下。
 
 ### Product-level frozen conclusions
 
@@ -371,6 +495,8 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 - 浏览器是最终交互入口
 - replay/workspace 是离线验证和复盘链，不再是主产品替代品
 - commissioning 与 experiment/analysis 是两个并列 lane，但后者是主线
+- 首页现在应明确承担 `Launch & Control Cockpit` 角色
+- workspace 现在应明确承担 `Analysis Studio` 角色
 
 ### Workflow-level frozen conclusions
 
@@ -378,6 +504,7 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
   `Frame -> ShapeMetric -> SyncPoint -> Curve -> Result`
 - 主交互链至少应包含：
   `precheck/probe -> live preview -> measurement definition -> live run -> result/evidence`
+- 首页默认只保留最新结果摘要与 workspace 入口，不再承担完整 replay / AFAS analysis
 
 ### Live-setup-level frozen conclusions
 
@@ -391,6 +518,21 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 - `Stop Live Preview` 实际应表现为 freeze，而不是 clear
 - live setup 必须支持无刷新 restart
 - measurement definition 必须支持图上可视化编辑，而不只是表单输入
+- 在当前首页里，`ROI` 必须是主几何，`A-B` 必须保留但退到次级层
+
+### Workspace-level frozen conclusions
+
+- workspace 保留三栏分析骨架，不推翻重来
+- 左侧 flow 应收成更轻的 sticky rail
+- 中间第一屏优先承载 replay curve、AFAS KPI 和 AFAS 主分析区
+- `Key Frames` 与 `Adjustment MVP` 下沉到第二屏
+- 右侧 sticky summary 只保留决策信息
+- `Future Adjustment Controls` 收进折叠区或抽屉，不占默认主视区
+
+### Visual-system-level frozen conclusions
+
+- 首页与 workspace 应共用一套主题 token 和 glass-card 语义
+- `af-analyzer` 只作为视觉语言参考，不作为页面结构模板
 
 ### Temporal-sampling-level frozen conclusions
 
@@ -413,8 +555,6 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
    - 测试/算法工程师
    - 现场联调工程师
 
-2. replay/live 是否最终进入同一个 analysis workspace，还是保留两个不同入口
-
 ### Result questions
 
 1. `Af95` 在最终结果体系里的位置到底是：
@@ -426,13 +566,13 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 ### Live setup questions
 
-1. UI 上 `Stop Live Preview` 是否直接改名为 `Freeze Frame`
-2. 是否保留独立 `Fetch Preview`
-3. ROI 改变时，观测窗口和 A/B 点的 reset/clamp 规则是什么
-4. auto-detect 在不同目标族上如何稳定定义“横向或纵向主跨度对应的两点”
-5. observation window 的默认尺寸策略是什么
-6. 观测方向在 UI 上如何表达 `long_axis / short_axis`
-7. 观测窗口 angle 是拖拽主导还是数字输入主导
+1. auto-detect 在不同目标族上如何稳定定义 ROI-local 的起始 / 实时锚点
+
+### Workspace questions
+
+1. 第一屏的 `AFAS KPI strip` 具体包含哪些指标最合适
+2. `Future Adjustment Controls` 在未来真实可交互之前，更适合折叠卡片还是抽屉承载
+3. workspace topbar 是否需要额外显示当前温度或 profile 信息
 
 ### Hardware questions
 
@@ -460,7 +600,15 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
    回看：
    `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260322-222900.md`
 
-4. 如果你要追溯“为什么 replay/workspace 还在产品里”
+4. 如果你要看首页 / workspace 为什么要分成 `Launch & Control Cockpit` 和 `Analysis Studio`
+   回看：
+   `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260327-102500.md`
+
+5. 如果你要看 repo 内当前 shell 实施边界，包括 `Compact Result` 路由、首页 A/B 显性规则和 DOM/API guardrails
+   优先看：
+   [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
+
+6. 如果你要追溯“为什么 replay/workspace 还在产品里”
    回看：
    `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260321-140012.md`
 
@@ -468,4 +616,4 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 ## One-Line Summary
 
-当前 `/office-hours` 的综合结论已经不是“继续在 replay 工作台上补功能”，而是：把项目正式当成 full-chain browser workstation 来推进，同时保留 commissioning lane 与 replay/workspace 作为辅助链，并优先冻结 live setup 的交互语义。
+当前 `/office-hours` 的综合结论已经不是“继续在 replay 工作台上补功能”，而是：把项目正式当成 full-chain browser workstation 来推进，把首页收敛成 `Launch & Control Cockpit`，把 workspace 收敛成 `Analysis Studio`，同时保留 commissioning lane 与 replay/workspace 的辅助链定位，并优先冻结 live setup 的交互语义与产品壳层分工。

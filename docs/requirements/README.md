@@ -13,6 +13,7 @@ Current authority set:
 - [requirements_overview.md](./requirements_overview.md)
 - [master_control_plan.md](./master_control_plan.md)
 - [office_hours_requirement_baseline_v1.md](./office_hours_requirement_baseline_v1.md)
+- [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
 - [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md)
 - [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md)
 - [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md)

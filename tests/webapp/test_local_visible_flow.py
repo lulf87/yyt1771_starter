@@ -21,7 +21,7 @@ def test_local_visible_flow_from_home_to_workspace(tmp_path: Path) -> None:
     precheck_response = client.get("/api/system/precheck")
 
     assert home_response.status_code == 200
-    assert "YYT1771 Web Console" in home_response.text
+    assert "Launch &amp; Control Cockpit" in home_response.text
     assert "Probe Camera" in home_response.text
     assert "Run Replay Session" in home_response.text
     assert "Open Workspace" in home_response.text
@@ -41,6 +41,7 @@ def test_local_visible_flow_from_home_to_workspace(tmp_path: Path) -> None:
     workspace_response = client.get(f"/workspace/{session_id}")
 
     assert workspace_response.status_code == 200
+    assert "Analysis Studio" in workspace_response.text
     assert "Replay Curve" in workspace_response.text
     assert "Key Frames" in workspace_response.text
     assert "Adjustment MVP" in workspace_response.text

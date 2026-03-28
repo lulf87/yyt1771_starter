@@ -6,23 +6,29 @@
     <title>{{ app_title }}</title>
     <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}" />
   </head>
-  <body data-page="workspace" data-session-id="{{ session_id }}">
+  <body data-page="workspace" data-session-id="{{ session_id }}" data-afas-available="{{ '1' if afas_available else '0' }}">
     <main id="workspace-shell" class="workspace-shell" data-testid="workspace-shell">
       <header class="workspace-topbar">
-        <div>
-          <p class="eyebrow">Experiment Workspace</p>
+        <div class="workspace-topbar-copy">
+          <p class="eyebrow">YYT1771</p>
           <h1>{{ app_title }}</h1>
+          <p class="workspace-topbar-subtitle">
+            YYT1771 replay review, AFAS postprocessing, and adjustment decisions for one session at a time.
+          </p>
         </div>
         <div class="workspace-topbar-meta">
-          <span class="status-pill status-ok">session</span>
+          <span class="status-pill status-ok">studio</span>
           <strong id="workspace-session-id">{{ session_id }}</strong>
           <span id="workspace-session-state" class="status-pill status-warn">{{ summary.state }}</span>
         </div>
       </header>
 
       <div class="workspace-grid">
-        <aside id="workspace-stepper" class="workspace-stepper panel" data-testid="workspace-stepper">
-          <h2>Flow</h2>
+        <aside id="workspace-stepper" class="workspace-stepper panel workspace-rail" data-testid="workspace-stepper">
+          <div class="workspace-rail-head">
+            <p class="section-tag">Flow Rail</p>
+            <h2>Process</h2>
+          </div>
           <ol class="workspace-steps">
             {% for step in steps %}
             <li
@@ -39,138 +45,124 @@
         </aside>
 
         <section id="workspace-main" class="workspace-main" data-testid="workspace-main">
-          <article class="panel workspace-card">
-            <div class="workspace-section-head">
-              <div>
-                <h2 id="workspace-curve-title">Replay Curve</h2>
-                <p>Metric raw vs. celsius from the replay detail artifact.</p>
-              </div>
-            </div>
-            <svg id="workspace-curve" data-testid="workspace-curve" viewBox="0 0 640 260" class="curve-svg workspace-curve-svg" role="img" aria-label="Workspace replay curve">
-              <rect x="0" y="0" width="640" height="260" class="curve-bg"></rect>
-              <line id="workspace-af95-line" x1="0" y1="0" x2="0" y2="0" class="workspace-af95-line"></line>
-              <polyline id="workspace-curve-line" fill="none" points=""></polyline>
-              <g id="workspace-curve-points"></g>
-            </svg>
-            <p id="workspace-curve-empty" data-testid="workspace-curve-empty" class="session-item--empty">
-              No replay detail available.
-            </p>
-            <div class="workspace-curve-meta">
-              <span class="workspace-axis-label">X: Temperature (°C)</span>
-              <span class="workspace-axis-label">Y: metric_raw</span>
-            </div>
-            <p id="workspace-active-point" data-testid="workspace-active-point" class="workspace-active-point">
-              No point selected.
-            </p>
-          </article>
-          <article class="panel workspace-card" id="workspace-afas-panel" data-testid="workspace-afas-panel">
-            <div class="workspace-section-head">
-              <div>
-                <h2>AFAS Analysis</h2>
-                <p>Full postprocessing review with preprocessing and parameterized tangent analysis.</p>
-              </div>
-              <div class="workspace-adjustment-editor-actions">
-                <button
-                  id="workspace-afas-run-btn"
-                  data-testid="workspace-afas-run-btn"
-                  type="button"
-                  class="workspace-action-btn"
-                >
-                  Run AFAS Analysis
-                </button>
-                <button
-                  id="workspace-afas-export-png-btn"
-                  data-testid="workspace-afas-export-png-btn"
-                  type="button"
-                  class="workspace-action-btn workspace-action-btn--secondary"
-                >
-                  Export PNG
-                </button>
-                <button
-                  id="workspace-afas-export-xlsx-btn"
-                  data-testid="workspace-afas-export-xlsx-btn"
-                  type="button"
-                  class="workspace-action-btn workspace-action-btn--secondary"
-                >
-                  Export Excel
-                </button>
-              </div>
-            </div>
-            <div class="workspace-afas-controls" data-testid="workspace-afas-controls">
-              <label class="workspace-adjustment-editor-field">
-                <span>Channel</span>
-                <select id="workspace-afas-channel" data-testid="workspace-afas-channel"></select>
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>Savgol Window</span>
-                <input id="workspace-afas-savgol-window" data-testid="workspace-afas-savgol-window" type="number" min="3" step="2" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>Savgol Polyorder</span>
-                <input id="workspace-afas-savgol-polyorder" data-testid="workspace-afas-savgol-polyorder" type="number" min="1" step="1" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>Low Range Start (°C)</span>
-                <input id="workspace-afas-low-start" data-testid="workspace-afas-low-start" type="number" step="0.1" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>Low Range End (°C)</span>
-                <input id="workspace-afas-low-end" data-testid="workspace-afas-low-end" type="number" step="0.1" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>High Range Start (°C)</span>
-                <input id="workspace-afas-high-start" data-testid="workspace-afas-high-start" type="number" step="0.1" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>High Range End (°C)</span>
-                <input id="workspace-afas-high-end" data-testid="workspace-afas-high-end" type="number" step="0.1" />
-              </label>
-              <label class="workspace-adjustment-editor-field">
-                <span>Tangent Offset</span>
-                <input id="workspace-afas-tangent-offset" data-testid="workspace-afas-tangent-offset" type="number" step="1" />
-              </label>
-            </div>
-            <p id="workspace-afas-status" data-testid="workspace-afas-status" class="workspace-adjustment-status">
-              AFAS analysis has not been loaded yet.
-            </p>
-            <div class="workspace-afas-grid">
-              <section class="workspace-adjustment-card" data-testid="workspace-afas-overview-card">
-                <h3>Channel Overview</h3>
-                <svg
-                  id="workspace-afas-overview-chart"
-                  data-testid="workspace-afas-overview-chart"
-                  viewBox="0 0 640 220"
-                  class="curve-svg workspace-afas-chart-svg"
-                  role="img"
-                  aria-label="AFAS overview chart"
-                >
-                  <rect x="0" y="0" width="640" height="220" class="curve-bg"></rect>
-                  <g id="workspace-afas-overview-series"></g>
-                </svg>
-                <div id="workspace-afas-overview-summary" data-testid="workspace-afas-overview-summary" class="workspace-afas-overview-summary">
-                  <p class="session-item--empty">AFAS analysis is unavailable.</p>
+          <div class="workspace-primary-stack">
+            <article class="panel workspace-card workspace-card--replay">
+              <div class="workspace-section-head">
+                <div>
+                  <p class="section-tag">Replay</p>
+                  <h2 id="workspace-curve-title">Replay Curve</h2>
+                  <p>Metric raw vs. celsius from the replay detail artifact.</p>
                 </div>
-              </section>
-              <section class="workspace-adjustment-card" data-testid="workspace-afas-analysis-card">
-                <h3>Selected Channel Analysis</h3>
-                <svg
-                  id="workspace-afas-analysis-chart"
-                  data-testid="workspace-afas-analysis-chart"
-                  viewBox="0 0 640 280"
-                  class="curve-svg workspace-afas-chart-svg"
-                  role="img"
-                  aria-label="AFAS tangent analysis chart"
-                >
-                  <rect x="0" y="0" width="640" height="280" class="curve-bg"></rect>
-                  <g id="workspace-afas-analysis-layers"></g>
-                </svg>
-                <p id="workspace-afas-analysis-empty" data-testid="workspace-afas-analysis-empty" class="session-item--empty">
-                  Run AFAS analysis to render the full postprocessing chart.
-                </p>
-              </section>
-              <section class="workspace-adjustment-card" data-testid="workspace-afas-results-card">
-                <h3>Results &amp; Parameters</h3>
-                <dl class="facts workspace-adjustment-facts">
+              </div>
+              <svg
+                id="workspace-curve"
+                data-testid="workspace-curve"
+                viewBox="0 0 640 260"
+                class="curve-svg workspace-curve-svg"
+                role="img"
+                aria-label="Workspace replay curve"
+              >
+                <rect x="0" y="0" width="640" height="260" class="curve-bg"></rect>
+                <line id="workspace-af95-line" x1="0" y1="0" x2="0" y2="0" class="workspace-af95-line"></line>
+                <polyline id="workspace-curve-line" fill="none" points=""></polyline>
+                <g id="workspace-curve-points"></g>
+              </svg>
+              <p id="workspace-curve-empty" data-testid="workspace-curve-empty" class="session-item--empty">
+                No replay detail available.
+              </p>
+              <div class="workspace-curve-meta">
+                <span class="workspace-axis-label">X: Temperature (°C)</span>
+                <span class="workspace-axis-label">Y: metric_raw</span>
+              </div>
+              <p id="workspace-active-point" data-testid="workspace-active-point" class="workspace-active-point">
+                No point selected.
+              </p>
+            </article>
+
+            <article class="panel workspace-card workspace-card--afas" id="workspace-afas-panel" data-testid="workspace-afas-panel">
+              <div class="workspace-section-head">
+                <div>
+                  <p class="section-tag">AFAS</p>
+                  <h2>AFAS Analysis</h2>
+                  <p>Full postprocessing review with preprocessing and parameterized tangent analysis.</p>
+                </div>
+                <div class="workspace-adjustment-editor-actions workspace-actions-inline">
+                  <button
+                    id="workspace-afas-run-btn"
+                    data-testid="workspace-afas-run-btn"
+                    type="button"
+                    class="workspace-action-btn"
+                  >
+                    Run AFAS Analysis
+                  </button>
+                  <button
+                    id="workspace-afas-export-png-btn"
+                    data-testid="workspace-afas-export-png-btn"
+                    type="button"
+                    class="workspace-action-btn workspace-action-btn--secondary"
+                  >
+                    Export PNG
+                  </button>
+                  <button
+                    id="workspace-afas-export-xlsx-btn"
+                    data-testid="workspace-afas-export-xlsx-btn"
+                    type="button"
+                    class="workspace-action-btn workspace-action-btn--secondary"
+                  >
+                    Export Excel
+                  </button>
+                </div>
+              </div>
+              <div class="workspace-afas-controls" data-testid="workspace-afas-controls">
+                <label class="workspace-adjustment-editor-field">
+                  <span>Channel</span>
+                  <select id="workspace-afas-channel" data-testid="workspace-afas-channel"></select>
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>Savgol Window</span>
+                  <input id="workspace-afas-savgol-window" data-testid="workspace-afas-savgol-window" type="number" min="3" step="2" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>Savgol Polyorder</span>
+                  <input id="workspace-afas-savgol-polyorder" data-testid="workspace-afas-savgol-polyorder" type="number" min="1" step="1" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>Low Range Start (°C)</span>
+                  <input id="workspace-afas-low-start" data-testid="workspace-afas-low-start" type="number" step="0.1" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>Low Range End (°C)</span>
+                  <input id="workspace-afas-low-end" data-testid="workspace-afas-low-end" type="number" step="0.1" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>High Range Start (°C)</span>
+                  <input id="workspace-afas-high-start" data-testid="workspace-afas-high-start" type="number" step="0.1" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>High Range End (°C)</span>
+                  <input id="workspace-afas-high-end" data-testid="workspace-afas-high-end" type="number" step="0.1" />
+                </label>
+                <label class="workspace-adjustment-editor-field">
+                  <span>Tangent Offset</span>
+                  <input id="workspace-afas-tangent-offset" data-testid="workspace-afas-tangent-offset" type="number" step="1" />
+                </label>
+              </div>
+              <p id="workspace-afas-status" data-testid="workspace-afas-status" class="workspace-adjustment-status">
+                AFAS analysis has not been loaded yet.
+              </p>
+
+              <section
+                id="workspace-afas-results-card"
+                class="workspace-adjustment-card workspace-adjustment-card--kpi"
+                data-testid="workspace-afas-results-card"
+              >
+                <div class="workspace-kpi-strip-head">
+                  <div>
+                    <h3>Results &amp; Parameters</h3>
+                    <p>Keep the selected channel and immediate decision signals visible before the deeper charts.</p>
+                  </div>
+                </div>
+                <dl class="facts workspace-adjustment-facts workspace-adjustment-facts--kpi">
                   <div>
                     <dt>Result Status</dt>
                     <dd id="workspace-afas-result-status">N/A</dd>
@@ -200,418 +192,464 @@
                   <p class="session-item--empty">Warnings will appear here when analysis runs.</p>
                 </div>
               </section>
-            </div>
-          </article>
-          <article class="panel workspace-card">
-            <div class="workspace-section-head">
-              <div>
-                <h2>Key Frames</h2>
-                <p>First, middle, and last replay frames when detail is available.</p>
-              </div>
-            </div>
-            <div id="workspace-keyframes" class="key-frame-grid" data-testid="workspace-keyframes">
-              <p class="session-item--empty">No replay detail available.</p>
-            </div>
-          </article>
-          <article
-            id="workspace-adjustment-preview"
-            class="panel workspace-card"
-            data-testid="workspace-adjustment-preview"
-          >
-            <div class="workspace-section-head">
-              <div>
-                <h2>Adjustment MVP</h2>
-                <p>Review automatic results, prepare a draft override, and apply the latest Af95 adjustment.</p>
-              </div>
-            </div>
-            <div class="workspace-adjustment-grid">
-              <section
-                id="workspace-adjustment-auto-result"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-auto-result"
-              >
-                <h3>Automatic Result</h3>
-                <dl class="facts workspace-adjustment-facts">
-                  <div>
-                    <dt>Auto Af95</dt>
-                    <dd id="adjustment-auto-af95">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>Auto Result Source</dt>
-                    <dd id="adjustment-auto-source">summary</dd>
-                  </div>
-                  <div>
-                    <dt>Auto Point Count</dt>
-                    <dd id="adjustment-auto-point-count">0</dd>
-                  </div>
-                </dl>
-              </section>
 
-              <section
-                id="workspace-adjustment-latest-result"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-latest-result"
-              >
-                <h3>Latest Result</h3>
-                <dl class="facts workspace-adjustment-facts">
-                  <div>
-                    <dt>Latest Af95</dt>
-                    <dd id="adjustment-latest-af95">N/A</dd>
+              <div class="workspace-afas-grid workspace-afas-grid--analysis">
+                <section class="workspace-adjustment-card" data-testid="workspace-afas-overview-card">
+                  <h3>Overview</h3>
+                  <svg
+                    id="workspace-afas-overview-chart"
+                    data-testid="workspace-afas-overview-chart"
+                    viewBox="0 0 640 220"
+                    class="curve-svg workspace-afas-chart-svg"
+                    role="img"
+                    aria-label="AFAS overview chart"
+                  >
+                    <rect x="0" y="0" width="640" height="220" class="curve-bg"></rect>
+                    <g id="workspace-afas-overview-series"></g>
+                  </svg>
+                  <div id="workspace-afas-overview-summary" data-testid="workspace-afas-overview-summary" class="workspace-afas-overview-summary">
+                    <p class="session-item--empty">AFAS analysis is unavailable.</p>
                   </div>
-                  <div>
-                    <dt>Latest Result Source</dt>
-                    <dd id="adjustment-latest-source">auto</dd>
-                  </div>
-                  <div>
-                    <dt>Latest Version</dt>
-                    <dd id="adjustment-latest-version">N/A</dd>
-                  </div>
-                </dl>
-                <p id="adjustment-latest-note" class="workspace-adjustment-copy">
-                  Latest result currently matches the automatic result.
-                </p>
-              </section>
-
-              <section
-                id="workspace-adjustment-draft-editor"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-draft-editor"
-              >
-                <h3>Draft Editor</h3>
-                <div class="workspace-adjustment-editor">
-                  <label class="workspace-adjustment-editor-field">
-                    <span>Draft Af95</span>
-                    <input
-                      id="adjustment-draft-af95"
-                      data-testid="adjustment-draft-af95"
-                      type="number"
-                      step="0.01"
-                      inputmode="decimal"
-                      placeholder="Enter Af95 override"
-                    />
-                  </label>
-                  <label class="workspace-adjustment-editor-field">
-                    <span>Reason</span>
-                    <textarea
-                      id="adjustment-draft-reason"
-                      data-testid="adjustment-draft-reason"
-                      placeholder="Describe why this adjustment is needed"
-                    ></textarea>
-                  </label>
-                  <div class="workspace-adjustment-editor-actions">
-                    <button
-                      id="adjustment-save-draft-btn"
-                      data-testid="adjustment-save-draft-btn"
-                      type="button"
-                      class="workspace-action-btn"
-                    >
-                      Save Draft
-                    </button>
-                    <button
-                      id="adjustment-apply-btn"
-                      data-testid="adjustment-apply-btn"
-                      type="button"
-                      class="workspace-action-btn workspace-action-btn--secondary"
-                      disabled
-                    >
-                      Apply Adjustment
-                    </button>
-                  </div>
-                  <p id="adjustment-draft-status" data-testid="adjustment-draft-status" class="workspace-adjustment-status">
-                    No draft loaded.
+                </section>
+                <section class="workspace-adjustment-card" data-testid="workspace-afas-analysis-card">
+                  <h3>Selected Channel</h3>
+                  <svg
+                    id="workspace-afas-analysis-chart"
+                    data-testid="workspace-afas-analysis-chart"
+                    viewBox="0 0 640 280"
+                    class="curve-svg workspace-afas-chart-svg"
+                    role="img"
+                    aria-label="AFAS tangent analysis chart"
+                  >
+                    <rect x="0" y="0" width="640" height="280" class="curve-bg"></rect>
+                    <g id="workspace-afas-analysis-layers"></g>
+                  </svg>
+                  <p id="workspace-afas-analysis-empty" data-testid="workspace-afas-analysis-empty" class="session-item--empty">
+                    Run AFAS analysis to render the full postprocessing chart.
                   </p>
+                </section>
+              </div>
+            </article>
+          </div>
+
+          <div class="workspace-secondary-stack">
+            <article class="panel workspace-card">
+              <div class="workspace-section-head">
+                <div>
+                  <p class="section-tag">Second Screen</p>
+                  <h2>Key Frames</h2>
+                  <p>First, middle, and last replay frames when detail is available.</p>
                 </div>
-              </section>
+              </div>
+              <div id="workspace-keyframes" class="key-frame-grid" data-testid="workspace-keyframes">
+                <p class="session-item--empty">No replay detail available.</p>
+              </div>
+            </article>
 
-              <section
-                id="workspace-adjustment-notes"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-notes"
-              >
-                <h3>Adjustment Notes</h3>
-                <ul class="workspace-adjustment-notes-list">
-                  <li>Current MVP only supports Af95 result-level adjustment.</li>
-                  <li>Auto result, latest result, draft, and applied versions remain separate.</li>
-                  <li>As / Af / Af-tan and parameter-level tuning stay reserved for later phases.</li>
-                </ul>
-              </section>
+            <article
+              id="workspace-adjustment-preview"
+              class="panel workspace-card"
+              data-testid="workspace-adjustment-preview"
+            >
+              <div class="workspace-section-head">
+                <div>
+                  <p class="section-tag">Second Screen</p>
+                  <h2>Adjustment MVP</h2>
+                  <p>Review automatic results, prepare a draft override, and apply the latest Af95 adjustment.</p>
+                </div>
+              </div>
+              <div class="workspace-adjustment-grid">
+                <section
+                  id="workspace-adjustment-auto-result"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-auto-result"
+                >
+                  <h3>Automatic Result</h3>
+                  <dl class="facts workspace-adjustment-facts">
+                    <div>
+                      <dt>Auto Af95</dt>
+                      <dd id="adjustment-auto-af95">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>Auto Result Source</dt>
+                      <dd id="adjustment-auto-source">summary</dd>
+                    </div>
+                    <div>
+                      <dt>Auto Point Count</dt>
+                      <dd id="adjustment-auto-point-count">0</dd>
+                    </div>
+                  </dl>
+                </section>
 
-              <section
-                id="workspace-adjustment-basis"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-basis"
-              >
-                <h3>Automatic Basis</h3>
-                <dl class="facts workspace-adjustment-facts">
-                  <div>
-                    <dt>Source</dt>
-                    <dd id="workspace-adjustment-source">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>Point Count</dt>
-                    <dd id="workspace-adjustment-point-count">0</dd>
-                  </div>
-                  <div>
-                    <dt>Key Frame Count</dt>
-                    <dd id="workspace-adjustment-keyframe-count">0</dd>
-                  </div>
-                  <div>
-                    <dt>Af95</dt>
-                    <dd id="workspace-adjustment-af95">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>Current Stage</dt>
-                    <dd id="workspace-adjustment-stage">计算</dd>
-                  </div>
-                  <div>
-                    <dt>Detail Available</dt>
-                    <dd id="workspace-adjustment-detail-status">No</dd>
-                  </div>
-                  <div>
-                    <dt>Active Selection</dt>
-                    <dd id="workspace-adjustment-active-summary">N/A</dd>
-                  </div>
-                </dl>
-                <p id="workspace-adjustment-basis-copy" class="workspace-adjustment-copy">
-                  Automatic analysis basis will appear here when detail data is available.
-                </p>
-              </section>
+                <section
+                  id="workspace-adjustment-latest-result"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-latest-result"
+                >
+                  <h3>Latest Result</h3>
+                  <dl class="facts workspace-adjustment-facts">
+                    <div>
+                      <dt>Latest Af95</dt>
+                      <dd id="adjustment-latest-af95">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>Latest Result Source</dt>
+                      <dd id="adjustment-latest-source">auto</dd>
+                    </div>
+                    <div>
+                      <dt>Latest Version</dt>
+                      <dd id="adjustment-latest-version">N/A</dd>
+                    </div>
+                  </dl>
+                  <p id="adjustment-latest-note" class="workspace-adjustment-copy">
+                    Latest result currently matches the automatic result.
+                  </p>
+                </section>
 
-              <section
-                id="workspace-adjustment-context"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-context"
-              >
-                <h3>Extraction &amp; Analysis Context</h3>
-                <dl class="facts workspace-adjustment-facts">
-                  <div>
-                    <dt>ROI</dt>
-                    <dd id="workspace-adjustment-roi">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>feature_point_px</dt>
-                    <dd id="workspace-adjustment-feature-point">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>baseline_px</dt>
-                    <dd id="workspace-adjustment-baseline">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>quality</dt>
-                    <dd id="workspace-adjustment-quality">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>threshold_value</dt>
-                    <dd id="workspace-adjustment-threshold">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>component_area</dt>
-                    <dd id="workspace-adjustment-component-area">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>metric_norm</dt>
-                    <dd id="workspace-adjustment-metric-norm">N/A</dd>
-                  </div>
-                  <div>
-                    <dt>stage</dt>
-                    <dd id="workspace-adjustment-context-stage">计算</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section
-                id="workspace-adjustment-controls"
-                class="workspace-adjustment-card"
-                data-testid="workspace-adjustment-controls"
-              >
-                <div class="workspace-adjustment-controls-head">
-                  <div>
-                    <h3>Future Adjustment Controls</h3>
-                    <p id="workspace-adjustment-coming-soon" data-testid="workspace-adjustment-coming-soon">
-                      Coming soon. Read-only in current phase.
+                <section
+                  id="workspace-adjustment-draft-editor"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-draft-editor"
+                >
+                  <h3>Draft Editor</h3>
+                  <div class="workspace-adjustment-editor">
+                    <label class="workspace-adjustment-editor-field">
+                      <span>Draft Af95</span>
+                      <input
+                        id="adjustment-draft-af95"
+                        data-testid="adjustment-draft-af95"
+                        type="number"
+                        step="0.01"
+                        inputmode="decimal"
+                        placeholder="Enter Af95 override"
+                      />
+                    </label>
+                    <label class="workspace-adjustment-editor-field">
+                      <span>Reason</span>
+                      <textarea
+                        id="adjustment-draft-reason"
+                        data-testid="adjustment-draft-reason"
+                        placeholder="Describe why this adjustment is needed"
+                      ></textarea>
+                    </label>
+                    <div class="workspace-adjustment-editor-actions">
+                      <button
+                        id="adjustment-save-draft-btn"
+                        data-testid="adjustment-save-draft-btn"
+                        type="button"
+                        class="workspace-action-btn"
+                      >
+                        Save Draft
+                      </button>
+                      <button
+                        id="adjustment-apply-btn"
+                        data-testid="adjustment-apply-btn"
+                        type="button"
+                        class="workspace-action-btn workspace-action-btn--secondary"
+                        disabled
+                      >
+                        Apply Adjustment
+                      </button>
+                    </div>
+                    <p id="adjustment-draft-status" data-testid="adjustment-draft-status" class="workspace-adjustment-status">
+                      No draft loaded.
                     </p>
                   </div>
-                </div>
-                <div class="workspace-adjustment-control-groups">
-                  <fieldset class="workspace-adjustment-fieldset" disabled>
-                    <legend>Image Processing Parameters</legend>
-                    <label>
-                      ROI
-                      <input type="text" value="auto from replay detail" readonly />
-                    </label>
-                    <label>
-                      Threshold
-                      <input type="text" value="read-only preview" readonly />
-                    </label>
-                    <label>
-                      Baseline Lock
-                      <input type="text" value="automatic" readonly />
-                    </label>
-                  </fieldset>
+                </section>
 
-                  <fieldset class="workspace-adjustment-fieldset" disabled>
-                    <legend>Curve Analysis Parameters</legend>
-                    <label>
-                      Smoothing
-                      <input type="text" value="not available yet" readonly />
-                    </label>
-                    <label>
-                      Normalization Basis
-                      <input type="text" value="current replay detail" readonly />
-                    </label>
-                    <label>
-                      Af95 Threshold
-                      <input type="text" value="0.95" readonly />
-                    </label>
-                  </fieldset>
+                <section
+                  id="workspace-adjustment-notes"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-notes"
+                >
+                  <h3>Adjustment Notes</h3>
+                  <ul class="workspace-adjustment-notes-list">
+                    <li>Current MVP only supports Af95 result-level adjustment.</li>
+                    <li>Auto result, latest result, draft, and applied versions remain separate.</li>
+                    <li>As / Af / Af-tan and parameter-level tuning stay reserved for later phases.</li>
+                  </ul>
+                </section>
 
-                  <fieldset class="workspace-adjustment-fieldset" disabled>
-                    <legend>Result Override</legend>
-                    <label>
-                      As / Af / Af95
-                      <input type="text" value="manual override unavailable" readonly />
-                    </label>
-                    <label>
-                      Reason
-                      <textarea readonly>Read-only preview. Saving adjustments is not enabled in this phase.</textarea>
-                    </label>
-                    <button type="button" disabled>Save Adjustment</button>
-                  </fieldset>
-                </div>
-              </section>
-            </div>
-          </article>
+                <section
+                  id="workspace-adjustment-basis"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-basis"
+                >
+                  <h3>Automatic Basis</h3>
+                  <dl class="facts workspace-adjustment-facts">
+                    <div>
+                      <dt>Source</dt>
+                      <dd id="workspace-adjustment-source">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>Point Count</dt>
+                      <dd id="workspace-adjustment-point-count">0</dd>
+                    </div>
+                    <div>
+                      <dt>Key Frame Count</dt>
+                      <dd id="workspace-adjustment-keyframe-count">0</dd>
+                    </div>
+                    <div>
+                      <dt>Af95</dt>
+                      <dd id="workspace-adjustment-af95">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>Current Stage</dt>
+                      <dd id="workspace-adjustment-stage">计算</dd>
+                    </div>
+                    <div>
+                      <dt>Detail Available</dt>
+                      <dd id="workspace-adjustment-detail-status">No</dd>
+                    </div>
+                    <div>
+                      <dt>Active Selection</dt>
+                      <dd id="workspace-adjustment-active-summary">N/A</dd>
+                    </div>
+                  </dl>
+                  <p id="workspace-adjustment-basis-copy" class="workspace-adjustment-copy">
+                    Automatic analysis basis will appear here when detail data is available.
+                  </p>
+                </section>
+
+                <section
+                  id="workspace-adjustment-context"
+                  class="workspace-adjustment-card"
+                  data-testid="workspace-adjustment-context"
+                >
+                  <h3>Extraction &amp; Analysis Context</h3>
+                  <dl class="facts workspace-adjustment-facts">
+                    <div>
+                      <dt>ROI</dt>
+                      <dd id="workspace-adjustment-roi">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>feature_point_px</dt>
+                      <dd id="workspace-adjustment-feature-point">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>baseline_px</dt>
+                      <dd id="workspace-adjustment-baseline">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>quality</dt>
+                      <dd id="workspace-adjustment-quality">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>threshold_value</dt>
+                      <dd id="workspace-adjustment-threshold">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>component_area</dt>
+                      <dd id="workspace-adjustment-component-area">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>metric_norm</dt>
+                      <dd id="workspace-adjustment-metric-norm">N/A</dd>
+                    </div>
+                    <div>
+                      <dt>stage</dt>
+                      <dd id="workspace-adjustment-context-stage">计算</dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+
+              <details class="workspace-adjustment-foldout">
+                <summary>Future Adjustment Controls</summary>
+                <section
+                  id="workspace-adjustment-controls"
+                  class="workspace-adjustment-card workspace-adjustment-card--foldout"
+                  data-testid="workspace-adjustment-controls"
+                >
+                  <div class="workspace-adjustment-controls-head">
+                    <div>
+                      <h3>Future Adjustment Controls</h3>
+                      <p id="workspace-adjustment-coming-soon" data-testid="workspace-adjustment-coming-soon">
+                        Coming soon. Read-only in current phase.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="workspace-adjustment-control-groups">
+                    <fieldset class="workspace-adjustment-fieldset" disabled>
+                      <legend>Image Processing Parameters</legend>
+                      <label>
+                        ROI
+                        <input type="text" value="auto from replay detail" readonly />
+                      </label>
+                      <label>
+                        Threshold
+                        <input type="text" value="read-only preview" readonly />
+                      </label>
+                      <label>
+                        Baseline Lock
+                        <input type="text" value="automatic" readonly />
+                      </label>
+                    </fieldset>
+
+                    <fieldset class="workspace-adjustment-fieldset" disabled>
+                      <legend>Curve Analysis Parameters</legend>
+                      <label>
+                        Smoothing
+                        <input type="text" value="not available yet" readonly />
+                      </label>
+                      <label>
+                        Normalization Basis
+                        <input type="text" value="current replay detail" readonly />
+                      </label>
+                      <label>
+                        Af95 Threshold
+                        <input type="text" value="0.95" readonly />
+                      </label>
+                    </fieldset>
+
+                    <fieldset class="workspace-adjustment-fieldset" disabled>
+                      <legend>Result Override</legend>
+                      <label>
+                        As / Af / Af95
+                        <input type="text" value="manual override unavailable" readonly />
+                      </label>
+                      <label>
+                        Reason
+                        <textarea readonly>Read-only preview. Saving adjustments is not enabled in this phase.</textarea>
+                      </label>
+                      <button type="button" disabled>Save Adjustment</button>
+                    </fieldset>
+                  </div>
+                </section>
+              </details>
+            </article>
+          </div>
         </section>
 
-        <aside id="workspace-sidepanel" class="workspace-sidepanel panel" data-testid="workspace-sidepanel">
-          <div id="workspace-stage-card" class="workspace-summary-card" data-testid="workspace-stage-card">
-            <h2>Workflow Stage</h2>
-            <dl class="facts workspace-side-facts">
-              <div>
-                <dt>Current Stage</dt>
-                <dd id="workspace-current-stage">计算</dd>
-              </div>
-              <div>
-                <dt>Session State</dt>
-                <dd id="workspace-side-state">{{ summary.state }}</dd>
-              </div>
-              <div>
-                <dt>Mode / Source</dt>
-                <dd id="workspace-source">loading</dd>
-              </div>
-            </dl>
-            <p id="workspace-stage-description">Stage mapping is derived from summary/detail and remains read-only in this phase.</p>
-          </div>
-
-          <div id="workspace-session-summary-card" class="workspace-summary-card" data-testid="workspace-session-summary-card">
-            <h2>Session Summary</h2>
-            <dl class="facts workspace-side-facts">
-              <div>
-                <dt>Session ID</dt>
-                <dd id="workspace-side-session-id">{{ session_id }}</dd>
-              </div>
-              <div>
-                <dt>Point Count</dt>
-                <dd id="workspace-point-count">{{ summary.point_count }}</dd>
-              </div>
-              <div>
-                <dt>Af95 (°C)</dt>
-                <dd id="workspace-af95" class="workspace-af95-emphasis">{{ summary.af95 if summary.af95 is not none else "N/A" }}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div id="workspace-active-selection" class="workspace-summary-card" data-testid="workspace-active-selection">
-            <h2>Active Selection</h2>
-            <dl class="facts workspace-side-facts">
-              <div>
-                <dt>Label</dt>
-                <dd id="workspace-active-label">N/A</dd>
-              </div>
-              <div>
-                <dt>Timestamp</dt>
-                <dd id="workspace-active-timestamp">N/A</dd>
-              </div>
-              <div>
-                <dt>Celsius</dt>
-                <dd id="workspace-active-celsius">N/A</dd>
-              </div>
-              <div>
-                <dt>metric_raw</dt>
-                <dd id="workspace-active-metric-raw">N/A</dd>
-              </div>
-              <div>
-                <dt>metric_norm</dt>
-                <dd id="workspace-active-metric-norm">N/A</dd>
-              </div>
-              <div>
-                <dt>feature_point_px</dt>
-                <dd id="workspace-active-feature-point">N/A</dd>
-              </div>
-              <div>
-                <dt>quality</dt>
-                <dd id="workspace-active-quality">N/A</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div id="workspace-detail-summary-card" class="workspace-summary-card" data-testid="workspace-detail-summary-card">
-            <h2>Detail Snapshot</h2>
-            <dl class="facts workspace-side-facts">
-              <div>
-                <dt>Detail Status</dt>
-                <dd id="workspace-detail-status">loading</dd>
-              </div>
-              <div>
-                <dt>Detail Points</dt>
-                <dd id="workspace-detail-point-count">0</dd>
-              </div>
-              <div>
-                <dt>Key Frames</dt>
-                <dd id="workspace-keyframe-count">0</dd>
-              </div>
-            </dl>
-            <p id="workspace-summary-copy">
-              Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
-            </p>
-          </div>
-
-          <div id="workspace-adjustment-status-card" class="workspace-summary-card" data-testid="workspace-adjustment-status-card">
-            <h2>Adjustment Status</h2>
-            <dl class="facts workspace-side-facts">
-              <div>
-                <dt>Has Draft</dt>
-                <dd id="adjustment-has-draft">No</dd>
-              </div>
-              <div>
-                <dt>Applied Count</dt>
-                <dd id="adjustment-applied-count">0</dd>
-              </div>
-              <div>
-                <dt>Manual Override</dt>
-                <dd id="adjustment-is-manual">No</dd>
-              </div>
-              <div>
-                <dt>Draft Updated</dt>
-                <dd id="adjustment-draft-updated">N/A</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div id="workspace-adjustment-history-card" class="workspace-summary-card" data-testid="workspace-adjustment-history-card">
-            <h2>Version History</h2>
-            <div id="adjustment-version-history" data-testid="adjustment-version-history" class="workspace-version-history">
-              <p class="session-item--empty">No applied adjustment versions yet.</p>
+        <aside id="workspace-sidepanel" class="workspace-sidepanel" data-testid="workspace-sidepanel">
+          <div class="workspace-sidepanel-sticky">
+            <div id="workspace-stage-card" class="workspace-summary-card" data-testid="workspace-stage-card">
+              <h2>Current Stage</h2>
+              <dl class="facts workspace-side-facts">
+                <div>
+                  <dt>Current Stage</dt>
+                  <dd id="workspace-current-stage">计算</dd>
+                </div>
+                <div>
+                  <dt>Session State</dt>
+                  <dd id="workspace-side-state">{{ summary.state }}</dd>
+                </div>
+                <div>
+                  <dt>Mode / Source</dt>
+                  <dd id="workspace-source">loading</dd>
+                </div>
+              </dl>
+              <p id="workspace-stage-description">Stage mapping is derived from summary/detail and remains read-only in this phase.</p>
             </div>
-          </div>
 
-          <div id="workspace-actions-card" class="workspace-summary-card" data-testid="workspace-actions-card">
-            <h2>Quick Actions</h2>
-            <div class="workspace-links">
-              <a class="workspace-link" href="/">Return Home</a>
-              <button id="workspace-refresh-btn" type="button" class="workspace-action-btn">Refresh Workspace</button>
-              <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
-              <a class="workspace-link" id="workspace-detail-link" href="/api/session/{{ session_id }}/detail">Open Detail API</a>
+            <div id="workspace-session-summary-card" class="workspace-summary-card" data-testid="workspace-session-summary-card">
+              <h2>Session Summary</h2>
+              <dl class="facts workspace-side-facts">
+                <div>
+                  <dt>Session ID</dt>
+                  <dd id="workspace-side-session-id">{{ session_id }}</dd>
+                </div>
+                <div>
+                  <dt>Point Count</dt>
+                  <dd id="workspace-point-count">{{ summary.point_count }}</dd>
+                </div>
+                <div>
+                  <dt>Af95 (°C)</dt>
+                  <dd id="workspace-af95" class="workspace-af95-emphasis">{{ summary.af95 if summary.af95 is not none else "N/A" }}</dd>
+                </div>
+              </dl>
+              <div id="workspace-detail-summary-card" class="workspace-summary-inline" data-testid="workspace-detail-summary-card">
+                <dl class="facts workspace-side-facts">
+                  <div>
+                    <dt>Detail Status</dt>
+                    <dd id="workspace-detail-status">loading</dd>
+                  </div>
+                  <div>
+                    <dt>Detail Points</dt>
+                    <dd id="workspace-detail-point-count">0</dd>
+                  </div>
+                  <div>
+                    <dt>Key Frames</dt>
+                    <dd id="workspace-keyframe-count">0</dd>
+                  </div>
+                </dl>
+                <p id="workspace-summary-copy">
+                  Session {{ session_id }} is currently recorded as {{ summary.state }} with {{ summary.point_count }} points.
+                </p>
+              </div>
+            </div>
+
+            <div id="workspace-active-selection" class="workspace-summary-card" data-testid="workspace-active-selection">
+              <h2>Active Selection</h2>
+              <dl class="facts workspace-side-facts">
+                <div>
+                  <dt>Label</dt>
+                  <dd id="workspace-active-label">N/A</dd>
+                </div>
+                <div>
+                  <dt>Timestamp</dt>
+                  <dd id="workspace-active-timestamp">N/A</dd>
+                </div>
+                <div>
+                  <dt>Celsius</dt>
+                  <dd id="workspace-active-celsius">N/A</dd>
+                </div>
+                <div>
+                  <dt>metric_raw</dt>
+                  <dd id="workspace-active-metric-raw">N/A</dd>
+                </div>
+                <div>
+                  <dt>metric_norm</dt>
+                  <dd id="workspace-active-metric-norm">N/A</dd>
+                </div>
+                <div>
+                  <dt>feature_point_px</dt>
+                  <dd id="workspace-active-feature-point">N/A</dd>
+                </div>
+                <div>
+                  <dt>quality</dt>
+                  <dd id="workspace-active-quality">N/A</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div id="workspace-adjustment-status-card" class="workspace-summary-card" data-testid="workspace-adjustment-status-card">
+              <h2>Adjustment Status</h2>
+              <dl class="facts workspace-side-facts">
+                <div>
+                  <dt>Has Draft</dt>
+                  <dd id="adjustment-has-draft">No</dd>
+                </div>
+                <div>
+                  <dt>Applied Count</dt>
+                  <dd id="adjustment-applied-count">0</dd>
+                </div>
+                <div>
+                  <dt>Manual Override</dt>
+                  <dd id="adjustment-is-manual">No</dd>
+                </div>
+                <div>
+                  <dt>Draft Updated</dt>
+                  <dd id="adjustment-draft-updated">N/A</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div id="workspace-adjustment-history-card" class="workspace-summary-card" data-testid="workspace-adjustment-history-card">
+              <h2>Version History</h2>
+              <div id="adjustment-version-history" data-testid="adjustment-version-history" class="workspace-version-history">
+                <p class="session-item--empty">No applied adjustment versions yet.</p>
+              </div>
+            </div>
+
+            <div id="workspace-actions-card" class="workspace-summary-card" data-testid="workspace-actions-card">
+              <h2>Quick Actions</h2>
+              <div class="workspace-links">
+                <a class="workspace-link" href="/">Return Home</a>
+                <button id="workspace-refresh-btn" type="button" class="workspace-action-btn">Refresh Workspace</button>
+                <a class="workspace-link" href="/api/session/{{ session_id }}">Open Summary API</a>
+                <a class="workspace-link" id="workspace-detail-link" href="/api/session/{{ session_id }}/detail">Open Detail API</a>
+              </div>
             </div>
           </div>
         </aside>

@@ -90,6 +90,8 @@ Use these first when you need:
 - the original browser workstation product framing
 - the current desktop-delivery migration direction
 - frozen live-setup interaction semantics
+- the current screen-role split between `Launch & Control Cockpit` on home and `Analysis Studio` in workspace
+- the current visual-system convergence direction for home and workspace
 
 ### B. Architecture / Boundary Baseline
 
@@ -105,6 +107,7 @@ Use these when you need:
 
 ### C. Device / Requirement Baseline
 
+- [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
 - [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md)
 - [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md)
 - [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md)
@@ -115,6 +118,11 @@ Use these when you need:
 
 Use this when you need:
 
+- the locked home/workspace shell split between `Launch & Control Cockpit` and `Analysis Studio`
+- the deterministic selection rule for `Compact Result -> Open Workspace`
+- the locked rule that `observation_window` is not part of the current home cockpit operator path
+- the locked escalation rule for when `Point A / Point B` must become prominent for manual review
+- the first-pass DOM / API / test-anchor guardrails for home/workspace shell refactors
 - the current operator-facing live setup workflow after the shift to `auto-live-preview -> Freeze -> rotated ROI -> ROI-local A-B -> live ROI tracking`
 - the locked decision that the old `Create Live Run / Fetch Preview / Start Live Preview` buttons are no longer part of the operator workflow
 - the locked decision that `Draw Window / Rotate Window` are removed from the current operator setup flow
@@ -192,26 +200,27 @@ Recommended reading order for current work:
 
 1. [master_control_plan.md](./master_control_plan.md)
 2. [office_hours_requirement_baseline_v1.md](./office_hours_requirement_baseline_v1.md)
-3. [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md) if touching launch flow, Freeze, ROI editing, ROI rotation, ROI-local point detection, sensitivity, current temperature display, target-temperature confirmation, or live A/B tracking
-4. [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md) only when you need the older `ROI -> A-B -> observation window` split for historical context or for identifying what the newer live setup requirement superseded
-5. [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md) if touching final delivery choice, Web preview target, display size, or brightness usability
-6. [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) if touching desktop transition, same-workflow migration, or the contingency path when Web does not pass the narrowed gate
-7. [architecture_lock.md](./architecture_lock.md)
-8. [module_map.md](./module_map.md)
-9. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
-10. [afas_full_postprocessing_migration_requirement_v1.md](./afas_full_postprocessing_migration_requirement_v1.md) if touching post-run curve analysis parity, smoothing/outlier handling, AFAS-style charting, artifact persistence, or export/report equivalence
-11. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
-12. [afas_full_postprocessing_migration_plan_lock_v1.md](../plan_eng_review/afas_full_postprocessing_migration_plan_lock_v1.md) if touching AFAS parity, preprocessing migration, analysis chart parity, or export/report migration
-13. [live_setup_freeze_roi_tracking_plan_lock_v1.md](../plan_eng_review/live_setup_freeze_roi_tracking_plan_lock_v1.md)
-14. [live_setup_roi_ab_window_plan_lock_v1.md](../plan_eng_review/live_setup_roi_ab_window_plan_lock_v1.md)
-15. [web_preview_18fps_plan_lock_v1.md](../plan_eng_review/web_preview_18fps_plan_lock_v1.md)
-16. [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
-17. [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
-18. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
-19. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
-20. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
-21. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
-22. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
+3. [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md) if touching home/workspace role split, `Compact Result` routing, homepage A/B prominence rules, or first-pass shell refactor guardrails
+4. [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md) if touching launch flow, Freeze, ROI editing, ROI rotation, ROI-local point detection, sensitivity, current temperature display, target-temperature confirmation, or live A/B tracking
+5. [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md) only when you need the older `ROI -> A-B -> observation window` split for historical context or for identifying what the newer live setup requirement superseded
+6. [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md) if touching final delivery choice, Web preview target, display size, or brightness usability
+7. [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) if touching desktop transition, same-workflow migration, or the contingency path when Web does not pass the narrowed gate
+8. [architecture_lock.md](./architecture_lock.md)
+9. [module_map.md](./module_map.md)
+10. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
+11. [afas_full_postprocessing_migration_requirement_v1.md](./afas_full_postprocessing_migration_requirement_v1.md) if touching post-run curve analysis parity, smoothing/outlier handling, AFAS-style charting, artifact persistence, or export/report equivalence
+12. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
+13. [afas_full_postprocessing_migration_plan_lock_v1.md](../plan_eng_review/afas_full_postprocessing_migration_plan_lock_v1.md) if touching AFAS parity, preprocessing migration, analysis chart parity, or export/report migration
+14. [live_setup_freeze_roi_tracking_plan_lock_v1.md](../plan_eng_review/live_setup_freeze_roi_tracking_plan_lock_v1.md)
+15. [live_setup_roi_ab_window_plan_lock_v1.md](../plan_eng_review/live_setup_roi_ab_window_plan_lock_v1.md)
+16. [web_preview_18fps_plan_lock_v1.md](../plan_eng_review/web_preview_18fps_plan_lock_v1.md)
+17. [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
+18. [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
+19. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
+20. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
+21. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
+22. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
+23. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
 
 ## 7. Practical Directory Notes
 

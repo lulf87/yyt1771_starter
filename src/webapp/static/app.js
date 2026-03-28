@@ -2321,6 +2321,38 @@ function hasWorkspaceAfasUi() {
   );
 }
 
+function isWorkspaceAfasAvailable() {
+  return document.body.dataset.afasAvailable !== "0";
+}
+
+function getWorkspaceAfasUnavailableMessage() {
+  return "AFAS dataset is unavailable for this session.";
+}
+
+function syncWorkspaceAfasAvailability() {
+  if (!hasWorkspaceAfasUi()) {
+    return;
+  }
+  const available = isWorkspaceAfasAvailable();
+  for (const node of [
+    workspaceAfasRunButton,
+    workspaceAfasExportPngButton,
+    workspaceAfasExportXlsxButton,
+    workspaceAfasChannelNode,
+    workspaceAfasSavgolWindowNode,
+    workspaceAfasSavgolPolyorderNode,
+    workspaceAfasLowStartNode,
+    workspaceAfasLowEndNode,
+    workspaceAfasHighStartNode,
+    workspaceAfasHighEndNode,
+    workspaceAfasTangentOffsetNode,
+  ]) {
+    if (node) {
+      node.disabled = !available;
+    }
+  }
+}
+
 function setWorkspaceAfasStatus(message, tone = "neutral") {
   if (!workspaceAfasStatusNode) {
     return;
@@ -2617,12 +2649,17 @@ function renderWorkspaceAfas(state) {
     return;
   }
   if (!state) {
+    syncWorkspaceAfasAvailability();
     renderWorkspaceAfasOverview([], "");
     renderWorkspaceAfasAnalysisChart(null);
     renderWorkspaceAfasResults(null);
-    setWorkspaceAfasStatus("AFAS dataset is unavailable for this session.", "error");
+    setWorkspaceAfasStatus(
+      isWorkspaceAfasAvailable() ? "AFAS analysis has not been loaded yet." : getWorkspaceAfasUnavailableMessage(),
+      isWorkspaceAfasAvailable() ? "neutral" : "info",
+    );
     return;
   }
+  syncWorkspaceAfasAvailability();
   syncWorkspaceAfasControls(state);
   renderWorkspaceAfasOverview(state.overview || [], state.active_channel);
   renderWorkspaceAfasAnalysisChart(state.analysis || null);
@@ -2634,6 +2671,10 @@ function renderWorkspaceAfas(state) {
 
 async function loadWorkspaceAfasAnalysis(sessionId, { silent = false } = {}) {
   if (!hasWorkspaceAfasUi()) {
+    return null;
+  }
+  if (!isWorkspaceAfasAvailable()) {
+    renderWorkspaceAfas(null);
     return null;
   }
   if (workspaceAfasRunButton) {
@@ -2660,7 +2701,7 @@ async function loadWorkspaceAfasAnalysis(sessionId, { silent = false } = {}) {
     return null;
   } finally {
     if (workspaceAfasRunButton) {
-      workspaceAfasRunButton.disabled = false;
+      workspaceAfasRunButton.disabled = !isWorkspaceAfasAvailable();
     }
   }
 }
@@ -2676,6 +2717,10 @@ function extractFilenameFromDisposition(headerValue, fallback) {
 async function exportWorkspaceAfasArtifact(kind) {
   const sessionId = getWorkspaceSessionId();
   if (!sessionId || !hasWorkspaceAfasUi()) {
+    return;
+  }
+  if (!isWorkspaceAfasAvailable()) {
+    renderWorkspaceAfas(null);
     return;
   }
   const button = kind === "png" ? workspaceAfasExportPngButton : workspaceAfasExportXlsxButton;
@@ -2717,7 +2762,7 @@ async function exportWorkspaceAfasArtifact(kind) {
     setWorkspaceAfasStatus(String(error), "error");
   } finally {
     if (button) {
-      button.disabled = false;
+      button.disabled = !isWorkspaceAfasAvailable();
     }
   }
 }
@@ -3318,11 +3363,12 @@ async function bootstrapWorkspace() {
     return;
   }
 
+  syncWorkspaceAfasAvailability();
   const [summaryResponse, detailResponse, adjustmentResponse, afasResponse] = await Promise.allSettled([
     fetch(`/api/session/${sessionId}`),
     fetch(`/api/session/${sessionId}/detail`),
     fetch(`/api/session/${sessionId}/adjustment`),
-    hasWorkspaceAfasUi() ? loadWorkspaceAfasAnalysis(sessionId, { silent: true }) : Promise.resolve(null),
+    hasWorkspaceAfasUi() && isWorkspaceAfasAvailable() ? loadWorkspaceAfasAnalysis(sessionId, { silent: true }) : Promise.resolve(null),
   ]);
 
   if (summaryResponse.status !== "fulfilled" || !summaryResponse.value.ok) {

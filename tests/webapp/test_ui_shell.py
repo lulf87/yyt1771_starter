@@ -18,7 +18,8 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "YYT1771 Web Console" in response.text
+    assert "Launch &amp; Control Cockpit" in response.text
+    assert "Analysis Studio" in response.text
     assert '/static/app.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert 'id="health-status"' in response.text
@@ -146,3 +147,12 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/session/${sessionId}/detail" in response.text
     assert "/workspace/" in response.text
     assert 'workspace-keyframe-card' in response.text
+
+
+def test_favicon_route_returns_no_content(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    response = client.get("/favicon.ico")
+
+    assert response.status_code == 204
+    assert response.text == ""

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
-from src.webapp.deps import get_session_repo
+from src.webapp.deps import get_session_artifact_store, get_session_repo
 
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
@@ -28,10 +29,15 @@ def index(request: Request) -> HTMLResponse:
         request=request,
         name="index.html",
         context={
-            "app_title": "YYT1771 Web Console",
+            "app_title": "Launch & Control Cockpit",
             "asset_version": _asset_version(),
         },
     )
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/workspace/{session_id}", response_class=HTMLResponse)
@@ -39,6 +45,7 @@ def workspace(
     request: Request,
     session_id: str,
     repo: SqliteSessionRepo = Depends(get_session_repo),
+    artifact_store: SessionArtifactStore = Depends(get_session_artifact_store),
 ) -> HTMLResponse:
     summary = repo.get_summary(session_id)
     if summary is None:
@@ -51,10 +58,11 @@ def workspace(
         request=request,
         name="workspace.html",
         context={
-            "app_title": "YYT1771 Workspace",
+            "app_title": "Analysis Studio",
             "asset_version": _asset_version(),
             "session_id": session_id,
             "summary": summary,
+            "afas_available": artifact_store.get_afas_dataset(session_id) is not None,
             "steps": ["准备", "采集", "处理", "计算", "调整", "存储"],
         },
     )

@@ -7,102 +7,102 @@
     <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}" />
   </head>
   <body data-page="home">
-    <main class="shell">
-      <header class="hero">
-        <p class="eyebrow">Offline Web Shell</p>
-        <h1 id="app-title">{{ app_title }}</h1>
-        <p class="subtitle">Health, profile, and mock session controls in one minimal browser page.</p>
+    <main class="shell shell--home">
+      <header class="panel hero hero--cockpit">
+        <div class="hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow">YYT1771</p>
+            <h1 id="app-title">{{ app_title }}</h1>
+            <p class="subtitle">
+              YYT1771 live setup now leads the shell. Freeze, define a rotated ROI, confirm detection,
+              and move into Analysis Studio only when a session is worth reading.
+            </p>
+          </div>
+          <dl class="facts hero-status-grid">
+            <div>
+              <dt>System</dt>
+              <dd id="health-status" data-testid="health-status">Loading...</dd>
+            </div>
+            <div>
+              <dt>Profile</dt>
+              <dd id="profile-name" data-testid="profile-name">Loading...</dd>
+            </div>
+            <div>
+              <dt>Mode</dt>
+              <dd id="profile-mode">Loading...</dd>
+            </div>
+            <div class="facts-input-card">
+              <dt>Current Temp (°C)</dt>
+              <dd>
+                <input
+                  id="live-current-temperature"
+                  data-testid="live-current-temperature"
+                  class="status-readout"
+                  type="text"
+                  readonly
+                  value="--"
+                />
+              </dd>
+            </div>
+          </dl>
+        </div>
       </header>
 
-      <section class="panel">
-        <h2>System</h2>
-        <dl class="facts">
+      <section class="home-section">
+        <div class="home-section-header">
           <div>
-            <dt>Health</dt>
-            <dd id="health-status" data-testid="health-status">Loading...</dd>
-          </div>
-          <div>
-            <dt>Profile</dt>
-            <dd id="profile-name" data-testid="profile-name">Loading...</dd>
-          </div>
-          <div>
-            <dt>Mode</dt>
-            <dd id="profile-mode">Loading...</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="panel">
-        <div class="actions">
-          <div>
-            <h2>Live Setup</h2>
-            <p>Freeze-first setup flow with auto-live preview, ROI-first geometry, and two locked measurement points.</p>
-          </div>
-          <div class="button-row live-toolbar">
-            <select id="live-run-preset-select" data-testid="live-run-preset-select">
-              <option value="balloon">Balloon</option>
-              <option value="guidewire">Guidewire</option>
-            </select>
-            <button id="stop-live-preview-stream-btn" type="button" disabled>Freeze</button>
+            <p class="section-tag">Main Stage</p>
+            <h2>Live Preview and Setup Definition</h2>
+            <p class="section-copy">
+              Keep the preview in focus, treat ROI as the main geometry, and only surface A/B when review is needed.
+            </p>
           </div>
         </div>
-        <dl class="facts detail-facts">
-          <div>
-            <dt>Run ID</dt>
-            <dd id="live-run-id" data-testid="live-run-id">Not created</dd>
-          </div>
-          <div>
-            <dt>Status</dt>
-            <dd id="live-run-status" data-testid="live-run-status">Not ready</dd>
-          </div>
-          <div>
-            <dt>Preset</dt>
-            <dd id="live-run-preset" data-testid="live-run-preset">balloon</dd>
-          </div>
-          <div>
-            <dt>Preview FPS</dt>
-            <dd id="live-preview-rate" data-testid="live-preview-rate">n/a</dd>
-          </div>
-          <div>
-            <dt>Measurement Hz</dt>
-            <dd id="live-measurement-rate" data-testid="live-measurement-rate">n/a</dd>
-          </div>
-        </dl>
-        <div class="live-setup-grid">
-          <article class="live-preview-panel">
-            <div class="button-row live-toolbar">
+        <div class="home-main-grid">
+          <article class="panel live-stage-card">
+            <div class="actions live-stage-head">
+              <div>
+                <h2>Live Preview</h2>
+                <p>Freeze-first preview control with launch, stop, and measurement readiness in one place.</p>
+              </div>
+              <div class="button-row live-toolbar">
+                <select id="live-run-preset-select" data-testid="live-run-preset-select">
+                  <option value="balloon">Balloon</option>
+                  <option value="guidewire">Guidewire</option>
+                </select>
+                <button id="stop-live-preview-stream-btn" type="button" disabled>Freeze</button>
+              </div>
+            </div>
+
+            <div class="stage-meta-grid">
+              <div class="stage-meta-card">
+                <span>Run ID</span>
+                <strong id="live-run-id" data-testid="live-run-id">Not created</strong>
+              </div>
+              <div class="stage-meta-card">
+                <span>Status</span>
+                <strong id="live-run-status" data-testid="live-run-status">Not ready</strong>
+              </div>
+              <div class="stage-meta-card">
+                <span>Preset</span>
+                <strong id="live-run-preset" data-testid="live-run-preset">balloon</strong>
+              </div>
+              <div class="stage-meta-card">
+                <span>Preview FPS</span>
+                <strong id="live-preview-rate" data-testid="live-preview-rate">n/a</strong>
+              </div>
+              <div class="stage-meta-card">
+                <span>Measurement Hz</span>
+                <strong id="live-measurement-rate" data-testid="live-measurement-rate">n/a</strong>
+              </div>
+            </div>
+
+            <div class="button-row live-toolbar live-stage-actions">
               <button id="save-live-definition-btn" type="button" disabled>Save Definition</button>
               <button id="start-live-run-btn" type="button" disabled>Start Live Run</button>
               <button id="stop-live-run-btn" type="button" disabled>Stop Live Run</button>
             </div>
-            <div class="button-row live-toolbar">
-              <label for="live-current-temperature">Current Temp (°C)</label>
-              <input
-                id="live-current-temperature"
-                data-testid="live-current-temperature"
-                type="text"
-                readonly
-                value="--"
-              />
-              <label for="live-target-temperature">Target Temp (°C)</label>
-              <input
-                id="live-target-temperature"
-                data-testid="live-target-temperature"
-                type="number"
-                min="1"
-                step="0.1"
-                value="75"
-              />
-              <button id="confirm-target-temperature-btn" type="button">Confirm Target</button>
-            </div>
-            <div class="button-row live-toolbar">
-              <button id="draw-analysis-roi-btn" type="button" disabled>Draw ROI</button>
-              <button id="pick-point-a-btn" type="button" disabled>Point A</button>
-              <button id="pick-point-b-btn" type="button" disabled>Point B</button>
-            </div>
-            <p id="live-point-picker-status" class="session-meta" data-testid="live-point-picker-status">
-              Preview image not loaded yet.
-            </p>
+
             <div class="live-preview-frame">
               <div id="live-preview-stage" class="live-preview-stage" hidden>
                 <div
@@ -130,14 +130,25 @@
                 Connecting to live preview...
               </p>
             </div>
+
             <p id="live-run-message" class="live-message live-message--neutral" data-testid="live-run-message">
               Preparing the live setup session...
             </p>
           </article>
 
-          <article class="live-definition-panel">
+          <article class="panel setup-definition-card">
+            <div class="actions">
+              <div>
+                <h2>Setup Definition</h2>
+                <p>ROI is primary. Detection and temperature settings stay close; A/B review lives one level deeper.</p>
+              </div>
+            </div>
+
             <section class="live-form-section">
-              <h3>ROI</h3>
+              <div class="live-section-head">
+                <h3>ROI</h3>
+                <button id="draw-analysis-roi-btn" type="button" disabled>Draw ROI</button>
+              </div>
               <div class="live-form-grid">
                 <label for="live-analysis-roi-x">Center X</label>
                 <input id="live-analysis-roi-x" data-testid="live-analysis-roi-x" type="number" min="0" />
@@ -153,21 +164,10 @@
             </section>
 
             <section class="live-form-section">
-              <h3>Locked Points</h3>
-              <div class="live-form-grid">
-                <label for="live-point-a-x">Point A X</label>
-                <input id="live-point-a-x" data-testid="live-point-a-x" type="number" min="0" />
-                <label for="live-point-a-y">Point A Y</label>
-                <input id="live-point-a-y" data-testid="live-point-a-y" type="number" min="0" />
-                <label for="live-point-b-x">Point B X</label>
-                <input id="live-point-b-x" data-testid="live-point-b-x" type="number" min="0" />
-                <label for="live-point-b-y">Point B Y</label>
-                <input id="live-point-b-y" data-testid="live-point-b-y" type="number" min="0" />
+              <div class="live-section-head">
+                <h3>Detection</h3>
+                <span class="section-microcopy">Tune sensitivity first. Escalate A/B only when review is required.</span>
               </div>
-            </section>
-
-            <section class="live-form-section">
-              <h3>Detection</h3>
               <div class="live-form-grid">
                 <label for="live-foreground-polarity">Foreground</label>
                 <select id="live-foreground-polarity" data-testid="live-foreground-polarity">
@@ -193,118 +193,171 @@
                 />
               </div>
             </section>
+
+            <section class="live-form-section">
+              <div class="live-section-head">
+                <h3>Temperature</h3>
+                <span class="section-microcopy">Target confirmation stays in setup, not in the result workspace.</span>
+              </div>
+              <div class="live-form-grid">
+                <label for="live-target-temperature">Target Temp (°C)</label>
+                <input
+                  id="live-target-temperature"
+                  data-testid="live-target-temperature"
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value="75"
+                />
+                <label for="confirm-target-temperature-btn">Controller Confirm</label>
+                <button id="confirm-target-temperature-btn" type="button">Confirm Target</button>
+              </div>
+            </section>
+
+            <details class="live-advanced-panel" open>
+              <summary>A/B Review and Manual Correction</summary>
+              <p id="live-point-picker-status" class="session-meta" data-testid="live-point-picker-status">
+                Preview image not loaded yet.
+              </p>
+              <div class="button-row live-toolbar">
+                <button id="pick-point-a-btn" type="button" disabled>Point A</button>
+                <button id="pick-point-b-btn" type="button" disabled>Point B</button>
+              </div>
+              <div class="live-form-grid">
+                <label for="live-point-a-x">Point A X</label>
+                <input id="live-point-a-x" data-testid="live-point-a-x" type="number" min="0" />
+                <label for="live-point-a-y">Point A Y</label>
+                <input id="live-point-a-y" data-testid="live-point-a-y" type="number" min="0" />
+                <label for="live-point-b-x">Point B X</label>
+                <input id="live-point-b-x" data-testid="live-point-b-x" type="number" min="0" />
+                <label for="live-point-b-y">Point B Y</label>
+                <input id="live-point-b-y" data-testid="live-point-b-y" type="number" min="0" />
+              </div>
+            </details>
           </article>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="actions">
+      <section class="home-section">
+        <div class="home-section-header">
           <div>
-            <h2>System Precheck</h2>
-            <p>Configuration and path readiness only. No live device connections are attempted.</p>
-          </div>
-          <div class="button-row">
-            <button id="refresh-precheck-btn" type="button">Refresh Precheck</button>
-            <button id="probe-camera-btn" type="button">Probe Camera</button>
+            <p class="section-tag">Ops &amp; Diagnostics</p>
+            <h2>System Checks and Session Launch</h2>
+            <p class="section-copy">
+              Keep readiness checks and launcher actions close, without letting them take over the setup stage.
+            </p>
           </div>
         </div>
-        <div class="facts detail-facts">
-          <div>
-            <label for="probe-mode-select">Probe Mode</label>
-            <select id="probe-mode-select" data-testid="probe-mode-select">
-              <option value="protocol_any">Protocol Any</option>
-              <option value="pinned">Pinned Device</option>
-            </select>
-          </div>
-          <div>
-            <label for="probe-allowed-models-input">Allowed Models</label>
-            <input
-              id="probe-allowed-models-input"
-              data-testid="probe-allowed-models-input"
-              type="text"
-              placeholder="MV-CU060-10GM, OTHER-MODEL"
-            />
-          </div>
-          <div>
-            <label for="probe-serial-number-input">Serial Number</label>
-            <input id="probe-serial-number-input" data-testid="probe-serial-number-input" type="text" placeholder="Optional" />
-          </div>
-          <div>
-            <label for="probe-ip-input">IP</label>
-            <input id="probe-ip-input" data-testid="probe-ip-input" type="text" placeholder="Optional" />
-          </div>
+        <div class="home-ops-grid">
+          <article class="panel diagnostics-card">
+            <div class="actions">
+              <div>
+                <h2>System Precheck / Probe Camera</h2>
+                <p>Configuration and path readiness only. No live device connections are attempted.</p>
+              </div>
+              <div class="button-row">
+                <button id="refresh-precheck-btn" type="button">Refresh Precheck</button>
+                <button id="probe-camera-btn" type="button">Probe Camera</button>
+              </div>
+            </div>
+            <div class="facts detail-facts">
+              <div>
+                <label for="probe-mode-select">Probe Mode</label>
+                <select id="probe-mode-select" data-testid="probe-mode-select">
+                  <option value="protocol_any">Protocol Any</option>
+                  <option value="pinned">Pinned Device</option>
+                </select>
+              </div>
+              <div>
+                <label for="probe-allowed-models-input">Allowed Models</label>
+                <input
+                  id="probe-allowed-models-input"
+                  data-testid="probe-allowed-models-input"
+                  type="text"
+                  placeholder="MV-CU060-10GM, OTHER-MODEL"
+                />
+              </div>
+              <div>
+                <label for="probe-serial-number-input">Serial Number</label>
+                <input id="probe-serial-number-input" data-testid="probe-serial-number-input" type="text" placeholder="Optional" />
+              </div>
+              <div>
+                <label for="probe-ip-input">IP</label>
+                <input id="probe-ip-input" data-testid="probe-ip-input" type="text" placeholder="Optional" />
+              </div>
+            </div>
+            <p id="probe-mode-hint" class="session-meta" data-testid="probe-mode-hint">
+              Protocol Any allows first discovered probe when serial and IP are empty.
+            </p>
+            <p id="probe-local-override-hint" class="session-meta" data-testid="probe-local-override-hint">
+              For Mac local bring-up, copy <code>configs/dev_lab.local.example.yaml</code> to
+              <code>configs/dev_lab.local.yaml</code> and use precheck to confirm <code>camera_sdk_runtime</code>
+              before the first real probe.
+            </p>
+            <dl class="facts detail-facts">
+              <div>
+                <dt>Overall</dt>
+                <dd id="precheck-status" data-testid="precheck-status">Loading...</dd>
+              </div>
+            </dl>
+            <ul id="precheck-items" class="session-list" data-testid="precheck-items">
+              <li class="session-item session-item--empty">Loading precheck results...</li>
+            </ul>
+            <pre id="camera-probe-result" data-testid="camera-probe-result">No camera probe has been run yet.</pre>
+          </article>
+
+          <article class="panel sessions-card">
+            <div class="actions">
+              <div>
+                <h2>Session Launcher / Recent Sessions</h2>
+                <p>Trigger one offline session through the existing API pipeline, then scan what is worth opening in studio.</p>
+              </div>
+              <div class="button-row">
+                <button id="run-mock-btn" type="button">Run Mock Session</button>
+                <button id="run-replay-btn" type="button">Run Replay Session</button>
+              </div>
+            </div>
+            <ul id="recent-sessions" class="session-list" data-testid="recent-sessions">
+              <li class="session-item session-item--empty">Loading recent sessions...</li>
+            </ul>
+          </article>
         </div>
-        <p id="probe-mode-hint" class="session-meta" data-testid="probe-mode-hint">
-          Protocol Any allows first discovered probe when serial and IP are empty.
-        </p>
-        <p id="probe-local-override-hint" class="session-meta" data-testid="probe-local-override-hint">
-          For Mac local bring-up, copy <code>configs/dev_lab.local.example.yaml</code> to
-          <code>configs/dev_lab.local.yaml</code> and use precheck to confirm <code>camera_sdk_runtime</code>
-          before the first real probe.
-        </p>
-        <dl class="facts detail-facts">
-          <div>
-            <dt>Overall</dt>
-            <dd id="precheck-status" data-testid="precheck-status">Loading...</dd>
-          </div>
-        </dl>
-        <ul id="precheck-items" class="session-list" data-testid="precheck-items">
-          <li class="session-item session-item--empty">Loading precheck results...</li>
-        </ul>
-        <pre id="camera-probe-result" data-testid="camera-probe-result">No camera probe has been run yet.</pre>
       </section>
 
-      <section class="panel">
+      <section class="panel compact-result-panel">
         <div class="actions">
           <div>
-            <h2>Session Controls</h2>
-            <p>Trigger one offline session through the existing API pipeline.</p>
+            <p class="section-tag">Compact Result</p>
+            <h2>Latest Session Snapshot</h2>
+            <p>Keep just enough context to decide whether to open Analysis Studio.</p>
           </div>
-          <div class="button-row">
-            <button id="run-mock-btn" type="button">Run Mock Session</button>
-            <button id="run-replay-btn" type="button">Run Replay Session</button>
-          </div>
+          <a id="session-workspace-link" class="workspace-link workspace-link--hidden" href="#">Open Workspace</a>
         </div>
-        <pre id="session-result" data-testid="session-result">No session has been run yet.</pre>
-        <a id="session-workspace-link" class="workspace-link workspace-link--hidden" href="#">Open Workspace</a>
-      </section>
 
-      <section class="panel">
-        <div class="actions">
-          <div>
-            <h2>Recent Sessions</h2>
-            <p>Latest offline session summaries loaded through the existing session API.</p>
-          </div>
+        <div class="compact-result-grid">
+          <pre id="session-result" data-testid="session-result">No session has been run yet.</pre>
+          <dl class="facts compact-result-facts">
+            <div>
+              <dt>Af95</dt>
+              <dd id="detail-af95" data-testid="detail-af95">n/a</dd>
+            </div>
+            <div>
+              <dt>Point Count</dt>
+              <dd id="detail-point-count" data-testid="detail-point-count">0</dd>
+            </div>
+          </dl>
         </div>
-        <ul id="recent-sessions" class="session-list" data-testid="recent-sessions">
-          <li class="session-item session-item--empty">Loading recent sessions...</li>
-        </ul>
-      </section>
 
-      <section class="panel">
-        <div class="actions">
-          <div>
-            <h2>Replay Detail</h2>
-            <p>Latest replay detail artifact rendered through the detail API.</p>
+        <details class="compact-result-artifact-peek">
+          <summary>Replay Snapshot</summary>
+          <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay curve">
+            <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
+            <polyline id="detail-curve-line" fill="none" points=""></polyline>
+          </svg>
+          <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">
+            <p class="session-item--empty">Run a replay session to load detail artifacts.</p>
           </div>
-        </div>
-        <dl class="facts detail-facts">
-          <div>
-            <dt>Af95</dt>
-            <dd id="detail-af95" data-testid="detail-af95">n/a</dd>
-          </div>
-          <div>
-            <dt>Point Count</dt>
-            <dd id="detail-point-count" data-testid="detail-point-count">0</dd>
-          </div>
-        </dl>
-        <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay curve">
-          <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
-          <polyline id="detail-curve-line" fill="none" points=""></polyline>
-        </svg>
-        <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">
-          <p class="session-item--empty">Run a replay session to load detail artifacts.</p>
-        </div>
+        </details>
       </section>
     </main>
 
