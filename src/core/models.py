@@ -99,8 +99,21 @@ class RunDraftRecord:
     status: RunStatus = RunStatus.CREATED
     capture_mode: CaptureMode = CaptureMode.IDLE
     definition: MeasurementDefinition | None = None
+    temperature_settings: TemperatureSettingsBundle | None = None
     created_at_ms: int = 0
     updated_at_ms: int = 0
+
+
+@dataclass(slots=True)
+class TemperatureSettingsBundle:
+    """Operator-confirmed temperature settings attached to the current live-run draft."""
+
+    target_temperature_celsius: float
+    control_mode: str = "manual"
+    output_power_percent: float = 100.0
+    confirmed_target_temperature_celsius: float | None = None
+    confirmed_at_ms: int = 0
+    source: str = "unknown"
 
 
 @dataclass(slots=True)

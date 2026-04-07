@@ -13,3 +13,4 @@ storage:
   artifact_dir: examples/runtime/artifacts
 replay:
   dataset_path: examples/replay
+  mock_afas_curve_path: ../AFAS/原始数据/2026.2.28/curve_test.xlsx

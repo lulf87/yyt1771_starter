@@ -11,7 +11,7 @@ from src.webapp.app import create_app
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the YYT1771 web application.")
-    parser.add_argument("--profile", default="dev_mock", help="Profile name from configs/<profile>.yaml")
+    parser.add_argument("--profile", default="dev_lab", help="Profile name from configs/<profile>.yaml")
     return parser
 
 

@@ -9,12 +9,12 @@ import pytest
 from src.desktop_app.main import _run_benchmark_with_diagnostics, bootstrap_desktop_runtime, build_parser, main
 
 
-def test_desktop_main_parser_defaults_to_dev_mock() -> None:
+def test_desktop_main_parser_defaults_to_dev_lab() -> None:
     parser = build_parser()
 
     args = parser.parse_args([])
 
-    assert args.profile == "dev_mock"
+    assert args.profile == "dev_lab"
     assert args.qt_preview_benchmark is False
     assert args.target_preview_fps is None
     assert args.preview_poll_ms is None

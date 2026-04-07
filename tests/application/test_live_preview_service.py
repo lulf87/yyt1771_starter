@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 from src.application.live_preview_service import LivePreviewService, compute_preview_interval_ms
 from src.core.models import FramePacket
@@ -89,6 +90,53 @@ def test_live_preview_service_close_stream_is_idempotent() -> None:
     assert camera.close_calls == 1
 
 
+def test_live_preview_service_start_stream_hands_off_previous_run() -> None:
+    service = LivePreviewService()
+
+    class PreviewCamera:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            if self.closed:
+                raise RuntimeError(f"{self.label} closed")
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source=self.label,
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    cameras = [PreviewCamera("camera-a"), PreviewCamera("camera-b")]
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": cameras.pop(0)
+
+    first_stream, first_frame = service.start_stream(object(), run_id="run-a")
+    second_stream, second_frame = service.start_stream(object(), run_id="run-b")
+
+    assert first_frame.source == "camera-a"
+    assert second_frame.source == "camera-b"
+    assert first_stream.run_id == "run-a"
+    assert second_stream.run_id == "run-b"
+    assert service.get_preview_state(run_id="run-a").stream_active is False
+    assert service.get_preview_state(run_id="run-b").stream_active is True
+    assert service.get_cached_frame(run_id="run-a") is None
+    assert service.get_cached_frame(run_id="run-b") is not None
+    assert second_stream.reader_thread is not None
+    assert cameras == []
+
+    service.stop_stream(run_id="run-b")
+    service.wait_for_stream_stop(run_id="run-b", timeout_ms=1_000)
+
+    assert first_stream.camera.closed is True
+    assert second_stream.camera.closed is True
+
+
 def test_live_preview_service_does_not_double_throttle_hardware_paced_frames() -> None:
     service = LivePreviewService()
 
@@ -173,3 +221,63 @@ def test_live_preview_service_exposes_active_probe_payload() -> None:
 
     service.stop_stream(run_id="run-probe")
     service.wait_for_stream_stop(run_id="run-probe", timeout_ms=1_000)
+
+
+def test_fetch_frame_discards_hik_warmup_frames_for_fresh_capture() -> None:
+    service = LivePreviewService()
+
+    class IncrementingCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="hik_warmup_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = IncrementingCamera()
+    runtime_config = SimpleNamespace(adapters={"camera": "hik_gige_mvs"})
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    frame = service.fetch_frame(runtime_config, run_id="run-hik-fresh", prefer_cached=False)
+
+    assert frame.frame_id == 3
+    assert camera.closed is True
+
+
+def test_fetch_frame_keeps_single_read_for_non_hik_backends() -> None:
+    service = LivePreviewService()
+
+    class IncrementingCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=2_000 + self.frame_id,
+                source="generic_preview_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = IncrementingCamera()
+    runtime_config = SimpleNamespace(adapters={"camera": "mock"})
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    frame = service.fetch_frame(runtime_config, run_id="run-mock-fresh", prefer_cached=False)
+
+    assert frame.frame_id == 1
+    assert camera.closed is True

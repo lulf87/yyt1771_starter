@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from src.application.runtime_config import RuntimeConfig
 from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, build_hik_rtsp_url
 from src.core.config_models import CameraAcquisitionProfileConfig
 from src.core.models import MeasurementDefinition
-from src.temp import LU92XXModbusRtuController, MockTempController
-from src.workflow.live_run import LockedDefinitionMetricSource, MockLiveMetricSource
+from src.curve.mock_afas_curve_playback import resolve_mock_afas_curve_playback
+from src.temp import LU92XXModbusRtuController, MockTempController, WorkbookPlaybackTempController
+from src.workflow.live_run import LockedDefinitionMetricSource, MockLiveMetricSource, WorkbookPlaybackMetricSource
 
 
 def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_preview") -> object:
@@ -33,6 +35,9 @@ def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_pre
 def build_temp_controller(runtime_config: RuntimeConfig) -> object:
     backend = str(runtime_config.live.temp.backend or runtime_config.adapters.get("temp", "") or "")
     if backend == "mock":
+        playback = _resolve_mock_afas_curve_playback(runtime_config)
+        if playback is not None:
+            return WorkbookPlaybackTempController(playback)
         return MockTempController(
             ramp_step_celsius=runtime_config.live.temp.control.mock_ramp_step_celsius,
         )
@@ -49,6 +54,9 @@ def build_metric_source(
 ) -> object:
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
     if camera_backend == "mock":
+        playback = _resolve_mock_afas_curve_playback(runtime_config)
+        if playback is not None:
+            return WorkbookPlaybackMetricSource(definition=definition, playback=playback)
         return MockLiveMetricSource(
             definition=definition,
             target_temperature_celsius=target_temperature_celsius,
@@ -120,3 +128,17 @@ def _build_hik_rtsp_camera(runtime_config: RuntimeConfig) -> HikRtspCamera:
     if not rtsp_url:
         raise ValueError("RTSP preview requires camera.rtsp_url or camera.host/username/password")
     return HikRtspCamera(rtsp_url=rtsp_url)
+
+
+def _resolve_mock_afas_curve_playback(runtime_config: RuntimeConfig):
+    try:
+        return resolve_mock_afas_curve_playback(
+            runtime_config,
+            channel_name=runtime_config.live.analysis.channel_name,
+        )
+    except FileNotFoundError as exc:
+        configured_path = str(runtime_config.replay.get("mock_afas_curve_path", "") or "").strip()
+        resolved_path = Path(configured_path)
+        if configured_path and not resolved_path.is_absolute():
+            resolved_path = Path(__file__).resolve().parents[2] / configured_path
+        raise FileNotFoundError(f"Configured mock AFAS curve sample is missing: {resolved_path}") from exc

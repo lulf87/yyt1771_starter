@@ -6,6 +6,7 @@ import time
 
 from src.core.contracts import TempControllerPort, TempReader
 from src.core.models import TempReading
+from src.curve.mock_afas_curve_playback import MockAfasCurvePlayback
 
 
 class MockTempReader(TempReader):
@@ -23,8 +24,6 @@ class MockTempController(TempReader, TempControllerPort):
         self._output_enabled = False
 
     def set_target_temperature(self, celsius: float) -> None:
-        if celsius <= 0:
-            raise ValueError("target temperature must be greater than zero")
         self._target_celsius = float(celsius)
 
     def read_target_temperature(self) -> float:
@@ -39,10 +38,52 @@ class MockTempController(TempReader, TempControllerPort):
         self._output_enabled = False
 
     def read(self) -> TempReading:
-        if self._output_enabled and self._target_celsius is not None and self._current_celsius < self._target_celsius:
-            self._current_celsius = min(self._target_celsius, self._current_celsius + self._ramp_step_celsius)
+        if self._output_enabled and self._target_celsius is not None:
+            if self._current_celsius < self._target_celsius:
+                self._current_celsius = min(self._target_celsius, self._current_celsius + self._ramp_step_celsius)
+            elif self._current_celsius > self._target_celsius:
+                self._current_celsius = max(self._target_celsius, self._current_celsius - self._ramp_step_celsius)
         return TempReading(
             timestamp_ms=int(time.time() * 1000),
             celsius=self._current_celsius,
             source="mock_temp_controller",
+        )
+
+
+class WorkbookPlaybackTempController(TempReader, TempControllerPort):
+    """Temp controller that replays workbook-backed AFAS temperatures."""
+
+    def __init__(self, playback: MockAfasCurvePlayback) -> None:
+        self._playback = playback
+        self._cursor = 0
+        self._last_read_index = 0
+        self._target_celsius = float(playback.end_temperature_celsius)
+        self._output_enabled = False
+
+    def set_target_temperature(self, celsius: float) -> None:
+        self._target_celsius = float(celsius)
+
+    def read_target_temperature(self) -> float:
+        return float(self._target_celsius)
+
+    def start_output(self) -> None:
+        if self._target_celsius is None:
+            raise RuntimeError("target temperature must be set before starting output")
+        self._output_enabled = True
+
+    def stop_output(self) -> None:
+        self._output_enabled = False
+
+    def read(self) -> TempReading:
+        if self._output_enabled:
+            index = min(self._cursor, self._playback.sample_count - 1)
+            self._last_read_index = index
+            if self._cursor < self._playback.sample_count - 1:
+                self._cursor += 1
+        else:
+            index = self._last_read_index
+        return TempReading(
+            timestamp_ms=int(time.time() * 1000),
+            celsius=float(self._playback.temperatures_celsius[index]),
+            source=f"mock_afas_curve:{self._playback.sheet_name}",
         )

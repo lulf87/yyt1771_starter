@@ -13,11 +13,8 @@ def _make_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def _seed_afas_dataset(client: TestClient, session_id: str) -> None:
-    artifact_dir = Path(client.app.state.runtime_config.storage["artifact_dir"])
-    session_dir = artifact_dir / session_id
-    session_dir.mkdir(parents=True, exist_ok=True)
-    dataset = {
+def _sample_afas_dataset(session_id: str) -> dict[str, object]:
+    return {
         "schema_version": "afas_postprocessing_dataset.v1",
         "session_id": session_id,
         "active_channel": "Space1",
@@ -46,6 +43,13 @@ def _seed_afas_dataset(client: TestClient, session_id: str) -> None:
             "tangent_offset": 0,
         },
     }
+
+
+def _seed_afas_dataset(client: TestClient, session_id: str) -> None:
+    artifact_dir = Path(client.app.state.runtime_config.storage["artifact_dir"])
+    session_dir = artifact_dir / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    dataset = _sample_afas_dataset(session_id)
     (session_dir / "afas_dataset.json").write_text(json.dumps(dataset), encoding="utf-8")
 
 
@@ -185,6 +189,49 @@ def test_get_session_detail_returns_404_for_missing_artifact(tmp_path: Path) -> 
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Session detail not found: replay-missing"}
+
+
+def test_import_afas_dataset_creates_workspace_ready_session(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    response = client.post("/api/session/import-afas-dataset", json=_sample_afas_dataset("import-afas"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "session_id": "import-afas",
+        "state": "completed",
+        "point_count": 10,
+        "af95": None,
+    }
+
+    session_dir = tmp_path / "artifacts" / "import-afas"
+    assert (session_dir / "detail.json").exists()
+    assert (session_dir / "afas_dataset.json").exists()
+    assert (session_dir / "result.json").exists()
+    assert (session_dir / "afas_analysis.json").exists()
+
+    detail_response = client.get("/api/session/import-afas/detail")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["source"] == "imported_afas_dataset"
+    assert detail_payload["point_count"] == 10
+    assert len(detail_payload["points"]) == 10
+
+    analysis_response = client.post("/api/session/import-afas/afas/analysis", json={})
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["active_channel"] == "Space1"
+
+
+def test_import_afas_dataset_rejects_existing_session_id(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    first = client.post("/api/session/import-afas-dataset", json=_sample_afas_dataset("import-afas"))
+    second = client.post("/api/session/import-afas-dataset", json=_sample_afas_dataset("import-afas"))
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json() == {"detail": "Session already exists: import-afas"}
 
 
 def test_post_session_afas_analysis_returns_preprocessing_and_tangent_payload(tmp_path: Path) -> None:

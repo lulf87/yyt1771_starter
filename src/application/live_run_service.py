@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import threading
 import time
@@ -20,6 +21,7 @@ from src.workflow.live_run import (
     LiveRunExecution,
     LiveRunStopRequested,
     LiveRunTrackingInvalidated,
+    build_partial_live_run_execution,
 )
 
 
@@ -44,10 +46,12 @@ class LiveRunService:
         repo: SqliteSessionRepo,
         artifact_store: SessionArtifactStore,
         preview_service: LivePreviewService,
+        temp_controller_factory: Callable[[], object] | None = None,
     ) -> None:
         self.repo = repo
         self.artifact_store = artifact_store
         self.preview_service = preview_service
+        self._temp_controller_factory = temp_controller_factory
         self._state_lock = threading.Lock()
         self._active_runs: dict[str, _ActiveLiveRun] = {}
         self._recent_runs: dict[str, _ActiveLiveRun] = {}
@@ -168,6 +172,14 @@ class LiveRunService:
                 payload={"reason": exc.reason},
                 capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
+            self._persist_partial_terminal_execution(
+                active_run=active_run,
+                record=record,
+                runtime_config=runtime_config,
+                terminal_state=RunStatus.ABORTED,
+                terminal_reason=exc.reason,
+                terminal_detail=exc.detail,
+            )
         except LiveRunStopRequested as exc:
             self._store_error(active_run, exc.detail)
             self._update_status(active_run, registry, RunStatus.STOPPING, payload={"reason": exc.reason})
@@ -178,6 +190,14 @@ class LiveRunService:
                 payload={"reason": exc.reason},
                 capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
+            self._persist_partial_terminal_execution(
+                active_run=active_run,
+                record=record,
+                runtime_config=runtime_config,
+                terminal_state=RunStatus.ABORTED,
+                terminal_reason=exc.reason,
+                terminal_detail=exc.detail,
+            )
         except Exception as exc:
             self._store_error(active_run, str(exc))
             self._update_status(
@@ -186,6 +206,14 @@ class LiveRunService:
                 RunStatus.FAILED,
                 payload={"reason": str(exc)},
                 capture_mode=CaptureMode.POST_RUN_REVIEW,
+            )
+            self._persist_partial_terminal_execution(
+                active_run=active_run,
+                record=record,
+                runtime_config=runtime_config,
+                terminal_state=RunStatus.FAILED,
+                terminal_reason="runtime_error",
+                terminal_detail=str(exc),
             )
         else:
             with self._state_lock:
@@ -220,6 +248,55 @@ class LiveRunService:
         with self._state_lock:
             active_run.error_detail = detail
 
+    def _persist_partial_terminal_execution(
+        self,
+        *,
+        active_run: _ActiveLiveRun,
+        record: RunDraftRecord,
+        runtime_config: RuntimeConfig,
+        terminal_state: RunStatus,
+        terminal_reason: str | None,
+        terminal_detail: str,
+    ) -> None:
+        if record.definition is None:
+            return
+        with self._state_lock:
+            telemetry = list(active_run.telemetry)
+            events = list(active_run.events)
+        started_at_ms = _started_at_ms(events, fallback_ms=record.created_at_ms or _now_ms())
+        execution = build_partial_live_run_execution(
+            session_id=record.run_id,
+            started_at_ms=started_at_ms,
+            terminal_state=terminal_state.value,
+            terminal_reason=terminal_reason,
+            terminal_detail=terminal_detail,
+            definition=record.definition,
+            telemetry=telemetry,
+            events=events,
+            camera_config=runtime_config.live.camera,
+            analysis_engine=runtime_config.live.analysis.engine,
+            channel_name=runtime_config.live.analysis.channel_name,
+            target_measurement_hz=runtime_config.live.run.measurement_target_hz,
+        )
+        try:
+            self.artifact_store.save_live_bundle(
+                record.run_id,
+                definition=_definition_payload(record.definition),
+                telemetry=execution.telemetry,
+                detail=execution.detail,
+                result=execution.result,
+                events=execution.events,
+                keyframes=execution.detail.get("key_frames", []),
+            )
+            self.repo.save_summary(execution.summary)
+        except Exception as exc:
+            self._store_error(active_run, f"{terminal_detail}; partial artifact save failed: {exc}")
+            return
+        with self._state_lock:
+            active_run.execution = execution
+            active_run.events = list(execution.events)
+            active_run.telemetry = list(execution.telemetry)
+
     def _update_status(
         self,
         active_run: _ActiveLiveRun,
@@ -241,6 +318,8 @@ class LiveRunService:
         registry.update_status(active_run.run_id, status, capture_mode=capture_mode)
 
     def _build_temp_controller(self, runtime_config: RuntimeConfig) -> object:
+        if self._temp_controller_factory is not None:
+            return self._temp_controller_factory()
         return build_temp_controller(runtime_config)
 
     def _build_metric_source(
@@ -259,3 +338,43 @@ class LiveRunService:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _started_at_ms(events: list[dict[str, Any]], *, fallback_ms: int) -> int:
+    if events:
+        timestamp_ms = events[0].get("timestamp_ms")
+        if timestamp_ms is not None:
+            return int(timestamp_ms)
+    return int(fallback_ms)
+
+
+def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
+    return {
+        "analysis_roi": {
+            "x": definition.analysis_roi.x,
+            "y": definition.analysis_roi.y,
+            "width": definition.analysis_roi.width,
+            "height": definition.analysis_roi.height,
+        },
+        "metric_box": {
+            "center_x": definition.metric_box.center_x,
+            "center_y": definition.metric_box.center_y,
+            "width": definition.metric_box.width,
+            "height": definition.metric_box.height,
+            "angle_deg": definition.metric_box.angle_deg,
+        },
+        "point_a_px": {
+            "x": definition.point_a_px.x,
+            "y": definition.point_a_px.y,
+        },
+        "point_b_px": {
+            "x": definition.point_b_px.x,
+            "y": definition.point_b_px.y,
+        },
+        "observation_axis": definition.observation_axis.value,
+        "foreground_polarity": definition.foreground_polarity,
+        "threshold_mode": definition.threshold_mode,
+        "ignore_internal_texture": definition.ignore_internal_texture,
+        "min_target_area_px": definition.min_target_area_px,
+        "sensitivity": definition.sensitivity,
+    }

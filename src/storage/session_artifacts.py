@@ -113,6 +113,43 @@ class SessionArtifactStore:
 
         return session_dir
 
+    def save_imported_afas_bundle(
+        self,
+        session_id: str,
+        *,
+        detail: dict[str, Any],
+        afas_dataset: dict[str, Any],
+        result: dict[str, Any] | None = None,
+        afas_analysis: dict[str, Any] | None = None,
+    ) -> Path:
+        session_dir = self._session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        serializable_detail = _serialize_live_detail(detail)
+        (session_dir / "detail.json").write_text(
+            json.dumps(serializable_detail, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        (session_dir / "afas_dataset.json").write_text(
+            json.dumps(afas_dataset, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        if result is not None:
+            (session_dir / "result.json").write_text(
+                json.dumps(result, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        if afas_analysis is not None:
+            (session_dir / _AFAS_ANALYSIS_ARTIFACT_NAME).write_text(
+                json.dumps(afas_analysis, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        return session_dir
+
+    def session_exists(self, session_id: str) -> bool:
+        session_dir = self._session_dir(session_id)
+        return session_dir.exists() or self._path_for(session_id).exists()
+
     def get_result(self, session_id: str) -> dict[str, Any] | None:
         path = self._session_dir(session_id) / "result.json"
         if not path.exists():

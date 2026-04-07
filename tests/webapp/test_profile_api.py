@@ -93,13 +93,13 @@ def test_set_target_temp_api_writes_and_reads_back_confirmed_value() -> None:
     app.state.application_container.build_temp_controller = lambda: controller
     client = TestClient(app)
 
-    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 75.5})
+    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 45.5})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["backend"] == "mock"
-    assert payload["target_temperature_celsius"] == 75.5
-    assert payload["confirmed_target_temperature_celsius"] == 75.5
+    assert payload["target_temperature_celsius"] == 45.5
+    assert payload["confirmed_target_temperature_celsius"] == 45.5
     assert payload["source"] == "_TempControllerFixture"
 
 
@@ -108,7 +108,32 @@ def test_set_target_temp_api_returns_503_when_write_fails() -> None:
     app.state.application_container.build_temp_controller = lambda: _FailingTempControllerFixture()
     client = TestClient(app)
 
-    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 75.0})
+    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 45.0})
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Target temperature update unavailable: serial unavailable"}
+
+
+def test_set_target_temp_api_accepts_negative_temperature_within_range() -> None:
+    app = create_app(profile="dev_mock")
+    controller = _TempControllerFixture(_TempReadingFixture(celsius=12.3, timestamp_ms=9876, source="mock_temp_fixture"))
+    app.state.application_container.build_temp_controller = lambda: controller
+    client = TestClient(app)
+
+    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": -20.0})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_temperature_celsius"] == -20.0
+    assert payload["confirmed_target_temperature_celsius"] == -20.0
+
+
+def test_set_target_temp_api_rejects_temperature_outside_range() -> None:
+    app = create_app(profile="dev_mock")
+    controller = _TempControllerFixture(_TempReadingFixture(celsius=42.3, timestamp_ms=9876, source="mock_temp_fixture"))
+    app.state.application_container.build_temp_controller = lambda: controller
+    client = TestClient(app)
+
+    response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 75.0})
+
+    assert response.status_code == 422

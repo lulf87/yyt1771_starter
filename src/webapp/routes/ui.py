@@ -29,7 +29,7 @@ def index(request: Request) -> HTMLResponse:
         request=request,
         name="index.html",
         context={
-            "app_title": "Launch & Control Cockpit",
+            "app_title": "Live Test",
             "asset_version": _asset_version(),
         },
     )
@@ -63,6 +63,15 @@ def workspace(
             "session_id": session_id,
             "summary": summary,
             "afas_available": artifact_store.get_afas_dataset(session_id) is not None,
-            "steps": ["准备", "采集", "处理", "计算", "调整", "存储"],
+            "steps": [
+                "设备就绪",
+                "预览冻结",
+                "ROI 定义",
+                "A/B 确认",
+                "目标温度确认",
+                "开始测试",
+                "打开分析",
+                "AFAS 出点 / 导出",
+            ],
         },
     )

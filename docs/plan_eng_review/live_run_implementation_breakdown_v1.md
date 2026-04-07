@@ -32,12 +32,13 @@ Status: READY_FOR_TASK_SPLIT_AFTER_OFFICE_HOURS_SYNTHESIS
 3. `webapp/routes` 只做 HTTP、schema、依赖注入和状态映射，不直接碰硬件细节。
 4. `temp` 的 public semantic 保持：
    - `set_target_temperature(celsius)`
+   - `set_output_power_percent(percent)`
    - `start_output()`
    - `stop_output()`
    - `read()`
 5. `target_temperature_celsius` 继续是 API 语义，即使底层 LU92XX 的旧系统命名更像“停止温度”。
 6. `264` 作为当前温度默认寄存器候选，`258` 作为 profile 可覆盖候选；不允许在代码里分叉两套设备逻辑。
-7. `start_output()` 如果底层需要写“非零功率”启动，则功率值只能来自 profile 的 `startup_power_percent`。
+7. `output_power_percent` 属于当前 run 已确认的温控设置包；profile 只能提供默认值，不能覆盖已确认的 runtime 输入。
 8. 首版 live run 继续采用单协调循环，不引入 WebSocket、事件总线和多进程采集。
 9. `Stop Live Preview` 的产品语义按 freeze-last-frame 锁定，不再允许“停流即清空画面”。
 10. `metric_box` 在 UI 语义上视为 `观测窗口 / 测试范围`，并要求与 ROI、A/B 点一起支持图上可视化编辑。
@@ -460,13 +461,14 @@ Status: READY_FOR_TASK_SPLIT_AFTER_OFFICE_HOURS_SYNTHESIS
 - `register_map.process_value.start_address: 264`
 - `register_map.process_value.decode_scale: 0.1`
 - `control.start_output_mode: power_nonzero`
-- `control.startup_power_percent: 100.0`
+- `control.default_control_mode: manual`
+- `control.default_power_percent: 100.0`
 
 ### Required decisions
 
 1. `258` 只能作为 profile override，不进入 adapter 分支逻辑
 2. `set_target_temperature()` 始终接收摄氏度 float，不暴露寄存器语义
-3. `start_output()` 如果通过功率寄存器启动，必须读取 `startup_power_percent`
+3. `set_output_power_percent()` 必须接收 operator 已确认的当前 run 功率值，而不是隐藏的 profile-only 启动默认值
 4. `stop_output()` 必须是显式零功率或设备定义的停止语义，不允许“什么也不做”
 
 ### Acceptance criteria
@@ -474,7 +476,8 @@ Status: READY_FOR_TASK_SPLIT_AFTER_OFFICE_HOURS_SYNTHESIS
 - adapter 可以按默认 profile 构造
 - `read()` 能把寄存器值正确缩放为摄氏度
 - `set_target_temperature()` 正确编码 reg `0`
-- `start_output()` 正确写入 reg `4`
+- `set_output_power_percent()` 正确编码 reg `4`
+- `start_output()` 只使用当前 run 已确认的设置
 - `stop_output()` 正确写零
 - `258` override 可通过配置生效
 

@@ -5,6 +5,9 @@ const sessionResultNode = document.getElementById("session-result");
 const recentSessionsNode = document.getElementById("recent-sessions");
 const runMockButton = document.getElementById("run-mock-btn");
 const runReplayButton = document.getElementById("run-replay-btn");
+const importAfasDatasetFileInput = document.getElementById("import-afas-dataset-file");
+const importAfasDatasetButton = document.getElementById("import-afas-dataset-btn");
+const saveSessionDataButton = document.getElementById("save-session-data-btn");
 const probeCameraButton = document.getElementById("probe-camera-btn");
 const probeModeSelect = document.getElementById("probe-mode-select");
 const probeAllowedModelsInput = document.getElementById("probe-allowed-models-input");
@@ -18,10 +21,12 @@ const liveRunPresetNode = document.getElementById("live-run-preset");
 const livePreviewRateNode = document.getElementById("live-preview-rate");
 const liveMeasurementRateNode = document.getElementById("live-measurement-rate");
 const stopLivePreviewStreamButton = document.getElementById("stop-live-preview-stream-btn");
+const startLivePreviewStreamButton = document.getElementById("start-live-preview-stream-btn");
 const saveLiveDefinitionButton = document.getElementById("save-live-definition-btn");
 const startLiveRunButton = document.getElementById("start-live-run-btn");
 const stopLiveRunButton = document.getElementById("stop-live-run-btn");
 const drawAnalysisRoiButton = document.getElementById("draw-analysis-roi-btn");
+const recomputeDefinitionButton = document.getElementById("recompute-definition-btn");
 const livePreviewStageNode = document.getElementById("live-preview-stage");
 const livePointPromptNode = document.getElementById("live-point-prompt");
 const livePointPromptTitleNode = document.getElementById("live-point-prompt-title");
@@ -31,8 +36,17 @@ const livePreviewOverlayNode = document.getElementById("live-preview-overlay");
 const livePreviewEmptyNode = document.getElementById("live-preview-empty");
 const livePointPickerStatusNode = document.getElementById("live-point-picker-status");
 const liveRunMessageNode = document.getElementById("live-run-message");
-const pickPointAButton = document.getElementById("pick-point-a-btn");
-const pickPointBButton = document.getElementById("pick-point-b-btn");
+const homeCurrentTaskTitleNode = document.getElementById("home-current-task-title");
+const homeCurrentTaskCopyNode = document.getElementById("home-current-task-copy");
+const homeCurrentTaskStepNode = document.getElementById("home-current-task-step");
+const homeAbStateNode = document.getElementById("home-ab-state");
+const livePointASummaryInput = document.getElementById("live-point-a-summary");
+const livePointBSummaryInput = document.getElementById("live-point-b-summary");
+const homeCompletionDockNode = document.getElementById("home-completion-dock");
+const homeCompactResultSessionIdNode = document.getElementById("home-result-session-id");
+const homeCompactResultStateNode = document.getElementById("home-result-session-state");
+const homeCompactResultSummaryNode = document.getElementById("home-result-summary");
+const homeJourneyStepNodes = Array.from(document.querySelectorAll("[data-home-step-index]"));
 const liveAnalysisRoiXInput = document.getElementById("live-analysis-roi-x");
 const liveAnalysisRoiYInput = document.getElementById("live-analysis-roi-y");
 const liveAnalysisRoiWidthInput = document.getElementById("live-analysis-roi-width");
@@ -49,7 +63,10 @@ const liveMinTargetAreaInput = document.getElementById("live-min-target-area");
 const liveSensitivityInput = document.getElementById("live-sensitivity");
 const liveCurrentTemperatureInput = document.getElementById("live-current-temperature");
 const liveTargetTemperatureInput = document.getElementById("live-target-temperature");
+const liveControlModeSelect = document.getElementById("live-control-mode");
+const liveOutputPowerInput = document.getElementById("live-output-power-percent");
 const confirmTargetTemperatureButton = document.getElementById("confirm-target-temperature-btn");
+const liveConfirmedTargetTemperatureInput = document.getElementById("live-confirmed-target-temperature");
 const refreshPrecheckButton = document.getElementById("refresh-precheck-btn");
 const precheckStatusNode = document.getElementById("precheck-status");
 const precheckItemsNode = document.getElementById("precheck-items");
@@ -84,6 +101,9 @@ const workspaceAfasHighStartNode = document.getElementById("workspace-afas-high-
 const workspaceAfasHighEndNode = document.getElementById("workspace-afas-high-end");
 const workspaceAfasTangentOffsetNode = document.getElementById("workspace-afas-tangent-offset");
 const workspaceAfasStatusNode = document.getElementById("workspace-afas-status");
+const workspaceAfasSurfaceNode = document.getElementById("workspace-afas-surface");
+const workspaceAfasEmptyStateNode = document.getElementById("workspace-afas-empty-state");
+const workspaceAfasChannelNoteNode = document.getElementById("workspace-afas-channel-note");
 const workspaceAfasOverviewChartNode = document.getElementById("workspace-afas-overview-chart");
 const workspaceAfasOverviewSeriesNode = document.getElementById("workspace-afas-overview-series");
 const workspaceAfasOverviewSummaryNode = document.getElementById("workspace-afas-overview-summary");
@@ -93,7 +113,10 @@ const workspaceAfasAnalysisEmptyNode = document.getElementById("workspace-afas-a
 const workspaceAfasResultStatusNode = document.getElementById("workspace-afas-result-status");
 const workspaceAfasResultAsNode = document.getElementById("workspace-afas-result-as");
 const workspaceAfasResultAfTanNode = document.getElementById("workspace-afas-result-af-tan");
+const workspaceAfasResultDeltaNode = document.getElementById("workspace-afas-result-delta");
 const workspaceAfasResultMaxSlopeNode = document.getElementById("workspace-afas-result-max-slope");
+const workspaceAfasParameterSummaryNode = document.getElementById("workspace-afas-parameter-summary");
+const workspaceAfasResultHintNode = document.getElementById("workspace-afas-result-hint");
 const workspaceAfasOutlierCountNode = document.getElementById("workspace-afas-outlier-count");
 const workspaceAfasSmoothedCountNode = document.getElementById("workspace-afas-smoothed-count");
 const workspaceAfasWarningListNode = document.getElementById("workspace-afas-warning-list");
@@ -102,6 +125,9 @@ const workspaceCurrentStageNode = document.getElementById("workspace-current-sta
 const workspaceStageDescriptionNode = document.getElementById("workspace-stage-description");
 const workspaceDetailStatusNode = document.getElementById("workspace-detail-status");
 const workspaceRefreshButton = document.getElementById("workspace-refresh-btn");
+const workspaceImportAfasDatasetFileInput = document.getElementById("workspace-import-afas-dataset-file");
+const workspaceImportAfasDatasetButton = document.getElementById("workspace-import-afas-dataset-btn");
+const workspaceImportAfasDatasetHintNode = document.getElementById("workspace-import-afas-dataset-hint");
 const workspaceActivePointNode = document.getElementById("workspace-active-point");
 const workspaceActiveLabelNode = document.getElementById("workspace-active-label");
 const workspaceActiveTimestampNode = document.getElementById("workspace-active-timestamp");
@@ -144,15 +170,35 @@ const adjustmentIsManualNode = document.getElementById("adjustment-is-manual");
 const adjustmentDraftUpdatedNode = document.getElementById("adjustment-draft-updated");
 const adjustmentVersionHistoryNode = document.getElementById("adjustment-version-history");
 const workspaceStepNodes = Array.from(document.querySelectorAll("[data-testid='workspace-step']"));
+const languageToggleButtons = Array.from(document.querySelectorAll("[data-language-toggle]"));
 
-const WORKSPACE_STEPS = ["准备", "采集", "处理", "计算", "调整", "存储"];
+const WORKSPACE_STEPS = ["设备就绪", "预览冻结", "ROI 定义", "A/B 确认", "温控设置确认", "开始测试", "打开分析", "AFAS 出点 / 导出"];
+const WORKSPACE_STEP_LABELS_EN = [
+  "Device Ready",
+  "Freeze Preview",
+  "Define ROI",
+  "Confirm A/B",
+  "Confirm Temperature Settings",
+  "Start Run",
+  "Open Analysis",
+  "AFAS Answer / Export",
+];
+const TARGET_TEMPERATURE_MIN_C = -50;
+const TARGET_TEMPERATURE_MAX_C = 50;
+const LANGUAGE_STORAGE_KEY = "yyt1771-ui-language";
 let workspaceDetailState = null;
 let workspaceSummaryState = null;
 let workspaceStageState = null;
 let workspaceActiveSelectionState = null;
 let workspaceAdjustmentState = null;
 let workspaceAfasState = null;
+let workspaceAfasRefreshTimer = null;
+let workspaceAfasRequestToken = 0;
+let homeCompactResultState = null;
+let precheckState = null;
+let recentSessionsState = [];
 let probeControlsDirty = false;
+let currentLocale = "zh";
 const liveRunState = {
   runId: "",
   detail: null,
@@ -172,14 +218,555 @@ const liveRunState = {
   setupRecomputeInFlight: false,
   setupRecomputeDetail: "",
   setupRecomputeActiveToken: 0,
-  targetTemperatureConfirmed: null,
+  confirmedTemperatureSettings: null,
   currentTemperatureCelsius: null,
   currentTemperatureTimer: null,
   liveTrackingTimer: null,
 };
 const LIVE_SETUP_RUN_STORAGE_KEY = "yyt1771-live-setup-run-id";
+const AFAS_OVERVIEW_CHANNEL_COLORS = ["#8B9DC3", "#C4A4A4", "#A4B8A4", "#D4B896", "#B4A4C4", "#9CB8C4"];
+const AFAS_CHART_THEME = {
+  primary: "#8B9DC3",
+  highlight: "#E8E4E0",
+  rose: "#C4A4A4",
+  green: "#A4B8A4",
+  apricot: "#D4B896",
+  purple: "#B4A4C4",
+  cyan: "#9CB8C4",
+  grid: "rgba(255,255,255,0.06)",
+  axis: "#8A8A9A",
+  labelBackground: "rgba(26, 26, 46, 0.85)",
+  labelBorder: "rgba(255,255,255,0.15)",
+  markerStroke: "rgba(255,255,255,0.6)",
+};
+
+const WORKSPACE_SOURCE_LABELS = {
+  imported_afas_dataset: {
+    zh: "导入数据集",
+    en: "Imported Dataset",
+  },
+  live_run: {
+    zh: "实时测试",
+    en: "Live Run",
+  },
+  replay: {
+    zh: "回放",
+    en: "Replay",
+  },
+  mock: {
+    zh: "模拟",
+    en: "Mock",
+  },
+  summary: {
+    zh: "摘要",
+    en: "Summary",
+  },
+  "n/a": {
+    zh: "n/a",
+    en: "n/a",
+  },
+};
+const TRANSLATIONS = {
+  zh: {
+    "common.yes": "是",
+    "common.no": "否",
+    "common.na": "N/A",
+    "common.not_applicable": "n/a",
+    "status.ok": "正常",
+    "status.pass": "通过",
+    "status.warn": "警告",
+    "status.fail": "失败",
+    "state.completed": "已完成",
+    "state.failed": "失败",
+    "state.aborted": "已中止",
+    "state.running": "运行中",
+    "state.invalidated": "已失效",
+    "state.stopping": "停止中",
+    "state.run_ready": "可启动",
+    "state.empty": "空",
+    "state.missing": "缺失",
+    "state.available": "可用",
+    "state.ok": "正常",
+    "state.pass": "通过",
+    "state.warn": "警告",
+    "state.fail": "失败",
+    "state.loading": "加载中",
+    "state.unknown": "未知",
+    "state.not_ready": "未就绪",
+    "workspace.step_status.todo": "待处理",
+    "workspace.step_status.active": "进行中",
+    "workspace.step_status.done": "已完成",
+    "workspace.step_status.error": "异常",
+    "workspace.step_status.upcoming": "未开始",
+  },
+  en: {
+    "common.language_label": "Language",
+    "common.language_group": "Interface language",
+    "common.na": "N/A",
+    "common.not_applicable": "n/a",
+    "common.loading": "Loading...",
+    "common.yes": "Yes",
+    "common.no": "No",
+    "common.open_workspace": "Open Analysis Studio",
+    "status.ok": "ok",
+    "status.pass": "pass",
+    "status.warn": "warn",
+    "status.fail": "fail",
+    "state.completed": "completed",
+    "state.failed": "failed",
+    "state.aborted": "aborted",
+    "state.running": "running",
+    "state.invalidated": "invalidated",
+    "state.stopping": "stopping",
+    "state.run_ready": "run_ready",
+    "state.empty": "empty",
+    "state.missing": "missing",
+    "state.available": "available",
+    "state.ok": "ok",
+    "state.pass": "pass",
+    "state.warn": "warn",
+    "state.fail": "fail",
+    "state.loading": "loading",
+    "state.unknown": "unknown",
+    "state.not_ready": "not ready",
+    "home.meta.title": "Live Test",
+    "home.hero.title": "Launch & Control Cockpit",
+    "home.hero.subtitle":
+      "Bring live setup back to the home path. Freeze the frame, define the rotated ROI, confirm detection, and open Analysis Studio only when a session is worth reading.",
+    "home.hero.journey_tag": "Operator Journey",
+    "home.journey.step1.title": "Device Ready",
+    "home.journey.step1.copy": "Confirm health, profile, and the live shell are ready.",
+    "home.journey.step2.title": "Freeze Preview",
+    "home.journey.step2.copy": "Freeze the live preview before setup work begins.",
+    "home.journey.step3.title": "Define ROI",
+    "home.journey.step3.copy": "ROI stays primary and angle remains operator-visible.",
+    "home.journey.step4.title": "Confirm A/B",
+    "home.journey.step4.copy": "Review the latest automatic A/B result and recompute from a fresh frame when needed.",
+    "home.journey.step5.title": "Confirm Temperature Settings",
+    "home.journey.step5.copy": "Confirm target temperature, manual mode, and power as one setup bundle.",
+    "home.journey.step6.title": "Start Run",
+    "home.journey.step6.copy": "Start the live run here and hand off later.",
+    "home.status.system": "System",
+    "home.status.ready_label": "Device Status",
+    "home.status.profile": "Profile",
+    "home.status.mode": "Mode",
+    "home.status.current_temp": "Current Temp (°C)",
+    "home.status.current_temp_compact": "Current Temp (°C)",
+    "home.main_stage.tag": "Main Stage",
+    "home.main_stage.title": "Live Preview",
+    "home.main_stage.copy": "Keep preview dominant. Freeze first, then define ROI and confirm ROI-local A/B only when needed.",
+    "home.main_stage.preview_alt": "Live preview frame",
+    "home.main_stage.overlay_label": "Live preview overlay",
+    "home.actions.freeze": "Freeze",
+    "home.actions.unfreeze": "Unfreeze",
+    "home.actions.enter_analysis": "Enter Analysis",
+    "home.actions.save_data": "Save Data",
+    "home.actions.target_confirmed": "Settings Confirmed",
+    "home.actions.recompute_ab": "Recompute A/B",
+    "home.foldouts.metrics": "Open Live Metrics and Preset",
+    "home.foldouts.more_tools": "More Tools and Diagnostics",
+    "home.foldouts.runtime_details": "Open Runtime Details and Probe Controls",
+    "home.foldouts.recent_sessions": "Open Recent Sessions and Result Payload",
+    "home.meta.run_id": "Run ID",
+    "home.meta.status": "Status",
+    "home.meta.preset": "Preset",
+    "home.meta.preview_fps": "Preview FPS",
+    "home.meta.measurement_hz": "Measurement Hz",
+    "home.meta.setup_type": "Live Setup Type",
+    "home.options.balloon": "Balloon",
+    "home.options.guidewire": "Guidewire",
+    "home.current_task.tag": "Current Task",
+    "home.sections.roi.title_minimal": "ROI Selection",
+    "home.sections.roi.title": "ROI Definition",
+    "home.actions.draw_roi": "Draw ROI",
+    "home.sections.roi.copy": "ROI stays primary. Keep angle visible and move full geometry fields into an on-demand review layer.",
+    "home.sections.roi.angle": "ROI Angle",
+    "home.foldouts.roi_geometry": "Show ROI Geometry Fields",
+    "home.foldouts.roi_parameters": "Show ROI Parameters",
+    "home.sections.roi.center_x": "Center X",
+    "home.sections.roi.center_y": "Center Y",
+    "home.sections.roi.width": "Width",
+    "home.sections.roi.height": "Height",
+    "home.sections.detection.title": "Detection",
+    "home.sections.detection.copy": "Keep sensitivity as the only default-visible control.",
+    "home.sections.detection.sensitivity": "Sensitivity",
+    "home.sections.detection.sensitivity_note":
+      "Higher values make weak connections merge into one target more easily; lower values separate object and blank more strictly.",
+    "home.foldouts.detection": "Open Detection Tuning",
+    "home.sections.detection.foreground": "Foreground",
+    "home.options.dark_on_light": "Dark on Light",
+    "home.options.light_on_dark": "Light on Dark",
+    "home.sections.detection.threshold": "Threshold Mode",
+    "home.options.threshold_adaptive": "Adaptive",
+    "home.options.threshold_binary": "Binary",
+    "home.options.threshold_otsu": "Otsu",
+    "home.sections.detection.min_area": "Min Area",
+    "home.sections.detection.ignore_texture": "Ignore Texture",
+    "home.sections.ab.title": "A/B Status",
+    "home.sections.ab.point_a_summary": "Point A",
+    "home.sections.ab.point_b_summary": "Point B",
+    "home.sections.temperature.title": "Temperature",
+    "home.sections.temperature.title_minimal": "Temperature Setup",
+    "home.sections.temperature.copy": "Confirm the temperature bundle here before handing off to runtime.",
+    "home.sections.temperature.target": "Target Temp (°C)",
+    "home.sections.temperature.control_mode": "Control Mode",
+    "home.sections.temperature.power": "Temperature Power (%)",
+    "home.sections.temperature.controller_confirm": "Confirm Settings",
+    "home.sections.temperature.controller_target": "Confirmed Settings",
+    "home.options.control_mode_manual": "Manual",
+    "home.actions.confirm_target": "Confirm Temperature Settings",
+    "home.actions.save_definition": "Save Definition",
+    "home.actions.start_live_run": "Start Live Run",
+    "home.actions.stop_live_run": "Stop Live Run",
+    "home.foldouts.diagnostics": "Open Diagnostics and Offline Tools",
+    "home.diagnostics.tag": "Ops & Diagnostics",
+    "home.diagnostics.tag_minimal": "Diagnostics",
+    "home.diagnostics.title": "System Precheck / Probe Camera",
+    "home.diagnostics.title_minimal": "Device Check / Probe Camera",
+    "home.diagnostics.copy": "Use this to validate the environment or probe hardware, not during the main operator path.",
+    "home.actions.refresh_precheck": "Refresh Precheck",
+    "home.actions.probe_camera": "Probe Camera",
+    "home.diagnostics.probe_mode": "Probe Mode",
+    "home.options.protocol_any": "Protocol Any",
+    "home.options.pinned_device": "Pinned Device",
+    "home.diagnostics.allowed_models": "Allowed Models",
+    "home.placeholders.allowed_models": "MV-CU060-10GM, OTHER-MODEL",
+    "home.diagnostics.serial_number": "Serial Number",
+    "home.placeholders.optional": "Optional",
+    "home.diagnostics.ip": "IP",
+    "home.diagnostics.local_hint":
+      "For Mac local bring-up, copy <code>configs/dev_lab.local.example.yaml</code> to <code>configs/dev_lab.local.yaml</code>, then use precheck to confirm <code>camera_sdk_runtime</code> before the first real probe.",
+    "home.diagnostics.overall": "Overall",
+    "home.foldouts.precheck_output": "Show Precheck Items and Probe Output",
+    "home.engineering.tag": "Engineering Mode",
+    "home.engineering.title": "Session Launcher / Recent Sessions",
+    "home.engineering.copy": "Keep mock and replay launchers close for QA and development without letting them dominate the cockpit.",
+    "home.actions.run_mock": "Run Mock Session",
+    "home.actions.run_replay": "Run Replay Session",
+    "home.import.label": "Import AFAS Dataset",
+    "home.import.hint":
+      "Accepts the canonical <code>afas_dataset.json</code>. Reusing the artifact exported by an existing session is recommended.",
+    "home.actions.import_afas_dataset": "Import AFAS Dataset",
+    "home.compact_result.tag": "Compact Result",
+    "home.compact_result.title": "Latest Session Entry",
+    "home.compact_result.copy": "Keep a single workspace handoff here, not a mini analysis page.",
+    "home.actions.open_workspace": "Open Analysis Studio",
+    "home.compact_result.session_id": "Session ID",
+    "home.compact_result.state": "State",
+    "home.compact_result.af95": "Af95",
+    "home.foldouts.payload_snapshot": "Show Payload and Replay Snapshot",
+    "home.compact_result.point_count": "Point Count",
+    "home.compact_result.replay_curve_label": "Replay curve",
+    "workspace.meta.title": "Analysis Studio",
+    "workspace.hero.title": "Analysis Studio",
+    "workspace.hero.subtitle":
+      "Review replay, run AFAS postprocessing, and make adjustment decisions for one session at a time.",
+    "workspace.session.tag": "Session",
+    "workspace.session.subtitle": "Keep session context lightweight and let AFAS analysis, parameters, and export own the main surface.",
+    "workspace.sidebar.data_entry_tag": "Data Entry",
+    "workspace.sidebar.data_entry_title": "Data and Session",
+    "workspace.sidebar.data_entry_copy":
+      "Go back home when you need to switch samples or import new data. This page stays focused on analysis work.",
+    "workspace.sidebar.analysis_setup_title": "Analysis Setup",
+    "workspace.sidebar.analysis_setup_copy":
+      "Keep channel and parameter controls on the left so the right side can stay focused on charts and results.",
+    "workspace.import.hint": "Choose an afas_dataset.json file to open a new analysis workspace directly.",
+    "workspace.rail.tag": "Journey Rail",
+    "workspace.rail.title": "Process",
+    "workspace.rail.copy": "Keep the rail light and sticky so replay review, AFAS, and decision-making stay central.",
+    "workspace.replay.tag": "Replay",
+    "workspace.replay.context_title": "Replay Context",
+    "workspace.replay.context_copy":
+      "Replay stays as session context. Expand it when needed instead of letting it dominate the first screen.",
+    "workspace.replay.title": "Replay Curve",
+    "workspace.replay.copy": "Metric raw vs. temperature from the replay detail artifact.",
+    "workspace.replay.axis_x": "X: Temperature (°C)",
+    "workspace.replay.axis_y": "Y: metric_raw",
+    "workspace.replay.curve_label": "Workspace replay curve",
+    "workspace.afas.title": "AFAS Analysis",
+    "workspace.afas.copy": "Keep the first screen on replay outcome, AFAS answer quality, and immediate export decisions.",
+    "workspace.afas.copy_aligned":
+      "Borrow AFAS's analysis organization and move process-heavy session information behind explicit reveals.",
+    "workspace.afas.surface_copy":
+      "Keep the right side focused on the overview chart, the single-channel tangent chart, and the final result card.",
+    "workspace.afas.empty_title": "This session does not have AFAS data yet",
+    "workspace.afas.empty_copy":
+      "Session context is still available here, but the AFAS overview, tangent chart, and exports cannot be shown.",
+    "workspace.actions.run_afas": "Run AFAS Analysis",
+    "workspace.actions.export_png": "Export PNG",
+    "workspace.actions.export_excel": "Export Excel",
+    "workspace.actions.import_data": "Import Data",
+    "workspace.afas.channel_section": "Channel Selection",
+    "workspace.afas.channel": "Channel",
+    "workspace.afas.channel_copy": "Choose the channel you want to judge when multiple channels are available.",
+    "workspace.afas.quickbar_copy": "Keep the selected channel visible and tuck deeper tuning away until needed.",
+    "workspace.afas.parameters_title": "Analysis Parameters",
+    "workspace.afas.parameters_copy": "Keep preprocessing and tangent controls grouped with AFAS semantics.",
+    "workspace.afas.preprocessing_group": "Data Preprocessing",
+    "workspace.afas.tangent_group": "Tangent Adjustment",
+    "workspace.afas.result_card.title": "AFAS Result Card",
+    "workspace.afas.result_card.copy": "Answer first: what changed, is it readable, and what settings produced the answer.",
+    "workspace.afas.result_status": "Result Status",
+    "workspace.afas.max_slope_temp": "Max Slope Temp",
+    "workspace.foldouts.afas_warnings": "Show Warnings and Preprocessing Notes",
+    "workspace.afas.outlier_count": "Outlier Count",
+    "workspace.afas.smoothed_points": "Smoothed Points",
+    "workspace.afas.overview": "Overview",
+    "workspace.afas.overview_chart_label": "AFAS overview chart",
+    "workspace.afas.selected_channel": "Selected Channel",
+    "workspace.afas.analysis_chart_label": "AFAS tangent analysis chart",
+    "workspace.afas.analysis_empty": "The single-channel tangent chart will appear here once analysis loads.",
+    "workspace.foldouts.afas_parameters": "Tune AFAS Parameters",
+    "workspace.foldouts.keyframes": "Show Key Frames",
+    "workspace.foldouts.adjustment_stack": "Open Adjustment, Versions, and Traceability",
+    "workspace.foldouts.engineering_workspace": "Open Process and Engineering Context",
+    "workspace.afas.savgol_window": "Savgol Window",
+    "workspace.afas.savgol_polyorder": "Savgol Polyorder",
+    "workspace.afas.low_range_start": "Low Range Start (°C)",
+    "workspace.afas.low_range_end": "Low Range End (°C)",
+    "workspace.afas.high_range_start": "High Range Start (°C)",
+    "workspace.afas.high_range_end": "High Range End (°C)",
+    "workspace.afas.tangent_offset": "Tangent Offset",
+    "workspace.second_screen.tag": "Second Screen",
+    "workspace.keyframes.title": "Key Frames",
+    "workspace.keyframes.copy": "Show the first, middle, and last replay frames when detail is available.",
+    "workspace.adjustment.title": "Adjustment MVP",
+    "workspace.adjustment.copy": "Review automatic results, prepare a draft override, and apply the latest Af95 adjustment.",
+    "workspace.adjustment.auto_result": "Automatic Result",
+    "workspace.adjustment.auto_af95": "Auto Af95",
+    "workspace.adjustment.auto_source": "Auto Result Source",
+    "workspace.adjustment.auto_point_count": "Auto Point Count",
+    "workspace.adjustment.latest_result": "Latest Result",
+    "workspace.adjustment.latest_af95": "Latest Af95",
+    "workspace.adjustment.latest_source": "Latest Result Source",
+    "workspace.adjustment.latest_version": "Latest Version",
+    "workspace.adjustment.draft_editor": "Draft Editor",
+    "workspace.adjustment.draft_af95": "Draft Af95",
+    "workspace.placeholders.af95_override": "Enter Af95 override",
+    "workspace.adjustment.reason": "Reason",
+    "workspace.placeholders.adjustment_reason": "Describe why this adjustment is needed",
+    "workspace.actions.save_draft": "Save Draft",
+    "workspace.actions.apply_adjustment": "Apply Adjustment",
+    "workspace.adjustment.notes": "Adjustment Notes",
+    "workspace.adjustment.notes_item_1": "Current MVP only supports Af95 result-level adjustment.",
+    "workspace.adjustment.notes_item_2": "Auto result, latest result, draft, and applied versions remain separate.",
+    "workspace.adjustment.notes_item_3": "As / Af / Af-tan and parameter-level tuning remain reserved for later phases.",
+    "workspace.foldouts.traceability": "Open Traceability Context",
+    "workspace.adjustment.automatic_basis": "Automatic Basis",
+    "workspace.common.source": "Source",
+    "workspace.common.point_count": "Point Count",
+    "workspace.common.keyframe_count": "Key Frame Count",
+    "workspace.common.current_stage": "Current Stage",
+    "workspace.common.detail_available": "Detail Available",
+    "workspace.common.active_selection": "Active Selection",
+    "workspace.adjustment.context": "Extraction & Analysis Context",
+    "workspace.foldouts.future_controls": "Preview Future Adjustment Controls",
+    "workspace.adjustment.future_controls": "Future Adjustment Controls",
+    "workspace.adjustment.image_processing": "Image Processing Parameters",
+    "workspace.adjustment.threshold": "Threshold",
+    "workspace.adjustment.baseline_lock": "Baseline Lock",
+    "workspace.adjustment.curve_analysis": "Curve Analysis Parameters",
+    "workspace.adjustment.smoothing": "Smoothing",
+    "workspace.adjustment.normalization_basis": "Normalization Basis",
+    "workspace.adjustment.af95_threshold": "Af95 Threshold",
+    "workspace.adjustment.result_override": "Result Override",
+    "workspace.actions.save_adjustment": "Save Adjustment",
+    "workspace.summary.current_stage": "Current Stage",
+    "workspace.summary.session_state": "Session State",
+    "workspace.summary.mode_source": "Mode / Source",
+    "workspace.summary.session_summary": "Session Summary",
+    "workspace.summary.session_id": "Session ID",
+    "workspace.summary.detail_status": "Detail Status",
+    "workspace.summary.detail_points": "Detail Points",
+    "workspace.summary.keyframes": "Key Frames",
+    "workspace.summary.active_selection": "Active Selection",
+    "workspace.summary.label": "Label",
+    "workspace.summary.timestamp": "Timestamp",
+    "workspace.summary.celsius": "Celsius",
+    "workspace.foldouts.selection_diagnostics": "Open Selection Diagnostics",
+    "workspace.summary.adjustment_status": "Adjustment Status",
+    "workspace.summary.has_draft": "Has Draft",
+    "workspace.summary.applied_count": "Applied Count",
+    "workspace.summary.manual_override": "Manual Override",
+    "workspace.summary.draft_updated": "Draft Updated",
+    "workspace.summary.version_history": "Version History",
+    "workspace.foldouts.version_timeline": "Browse Version Timeline",
+    "workspace.summary.quick_actions": "Quick Actions",
+    "workspace.summary.quick_actions_copy": "Return and refresh stay in the top strip. This area keeps engineering-only links.",
+    "workspace.actions.return_home": "Return Home",
+    "workspace.actions.refresh_workspace": "Refresh Workspace",
+    "workspace.foldouts.engineering_links": "Open Engineering Links",
+    "workspace.actions.open_summary_api": "Open Summary API",
+    "workspace.actions.open_detail_api": "Open Detail API",
+    "workspace.step_status.todo": "todo",
+    "workspace.step_status.active": "active",
+    "workspace.step_status.done": "done",
+    "workspace.step_status.error": "error",
+    "workspace.step_status.upcoming": "upcoming",
+  },
+};
 
 const ANALYSIS_ROI_FLOAT_EPSILON = 0.5;
+
+function getSavedLocale() {
+  try {
+    return window.localStorage.getItem(LANGUAGE_STORAGE_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function saveLocale(locale) {
+  try {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
+  } catch (error) {
+    return;
+  }
+}
+
+function formatTemplate(template, variables = {}) {
+  return String(template).replace(/\{(\w+)\}/g, (_, key) => String(variables[key] ?? ""));
+}
+
+function t(key, variables = {}, fallback = key) {
+  const localeMap = TRANSLATIONS[currentLocale] || {};
+  const template = localeMap[key] ?? fallback;
+  return formatTemplate(template, variables);
+}
+
+function localizeStateLabel(state) {
+  const normalized = String(state || "").trim();
+  return t(`state.${normalized}`, {}, normalized || t("common.na", {}, "N/A"));
+}
+
+function restoreLocalizedNode(node, datasetKey, fallbackGetter, setter) {
+  if (!node.dataset[datasetKey]) {
+    node.dataset[datasetKey] = fallbackGetter();
+  }
+  if (currentLocale === "zh") {
+    setter(node.dataset[datasetKey]);
+    return;
+  }
+  const key =
+    datasetKey === "i18nDefaultText"
+      ? node.dataset.i18n
+      : datasetKey === "i18nDefaultHtml"
+        ? node.dataset.i18nHtml
+        : datasetKey === "i18nDefaultPlaceholder"
+          ? node.dataset.i18nPlaceholder
+          : datasetKey === "i18nDefaultAriaLabel"
+            ? node.dataset.i18nAriaLabel
+            : node.dataset.i18nAlt;
+  const translated = key ? TRANSLATIONS.en?.[key] : null;
+  setter(translated || node.dataset[datasetKey]);
+}
+
+function applyStaticTranslations() {
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    restoreLocalizedNode(
+      node,
+      "i18nDefaultText",
+      () => node.textContent || "",
+      (value) => {
+        node.textContent = value;
+      },
+    );
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((node) => {
+    restoreLocalizedNode(
+      node,
+      "i18nDefaultHtml",
+      () => node.innerHTML,
+      (value) => {
+        node.innerHTML = value;
+      },
+    );
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    restoreLocalizedNode(
+      node,
+      "i18nDefaultPlaceholder",
+      () => node.getAttribute("placeholder") || "",
+      (value) => {
+        node.setAttribute("placeholder", value);
+      },
+    );
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+    restoreLocalizedNode(
+      node,
+      "i18nDefaultAriaLabel",
+      () => node.getAttribute("aria-label") || "",
+      (value) => {
+        node.setAttribute("aria-label", value);
+      },
+    );
+  });
+  document.querySelectorAll("[data-i18n-alt]").forEach((node) => {
+    restoreLocalizedNode(
+      node,
+      "i18nDefaultAlt",
+      () => node.getAttribute("alt") || "",
+      (value) => {
+        node.setAttribute("alt", value);
+      },
+    );
+  });
+  workspaceStepNodes.forEach((node, index) => {
+    const labelNode = node.querySelector(".workspace-step-label");
+    if (!labelNode) {
+      return;
+    }
+    labelNode.textContent = currentLocale === "en" ? WORKSPACE_STEP_LABELS_EN[index] || labelNode.textContent : WORKSPACE_STEPS[index];
+  });
+}
+
+function syncLanguageToggleUi() {
+  languageToggleButtons.forEach((button) => {
+    const isActive = button.dataset.languageToggle === currentLocale;
+    button.classList.toggle("language-switch-btn--active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function refreshLocalizedRuntimeUi() {
+  applyStaticTranslations();
+  syncCameraProbeControls();
+  if (healthStatusNode?.dataset.healthState) {
+    updateHealthStatusBadge(healthStatusNode.dataset.healthState);
+  }
+  renderHomeCompactResultSummary(homeCompactResultState);
+  renderHomeTaskState();
+  if (liveRunState.detail) {
+    renderLiveRunDetail(liveRunState.detail);
+  }
+  if (precheckState) {
+    renderPrecheck(precheckState);
+  }
+  renderRecentSessions(recentSessionsState);
+  if (workspaceSummaryState) {
+    renderWorkspaceSummary(workspaceSummaryState);
+  }
+  if (workspaceDetailState) {
+    renderWorkspaceDetail(workspaceDetailState);
+  }
+  if (workspaceActiveSelectionState) {
+    renderActiveSelection(workspaceActiveSelectionState);
+  }
+  renderWorkspaceAfas(workspaceAfasState);
+  if (workspaceAdjustmentState) {
+    renderAdjustmentState(workspaceAdjustmentState);
+  }
+}
+
+function setLocale(locale) {
+  currentLocale = locale === "en" ? "en" : "zh";
+  document.body.dataset.locale = currentLocale;
+  document.documentElement.lang = currentLocale === "en" ? "en" : "zh-CN";
+  saveLocale(currentLocale);
+  syncLanguageToggleUi();
+  refreshLocalizedRuntimeUi();
+}
 
 function workspaceUrl(sessionId) {
   return `/workspace/${encodeURIComponent(sessionId)}`;
@@ -199,10 +786,7 @@ function renderSessionResult(payload) {
     return;
   }
   sessionResultNode.textContent = JSON.stringify(payload, null, 2);
-  if (sessionWorkspaceLinkNode && payload.session_id) {
-    sessionWorkspaceLinkNode.href = workspaceUrl(payload.session_id);
-    sessionWorkspaceLinkNode.classList.remove("workspace-link--hidden");
-  }
+  renderHomeCompactResultSummary(payload);
 }
 
 function renderCameraProbeResult(payload) {
@@ -226,12 +810,16 @@ function syncCameraProbeControls() {
 
   if (probeModeSelect.value === "pinned") {
     probeModeHintNode.textContent =
-      "Pinned Device requires allowed models plus serial number or IP before probing.";
+      currentLocale === "en"
+        ? "Pinned Device requires allowed models plus serial number or IP before probing."
+        : "固定设备模式要求在探测前提供允许型号，以及序列号或 IP。";
     return;
   }
 
   probeModeHintNode.textContent =
-    "Protocol Any allows first discovered probe when serial and IP are empty. You can still fill identity fields for a directed hit.";
+    currentLocale === "en"
+      ? "Protocol Any allows the first discovered device when serial number and IP are empty. You can still fill identity fields for a directed hit."
+      : "当序列号和 IP 为空时，协议任意模式会接受首个发现的设备；你仍然可以填写身份字段来做定向探测。";
 }
 
 function syncCameraProbeDefaults(profileName) {
@@ -277,14 +865,59 @@ function normalizeTemperatureValue(value) {
   return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : null;
 }
 
-function getCurrentTargetTemperature() {
-  return normalizeTemperatureValue(getNumericInputValue(liveTargetTemperatureInput, 75));
+function normalizePowerPercent(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : null;
 }
 
-function isTargetTemperatureConfirmed() {
-  const confirmed = normalizeTemperatureValue(liveRunState.targetTemperatureConfirmed);
-  const current = getCurrentTargetTemperature();
-  return confirmed !== null && current !== null && Math.abs(confirmed - current) < 0.05;
+function getCurrentTargetTemperature() {
+  return normalizeTemperatureValue(getNumericInputValue(liveTargetTemperatureInput, 25));
+}
+
+function getCurrentControlMode() {
+  return String(liveControlModeSelect?.value || "manual");
+}
+
+function getCurrentOutputPowerPercent() {
+  return normalizePowerPercent(getNumericInputValue(liveOutputPowerInput, 100));
+}
+
+function getCurrentTemperatureSettings() {
+  return {
+    target_temperature_celsius: getCurrentTargetTemperature(),
+    control_mode: getCurrentControlMode(),
+    output_power_percent: getCurrentOutputPowerPercent(),
+  };
+}
+
+function formatConfirmedTemperatureSettings(settings) {
+  if (!settings) {
+    return "--";
+  }
+  const confirmedTarget = normalizeTemperatureValue(
+    settings.confirmed_target_temperature_celsius ?? settings.target_temperature_celsius,
+  );
+  const powerPercent = normalizePowerPercent(settings.output_power_percent);
+  const controlMode = String(settings.control_mode || "manual");
+  if (confirmedTarget === null || powerPercent === null) {
+    return "--";
+  }
+  return currentLocale === "en"
+    ? `${confirmedTarget.toFixed(1)} °C / ${controlMode} / ${powerPercent.toFixed(0)}%`
+    : `${confirmedTarget.toFixed(1)} °C / 手动方式 / ${powerPercent.toFixed(0)}%`;
+}
+
+function isTemperatureSettingsConfirmed() {
+  const confirmed = liveRunState.confirmedTemperatureSettings;
+  const current = getCurrentTemperatureSettings();
+  if (!confirmed || current.target_temperature_celsius === null || current.output_power_percent === null) {
+    return false;
+  }
+  return (
+    Math.abs(current.target_temperature_celsius - Number(confirmed.target_temperature_celsius)) < 0.05 &&
+    Math.abs(current.output_power_percent - Number(confirmed.output_power_percent)) < 0.05 &&
+    String(current.control_mode) === String(confirmed.control_mode)
+  );
 }
 
 function getNumericInputValue(node, fallback = 0) {
@@ -321,6 +954,189 @@ function setLiveRunMessage(message, tone = "neutral") {
   liveRunMessageNode.className = `live-message live-message--${tone}`;
 }
 
+function syncHomeJourneySteps(activeStep, stepStatus) {
+  if (!homeJourneyStepNodes.length) {
+    return;
+  }
+  homeJourneyStepNodes.forEach((node) => {
+    const index = Number(node.dataset.homeStepIndex || "0");
+    const status = stepStatus[index - 1] || (index === activeStep ? "active" : index < activeStep ? "done" : "upcoming");
+    node.classList.remove("journey-step--done", "journey-step--active", "journey-step--upcoming", "journey-step--error");
+    node.classList.add(`journey-step--${status}`);
+  });
+}
+
+function renderHomeCompactResultSummary(payload) {
+  if (!homeCompactResultSessionIdNode || !homeCompactResultStateNode || !homeCompactResultSummaryNode) {
+    return;
+  }
+  homeCompactResultState = payload;
+  const hasTarget = Boolean(payload && payload.session_id);
+  const sessionId = hasTarget ? payload.session_id : currentLocale === "en" ? "No target" : "暂无目标";
+  const sessionStateRaw = hasTarget && (payload.state || payload.status) ? payload.state || payload.status : "empty";
+  const sessionState = localizeStateLabel(sessionStateRaw);
+  homeCompactResultSessionIdNode.textContent = sessionId;
+  homeCompactResultStateNode.textContent = sessionState;
+  homeCompactResultSummaryNode.textContent =
+    !hasTarget
+      ? ""
+      : currentLocale === "en"
+        ? `Analysis will open session ${sessionId}.`
+        : `进入分析时将打开会话 ${sessionId}。`;
+  if (homeCompletionDockNode) {
+    homeCompletionDockNode.hidden = !hasTarget;
+  }
+  if (sessionWorkspaceLinkNode) {
+    if (hasTarget) {
+      sessionWorkspaceLinkNode.href = workspaceUrl(sessionId);
+      sessionWorkspaceLinkNode.classList.remove("workspace-link--hidden");
+    } else {
+      sessionWorkspaceLinkNode.classList.add("workspace-link--hidden");
+    }
+  }
+  if (saveSessionDataButton) {
+    saveSessionDataButton.disabled = !hasTarget;
+  }
+}
+
+function renderHomeTaskState() {
+  if (!hasLiveSetupUi()) {
+    return;
+  }
+  const status = liveRunState.detail ? String(liveRunState.detail.status || "") : "";
+  const previewState = getPreviewStatePayload();
+  const hasRun = Boolean(liveRunState.runId);
+  const hasPreview = Boolean(liveRunState.previewSize);
+  const roiReady = hasValidAnalysisRoi() && liveRunState.roiConfirmed;
+  const hasPoints = hasValidPointInputs();
+  const temperatureSettingsConfirmed = isTemperatureSettingsConfirmed();
+  const isRunActive = ["running", "invalidated", "stopping"].includes(status);
+  const isTerminal = ["completed", "failed", "aborted"].includes(status);
+  const abReviewNeeded = Boolean(
+    liveRunState.setupRecomputeInFlight ||
+      (roiReady && !hasPoints),
+  );
+
+  let activeStep = 1;
+  let title = currentLocale === "en" ? "Prepare the device and live shell" : "准备设备与 live shell";
+  let copy =
+    currentLocale === "en"
+      ? "Check shell status first, then let the preview warm up before touching ROI or runtime controls."
+      : "先确认 shell 状态，再让预览稳定，然后再去操作 ROI 或 runtime 控件。";
+  let stepBadge = currentLocale === "en" ? "Step 1 of 6" : "第 1 / 6 步";
+  const stepStatus = ["active", "upcoming", "upcoming", "upcoming", "upcoming", "upcoming"];
+
+  if (!hasRun || !liveRunState.detail) {
+    activeStep = 1;
+  } else if (previewState.stream_active || !hasPreview) {
+    activeStep = 2;
+    title = currentLocale === "en" ? "Freeze the preview" : "冻结预览";
+    copy =
+      currentLocale === "en"
+        ? "Capture a still frame first. ROI editing and A/B status stay locked until the preview is frozen."
+        : "先抓取静帧。冻结前，ROI 编辑和 A/B 状态都保持锁定。";
+  } else if (!roiReady) {
+    activeStep = 3;
+    title = currentLocale === "en" ? "Define the ROI" : "定义 ROI";
+    copy =
+      currentLocale === "en"
+        ? "Set the rotated ROI first. Everything else in setup keys off this geometry."
+        : "先定义旋转 ROI，setup 里的其他项都以这块几何为准。";
+  } else if (abReviewNeeded) {
+    activeStep = 4;
+    title = currentLocale === "en" ? "Review ROI-local A/B" : "复核 ROI 内 A/B";
+    copy = liveRunState.setupRecomputeInFlight
+      ? currentLocale === "en"
+        ? "A/B anchors are being recalculated from a newly captured frame. Wait for the latest result before starting."
+        : "系统正在基于新抓取的画面重算 A/B 锚点，等待最新结果后再继续。"
+      : currentLocale === "en"
+        ? "A/B stays diagnostic-only. Review the latest automatic anchors and recompute if needed."
+        : "A/B 只作为诊断结果出现。请复核当前自动结果，必要时重新计算。";
+  } else if (!temperatureSettingsConfirmed) {
+    activeStep = 5;
+    title = currentLocale === "en" ? "Confirm temperature settings" : "确认温控设置";
+    copy =
+      currentLocale === "en"
+        ? "Confirm target temperature, manual mode, and output power as one bundled step."
+        : "把目标温度、手动方式和温度功率作为一个设置包整体确认。";
+  } else {
+    activeStep = 6;
+    title = isRunActive
+      ? currentLocale === "en"
+        ? "Live run in progress"
+        : "实时测试进行中"
+      : isTerminal
+        ? currentLocale === "en"
+          ? "Open Analysis Studio when ready"
+          : "可在准备好后打开分析工作台"
+        : currentLocale === "en"
+          ? "Start the live run"
+          : "开始实时测试";
+    copy = isRunActive
+      ? currentLocale === "en"
+        ? "The run is active. Keep the cockpit focused on control and move to Analysis Studio only when the session is worth reading."
+        : "当前 run 正在进行。让 cockpit 保持在控制与监看职责上，只在 session 值得阅读时进入分析工作台。"
+      : isTerminal
+        ? currentLocale === "en"
+        ? "The run has completed or stopped. Save the result or enter analysis."
+        : "当前 run 已完成或已停止。现在可以保存数据或进入分析。"
+        : currentLocale === "en"
+            ? "The live setup is ready. Start the run once ROI, A/B, and the bundled temperature settings are confirmed."
+            : "live setup 已准备好。确认 ROI、A/B 和温控设置包后即可开始测试。";
+  }
+
+  stepBadge = currentLocale === "en" ? `Step ${activeStep} of 6` : `第 ${activeStep} / 6 步`;
+  for (let index = 0; index < stepStatus.length; index += 1) {
+    if (index + 1 < activeStep) {
+      stepStatus[index] = "done";
+    } else if (index + 1 === activeStep) {
+      stepStatus[index] = status === "failed" || status === "aborted" ? "error" : "active";
+    } else {
+      stepStatus[index] = "upcoming";
+    }
+  }
+  if (isTerminal && status === "completed") {
+    for (let index = 0; index < stepStatus.length; index += 1) {
+      stepStatus[index] = "done";
+    }
+  }
+
+  if (homeCurrentTaskTitleNode) {
+    homeCurrentTaskTitleNode.textContent = title;
+  }
+  if (homeCurrentTaskCopyNode) {
+    homeCurrentTaskCopyNode.textContent = copy;
+  }
+  if (homeCurrentTaskStepNode) {
+    homeCurrentTaskStepNode.textContent = stepBadge;
+    homeCurrentTaskStepNode.className = `status-pill ${
+      isRunActive || status === "completed" ? "status-ok" : stepStatus[activeStep - 1] === "error" ? "status-fail" : "status-pending"
+    }`;
+  }
+  if (homeAbStateNode) {
+    homeAbStateNode.textContent = !roiReady
+      ? currentLocale === "en"
+        ? "Waiting for ROI"
+        : "等待 ROI"
+      : liveRunState.setupRecomputeInFlight
+        ? currentLocale === "en"
+          ? "Recomputing"
+          : "正在重算"
+        : hasPoints
+          ? currentLocale === "en"
+            ? "Auto-detected"
+            : "已自动检测"
+          : currentLocale === "en"
+            ? "Needs review"
+            : "需要复核";
+    homeAbStateNode.className = `status-pill ${
+      !roiReady ? "status-pending" : abReviewNeeded ? "status-warn" : "status-ok"
+    }`;
+  }
+  document.body.dataset.homeStep = String(activeStep);
+  syncHomeJourneySteps(activeStep, stepStatus);
+}
+
 function renderCurrentTemperature(payload) {
   if (!liveCurrentTemperatureInput) {
     return;
@@ -328,6 +1144,33 @@ function renderCurrentTemperature(payload) {
   const celsius = normalizeTemperatureValue(payload?.temperature_celsius);
   liveRunState.currentTemperatureCelsius = celsius;
   liveCurrentTemperatureInput.value = celsius === null ? "--" : celsius.toFixed(1);
+}
+
+function formatPointSummary(point) {
+  if (!point || !Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) {
+    return "--";
+  }
+  return `(${Math.round(Number(point.x))}, ${Math.round(Number(point.y))})`;
+}
+
+function updatePointSummaries() {
+  if (livePointASummaryInput) {
+    livePointASummaryInput.value = hasValidPointInputs() ? formatPointSummary(getCurrentPointA()) : "--";
+  }
+  if (livePointBSummaryInput) {
+    livePointBSummaryInput.value = hasValidPointInputs() ? formatPointSummary(getCurrentPointB()) : "--";
+  }
+}
+
+function updateHealthStatusBadge(status) {
+  if (!healthStatusNode) {
+    return;
+  }
+  const normalized = String(status || "unknown");
+  healthStatusNode.dataset.healthState = normalized;
+  const isReady = normalized === "ok";
+  healthStatusNode.textContent = isReady ? (currentLocale === "en" ? "Ready" : "已就绪") : currentLocale === "en" ? "Not Ready" : "未就绪";
+  healthStatusNode.className = `status-pill ${isReady ? "status-ok" : normalized === "warn" ? "status-warn" : "status-fail"}`;
 }
 
 async function refreshCurrentTemperature({ silent = false } = {}) {
@@ -366,44 +1209,80 @@ function startCurrentTemperaturePolling() {
   liveRunState.currentTemperatureTimer = window.setInterval(poll, 1000);
 }
 
-function clearTargetTemperatureConfirmation() {
-  liveRunState.targetTemperatureConfirmed = null;
+function refreshTemperatureSettingsSummary() {
+  if (liveConfirmedTargetTemperatureInput) {
+    liveConfirmedTargetTemperatureInput.value = formatConfirmedTemperatureSettings(liveRunState.confirmedTemperatureSettings);
+  }
+}
+
+function clearTemperatureSettingsConfirmation() {
+  refreshTemperatureSettingsSummary();
   updateLiveRunControls();
 }
 
 async function confirmTargetTemperature() {
-  const current = getCurrentTargetTemperature();
-  if (current === null || current <= 0) {
-    setLiveRunMessage("Target temperature must be a positive number before confirmation.", "error");
+  const currentSettings = getCurrentTemperatureSettings();
+  if (
+    currentSettings.target_temperature_celsius === null ||
+    currentSettings.target_temperature_celsius < TARGET_TEMPERATURE_MIN_C ||
+    currentSettings.target_temperature_celsius > TARGET_TEMPERATURE_MAX_C
+  ) {
+    setLiveRunMessage(
+      `Target temperature must stay within ${TARGET_TEMPERATURE_MIN_C} to ${TARGET_TEMPERATURE_MAX_C} °C before confirmation.`,
+      "error",
+    );
+    return;
+  }
+  if (currentSettings.output_power_percent === null || currentSettings.output_power_percent < 0 || currentSettings.output_power_percent > 100) {
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "Temperature power must stay within 0 to 100% before confirmation."
+        : "确认前，温度功率必须保持在 0 到 100% 之间。",
+      "error",
+    );
     return;
   }
   if (confirmTargetTemperatureButton) {
     confirmTargetTemperatureButton.disabled = true;
   }
   stopCurrentTemperaturePolling();
-  setLiveRunMessage("Confirming target temperature on the controller...", "info");
+  setLiveRunMessage(
+    currentLocale === "en"
+      ? "Confirming bundled temperature settings on the controller..."
+      : "正在确认温控设置包...",
+    "info",
+  );
   try {
-    const response = await fetch("/api/system/temp/target", {
-      method: "POST",
+    const response = await fetch(`/api/runs/${liveRunState.runId}/temperature-settings`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_temperature_celsius: current }),
+      body: JSON.stringify(currentSettings),
     });
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(parseErrorDetail(payload, `Target temperature update failed: ${response.status}`));
+      throw new Error(parseErrorDetail(payload, `Temperature settings update failed: ${response.status}`));
     }
-    const confirmed = normalizeTemperatureValue(payload?.confirmed_target_temperature_celsius);
-    liveRunState.targetTemperatureConfirmed = confirmed ?? current;
-    if (liveTargetTemperatureInput && confirmed !== null) {
-      liveTargetTemperatureInput.value = confirmed.toFixed(1);
+    renderLiveRunDetail(payload);
+    const confirmedSettings = payload?.temperature_settings || null;
+    liveRunState.confirmedTemperatureSettings = confirmedSettings;
+    if (liveTargetTemperatureInput && confirmedSettings?.confirmed_target_temperature_celsius != null) {
+      liveTargetTemperatureInput.value = Number(confirmedSettings.confirmed_target_temperature_celsius).toFixed(1);
     }
-    updateLiveRunControls();
+    if (liveControlModeSelect && confirmedSettings?.control_mode) {
+      liveControlModeSelect.value = String(confirmedSettings.control_mode);
+    }
+    if (liveOutputPowerInput && confirmedSettings?.output_power_percent != null) {
+      liveOutputPowerInput.value = String(Number(confirmedSettings.output_power_percent));
+    }
+    refreshTemperatureSettingsSummary();
     setLiveRunMessage(
-      `Target temperature confirmed on controller at ${(confirmed ?? current).toFixed(1)} °C.`,
+      currentLocale === "en"
+        ? `Temperature settings confirmed: ${formatConfirmedTemperatureSettings(confirmedSettings)}.`
+        : `温控设置已确认：${formatConfirmedTemperatureSettings(confirmedSettings)}。`,
       "success",
     );
   } catch (error) {
-    clearTargetTemperatureConfirmation();
+    refreshTemperatureSettingsSummary();
     setLiveRunMessage(String(error), "error");
   } finally {
     startCurrentTemperaturePolling();
@@ -450,7 +1329,7 @@ function setSetupRecomputeState({ inFlight = false, detail = "" } = {}) {
 
 function formatRateValue(value, unit) {
   if (!Number.isFinite(value) || Number(value) <= 0) {
-    return "n/a";
+    return t("common.not_applicable", {}, "n/a");
   }
   return `${Number(value).toFixed(1)} ${unit}`;
 }
@@ -503,15 +1382,8 @@ function showLivePreviewStage() {
 }
 
 function updateLiveToolButtons() {
-  for (const [button, tool] of [
-    [drawAnalysisRoiButton, "draw-roi"],
-    [pickPointAButton, "pick-a"],
-    [pickPointBButton, "pick-b"],
-  ]) {
-    if (!button) {
-      continue;
-    }
-    button.classList.toggle("button-active", liveRunState.activeTool === tool);
+  if (drawAnalysisRoiButton) {
+    drawAnalysisRoiButton.classList.toggle("button-active", liveRunState.activeTool === "draw-roi");
   }
 }
 
@@ -521,29 +1393,15 @@ function renderLiveToolPrompt() {
   }
   if (liveRunState.setupRecomputeInFlight) {
     livePointPromptNode.hidden = false;
-    livePointPromptTitleNode.textContent = "Recomputing Locked Points";
+    livePointPromptTitleNode.textContent = currentLocale === "en" ? "Recomputing Locked Points" : "正在重算锁定点";
     livePointPromptBodyNode.textContent =
       liveRunState.setupRecomputeDetail ||
-      "Refreshing the frozen frame and recalculating ROI-local A/B. Wait for the points to update or an error message to appear.";
+      (currentLocale === "en"
+        ? "Capturing a new frame before recalculating ROI-local A/B. Wait for the points to update or an error message to appear."
+        : "正在先抓取新画面，再重算 ROI 内 A/B。请等待点位更新，或查看是否出现错误提示。");
     return;
   }
-  const copyByTool = {
-    "pick-a": {
-      title: "Selecting Point A",
-      body: "Point A selection is active. Click once on the frozen preview to place Point A.",
-    },
-    "pick-b": {
-      title: "Selecting Point B",
-      body: "Point B selection is active. Click once on the frozen preview to place Point B.",
-    },
-  };
-  const prompt = copyByTool[liveRunState.activeTool];
-  livePointPromptNode.hidden = !prompt;
-  if (!prompt) {
-    return;
-  }
-  livePointPromptTitleNode.textContent = prompt.title;
-  livePointPromptBodyNode.textContent = prompt.body;
+  livePointPromptNode.hidden = true;
 }
 
 function getPreviewStatePayload() {
@@ -577,15 +1435,15 @@ function boundingRectForMetricBox(box) {
   const corners = metricBoxCorners(box);
   const xs = corners.map((point) => point.x);
   const ys = corners.map((point) => point.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  const minX = Math.floor(Math.min(...xs));
+  const maxX = Math.ceil(Math.max(...xs));
+  const minY = Math.floor(Math.min(...ys));
+  const maxY = Math.ceil(Math.max(...ys));
   return {
-    x: Math.round(minX),
-    y: Math.round(minY),
-    width: Math.max(1, Math.round(maxX - minX)),
-    height: Math.max(1, Math.round(maxY - minY)),
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
   };
 }
 
@@ -1072,11 +1930,10 @@ function setActiveLiveTool(tool) {
   liveRunState.activeTool = tool;
   updateLiveRunControls();
   const labels = {
-    "draw-roi": "Drag on the preview to draw the analysis ROI.",
-    "pick-a": "Click on the preview to place Point A.",
-    "pick-b": "Click on the preview to place Point B.",
+    "draw-roi":
+      currentLocale === "en" ? "Drag on the preview to draw the analysis ROI." : "在预览上拖拽以绘制分析 ROI。",
   };
-  setLivePointPickerStatus(labels[tool] || "Tool idle.");
+  setLivePointPickerStatus(labels[tool] || (currentLocale === "en" ? "Tool idle." : "工具空闲。"));
   renderLiveToolPrompt();
 }
 
@@ -1085,18 +1942,21 @@ function updateLiveRunControls() {
   const hasPreview = Boolean(liveRunState.previewSize);
   const previewState = getPreviewStatePayload();
   const status = liveRunState.detail ? liveRunState.detail.status : "";
-  const isRunReady = status === "run_ready";
   const isRunActive = ["running", "invalidated", "stopping"].includes(status);
   const isSetupBusy = liveRunState.setupRecomputeInFlight;
   const canEditOverlay = hasPreview && !previewState.stream_active && !isRunActive;
   const hasRoi = hasValidAnalysisRoi();
   const roiReady = hasRoi && liveRunState.roiConfirmed;
   const canSaveDefinition = hasRun && !isRunActive && !previewState.stream_active && hasPreview && roiReady && hasLocallyCompleteDefinition();
-  const targetConfirmed = isTargetTemperatureConfirmed();
+  const temperatureSettingsConfirmed = isTemperatureSettingsConfirmed();
 
   if (stopLivePreviewStreamButton) {
     stopLivePreviewStreamButton.disabled = !previewState.stream_active;
-    stopLivePreviewStreamButton.textContent = "Freeze";
+    stopLivePreviewStreamButton.textContent = t("home.actions.freeze", {}, currentLocale === "en" ? "Freeze" : "冻结画面");
+  }
+  if (startLivePreviewStreamButton) {
+    startLivePreviewStreamButton.disabled = !hasRun || previewState.stream_active || isRunActive;
+    startLivePreviewStreamButton.textContent = t("home.actions.unfreeze", {}, currentLocale === "en" ? "Unfreeze" : "解除冻结");
   }
   if (saveLiveDefinitionButton) {
     saveLiveDefinitionButton.disabled = !canSaveDefinition || isSetupBusy;
@@ -1105,23 +1965,28 @@ function updateLiveRunControls() {
     drawAnalysisRoiButton.disabled = !canEditOverlay;
     drawAnalysisRoiButton.classList.add("live-tool-button");
   }
-  if (pickPointAButton) {
-    pickPointAButton.disabled = !canEditOverlay || !roiReady || isSetupBusy;
-  }
-  if (pickPointBButton) {
-    pickPointBButton.disabled = !canEditOverlay || !roiReady || isSetupBusy;
+  if (recomputeDefinitionButton) {
+    recomputeDefinitionButton.disabled = !canEditOverlay || !roiReady || isSetupBusy;
   }
   if (confirmTargetTemperatureButton) {
-    confirmTargetTemperatureButton.disabled = isRunActive;
-    confirmTargetTemperatureButton.textContent = targetConfirmed ? "Target Confirmed" : "Confirm Target";
+    confirmTargetTemperatureButton.disabled = !hasRun || isRunActive;
+    confirmTargetTemperatureButton.textContent = temperatureSettingsConfirmed
+      ? t("home.actions.target_confirmed", {}, currentLocale === "en" ? "Settings Confirmed" : "已确认")
+      : t("home.actions.confirm_target", {}, currentLocale === "en" ? "Confirm Temperature Settings" : "确认温控设置");
   }
+  refreshTemperatureSettingsSummary();
   if (startLiveRunButton) {
-    startLiveRunButton.disabled = !isRunReady || isRunActive || liveRunState.definitionDirty || !targetConfirmed || isSetupBusy;
+    const hasCompleteLocalDefinition =
+      hasRun && !previewState.stream_active && hasPreview && roiReady && hasLocallyCompleteDefinition();
+    const hasPendingAbReview = Boolean(isSetupBusy || (roiReady && !hasValidPointInputs()));
+    startLiveRunButton.disabled = !hasCompleteLocalDefinition || isRunActive || !temperatureSettingsConfirmed || hasPendingAbReview;
   }
   if (stopLiveRunButton) {
     stopLiveRunButton.disabled = !isRunActive;
   }
+  updatePointSummaries();
   updateLiveToolButtons();
+  renderHomeTaskState();
 }
 
 function fillLiveDefinitionInputs(definition) {
@@ -1202,7 +2067,11 @@ function seedLiveDefinitionDefaults(width, height) {
   setSetupRecomputeState({ inFlight: false, detail: "" });
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
-  setLivePointPickerStatus(`Preview frozen at ${width}x${height}. Draw the ROI to seed ROI-local A/B points.`);
+  setLivePointPickerStatus(
+    currentLocale === "en"
+      ? "Preview frozen. Draw the ROI to place ROI-local A/B."
+      : "画面已冻结，请框选 ROI。",
+  );
 }
 
 function resetLiveDefinitionInputs() {
@@ -1252,11 +2121,13 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
   }
   const recomputeToken = liveRunState.setupRecomputeActiveToken + 1;
   liveRunState.setupRecomputeActiveToken = recomputeToken;
-  setLivePointPickerStatus("Recomputing ROI-local A/B points from a fresh frozen frame...");
+  setLivePointPickerStatus(
+    currentLocale === "en" ? "Capturing a new frame and recomputing ROI-local A/B points..." : "正在抓取新画面并重算 ROI 内 A/B...",
+  );
   setSetupRecomputeState({
     inFlight: true,
     detail:
-      "Refreshing the frozen frame and recalculating ROI-local A/B from the current ROI and sensitivity settings.",
+      "Capturing a new frame to recalculate ROI-local A/B from the current ROI and sensitivity settings.",
   });
   liveRunState.setupRecomputeTimer = window.setTimeout(async () => {
     liveRunState.setupRecomputeTimer = null;
@@ -1278,7 +2149,9 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
       if (recomputeToken !== liveRunState.setupRecomputeActiveToken) {
         return;
       }
-      setLivePointPickerStatus("Point recompute failed. Adjust ROI or sensitivity and try again.");
+      setLivePointPickerStatus(
+        currentLocale === "en" ? "Point recompute failed. Adjust ROI or sensitivity and try again." : "A/B 重算失败，请调整 ROI 或灵敏度后重试。",
+      );
       setLiveRunMessage(`Failed to recompute ROI-local A/B: ${String(error)}`, "error");
     } finally {
       if (recomputeToken === liveRunState.setupRecomputeActiveToken) {
@@ -1306,7 +2179,9 @@ function commitAnalysisRoiSelection({ force = false, message = "", recompute = t
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
   updateLiveRunControls();
-  setLivePointPickerStatus("ROI ready. Recomputing ROI-local horizontal A/B points from the latest frozen frame.");
+  setLivePointPickerStatus(
+    currentLocale === "en" ? "ROI ready. Capturing a new frame and recomputing ROI-local horizontal A/B points." : "ROI 已就绪，正在抓取新画面并重算 ROI 内 A/B。",
+  );
   if (message) {
     setLiveRunMessage(message, "info");
   }
@@ -1344,8 +2219,8 @@ function renderLiveRunDetail(payload) {
   );
   liveRunState.lastPreviewFrameId =
     liveRunState.lastPreviewFrameId != null ? liveRunState.lastPreviewFrameId : (serverPreview.last_frame_id ?? null);
-  liveRunIdNode.textContent = liveRunState.runId || "Not created";
-  liveRunStatusNode.textContent = payload.status || "unknown";
+  liveRunIdNode.textContent = liveRunState.runId || (currentLocale === "en" ? "Not created" : "尚未创建");
+  liveRunStatusNode.textContent = localizeStateLabel(payload.status || "unknown");
   liveRunPresetNode.textContent = payload.preset || (liveRunPresetSelect ? liveRunPresetSelect.value : "balloon");
   if (livePreviewRateNode) {
     livePreviewRateNode.textContent = formatRateValue(payload.rates?.preview_display_fps, "fps");
@@ -1358,6 +2233,17 @@ function renderLiveRunDetail(payload) {
   } else {
     syncLiveDefinitionDirtyState();
   }
+  liveRunState.confirmedTemperatureSettings = payload.temperature_settings || null;
+  if (liveTargetTemperatureInput && payload.temperature_settings?.target_temperature_celsius != null) {
+    liveTargetTemperatureInput.value = Number(payload.temperature_settings.target_temperature_celsius).toFixed(1);
+  }
+  if (liveControlModeSelect && payload.temperature_settings?.control_mode) {
+    liveControlModeSelect.value = String(payload.temperature_settings.control_mode);
+  }
+  if (liveOutputPowerInput && payload.temperature_settings?.output_power_percent != null) {
+    liveOutputPowerInput.value = String(Number(payload.temperature_settings.output_power_percent));
+  }
+  refreshTemperatureSettingsSummary();
   renderLivePreviewOverlay();
   updateLiveRunControls();
 }
@@ -1393,22 +2279,26 @@ function applyTrackedPointInputs(latestTelemetry) {
   if (!latestTelemetry) {
     return;
   }
-  const pointA = Array.isArray(latestTelemetry.point_a_px) ? latestTelemetry.point_a_px : null;
-  const pointB = Array.isArray(latestTelemetry.point_b_px) ? latestTelemetry.point_b_px : null;
-  if (pointA && pointA.length === 2) {
+  const pointA = Array.isArray(latestTelemetry.point_a_px)
+    ? convertPointToPreview({ x: Number(latestTelemetry.point_a_px[0]), y: Number(latestTelemetry.point_a_px[1]) })
+    : null;
+  const pointB = Array.isArray(latestTelemetry.point_b_px)
+    ? convertPointToPreview({ x: Number(latestTelemetry.point_b_px[0]), y: Number(latestTelemetry.point_b_px[1]) })
+    : null;
+  if (pointA) {
     if (livePointAXInput) {
-      livePointAXInput.value = String(pointA[0]);
+      livePointAXInput.value = String(pointA.x);
     }
     if (livePointAYInput) {
-      livePointAYInput.value = String(pointA[1]);
+      livePointAYInput.value = String(pointA.y);
     }
   }
-  if (pointB && pointB.length === 2) {
+  if (pointB) {
     if (livePointBXInput) {
-      livePointBXInput.value = String(pointB[0]);
+      livePointBXInput.value = String(pointB.x);
     }
     if (livePointBYInput) {
-      livePointBYInput.value = String(pointB[1]);
+      livePointBYInput.value = String(pointB.y);
     }
   }
 }
@@ -1462,17 +2352,32 @@ function startLiveTrackingLoop(runId) {
         if (detail.status === "completed") {
           const resultResponse = await fetch(`/api/runs/${runId}/result`);
           const resultPayload = resultResponse.ok ? await resultResponse.json() : null;
+          await hydrateHomeResultForSession(runId, resultPayload);
           setLiveRunMessage(
-            `Live run completed. point_count=${resultPayload?.point_count ?? "n/a"} af95=${resultPayload?.af95 ?? "n/a"}.`,
+            currentLocale === "en"
+              ? `Live run completed. point_count=${resultPayload?.point_count ?? "n/a"} af95=${resultPayload?.af95 ?? "n/a"}.`
+              : `实时测试已完成。点数=${resultPayload?.point_count ?? "n/a"} af95=${resultPayload?.af95 ?? "n/a"}。`,
             "success",
           );
         } else if (detail.status === "aborted") {
+          const fallbackPayload = {
+            session_id: runId,
+            state: "aborted",
+            point_count: telemetryPayload?.curve?.length ?? 0,
+            af95: null,
+          };
+          await hydrateHomeResultForSession(runId, fallbackPayload);
           setLiveRunMessage(
-            `Live run stopped. samples=${telemetryPayload?.curve?.length ?? "n/a"}.`,
+            currentLocale === "en"
+              ? `Live run stopped. samples=${telemetryPayload?.curve?.length ?? "n/a"}. You can save data or open analysis.`
+              : `实时测试已停止。采样数=${telemetryPayload?.curve?.length ?? "n/a"}。现在可以保存数据或进入分析。`,
             "warning",
           );
         } else {
-          setLiveRunMessage(`Live run ended with status=${detail.status}.`, "error");
+          setLiveRunMessage(
+            currentLocale === "en" ? `Live run ended with status=${detail.status}.` : `实时测试结束，状态=${detail.status}。`,
+            "error",
+          );
         }
       }
     } catch (error) {
@@ -1529,7 +2434,8 @@ async function createLiveRun({ autoStartPreview = false, silent = false, forceRe
       stopLiveTrackingLoop();
       await stopLivePreviewStream({ clearImage: true, silent: true });
       resetLiveDefinitionInputs();
-      clearTargetTemperatureConfirmation();
+      liveRunState.confirmedTemperatureSettings = null;
+      clearTemperatureSettingsConfirmation();
     }
     const response = await fetch("/api/runs", {
       method: "POST",
@@ -1549,12 +2455,19 @@ async function createLiveRun({ autoStartPreview = false, silent = false, forceRe
     }
     if (autoStartPreview) {
       await startLivePreviewStream({ silent: true });
-      setLivePointPickerStatus("Live preview is running. Press Freeze to capture a still frame, then draw the ROI.");
+      setLivePointPickerStatus(
+        currentLocale === "en"
+          ? "Live preview is running. Press Freeze to capture a still frame, then draw the ROI."
+          : "实时预览正在运行，请先冻结画面，再框选 ROI。",
+      );
       if (!silent) {
-        setLiveRunMessage("Live setup session created. Live preview started automatically.", "success");
+        setLiveRunMessage(
+          currentLocale === "en" ? "Live setup session created. Live preview started automatically." : "已创建 live setup 会话，实时预览已自动启动。",
+          "success",
+        );
       }
     } else if (!silent) {
-      setLiveRunMessage("Live setup session created.", "success");
+      setLiveRunMessage(currentLocale === "en" ? "Live setup session created." : "已创建 live setup 会话。", "success");
     }
     return payload.run_id;
   } catch (error) {
@@ -1571,12 +2484,14 @@ async function fetchLivePreview() {
   if (!liveRunState.runId) {
     return;
   }
-  setLiveRunMessage("Fetching preview frame...", "info");
+  setLiveRunMessage(currentLocale === "en" ? "Fetching preview frame..." : "正在获取预览画面...", "info");
   try {
     await stopLivePreviewStream({ clearImage: false, silent: true });
     await loadFrozenPreviewFrame({ runId: liveRunState.runId, cached: false });
-    setLivePointPickerStatus("Preview loaded. Draw the ROI first; ROI-local A/B will be recomputed automatically.");
-    setLiveRunMessage("Preview frame loaded.", "success");
+    setLivePointPickerStatus(
+      currentLocale === "en" ? "Preview loaded. Draw the ROI first; ROI-local A/B will be recomputed automatically." : "预览已加载，请先框选 ROI。",
+    );
+    setLiveRunMessage(currentLocale === "en" ? "Preview frame loaded." : "预览画面已加载。", "success");
   } catch (error) {
     liveRunState.previewSize = null;
     liveRunState.previewSourceSize = null;
@@ -1590,7 +2505,7 @@ async function startLivePreviewStream({ silent = false } = {}) {
     return;
   }
   if (!silent) {
-    setLiveRunMessage("Starting live preview stream...", "info");
+    setLiveRunMessage(currentLocale === "en" ? "Starting live preview stream..." : "正在启动实时预览...", "info");
   }
   try {
     await stopLivePreviewStream({ clearImage: false, silent: true });
@@ -1602,9 +2517,14 @@ async function startLivePreviewStream({ silent = false } = {}) {
     livePreviewImageNode.src = liveRunState.previewStreamUrl;
     updateLiveRunControls();
     setActiveLiveTool("");
-    setLivePointPickerStatus("Live preview is running. Press Freeze to capture an editable still frame.");
+    setLivePointPickerStatus(
+      currentLocale === "en" ? "Live preview is running. Press Freeze to capture an editable still frame." : "实时预览正在运行。按“冻结画面”抓取静帧。",
+    );
     if (!silent) {
-      setLiveRunMessage("Live preview stream started. Press Freeze to capture an editable still frame.", "success");
+      setLiveRunMessage(
+        currentLocale === "en" ? "Live preview stream started. Press Freeze to capture an editable still frame." : "实时预览已启动。按“冻结画面”抓取静帧。",
+        "success",
+      );
     }
     try {
       await refreshLiveRunDetail(liveRunState.runId);
@@ -1659,11 +2579,13 @@ async function stopLivePreviewStream({ clearImage = false, silent = false } = {}
   }
   if (!silent) {
     setActiveLiveTool("");
-    setLivePointPickerStatus("Preview frozen. Draw the ROI first; ROI-local A/B will be recomputed automatically.");
+    setLivePointPickerStatus(
+      currentLocale === "en" ? "Preview frozen. Draw the ROI first; ROI-local A/B will be recomputed automatically." : "画面已冻结，请先框选 ROI。",
+    );
     if (!hydrateFrozenFrame) {
-      setLiveRunMessage("Preview frozen on the last frame.", "info");
+      setLiveRunMessage(currentLocale === "en" ? "Preview frozen on the last frame." : "画面已冻结。", "info");
     } else {
-      setLiveRunMessage("Preview frozen. Refreshed the still frame for editing.", "info");
+      setLiveRunMessage(currentLocale === "en" ? "Preview frozen. Refreshed the still frame for editing." : "画面已冻结，并已刷新为可编辑静帧。", "info");
     }
   }
   updateLiveRunControls();
@@ -1754,7 +2676,11 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     liveRunState.definitionDirty = true;
     syncLiveDefinitionDirtyState();
     renderLivePreviewOverlay();
-    setLivePointPickerStatus("ROI-local A/B points are ready. Adjust ROI, sensitivity, or points manually if needed.");
+    setLivePointPickerStatus(
+      currentLocale === "en"
+        ? "ROI-local A/B is ready. Review the result and recompute from a fresh frame if needed."
+        : "ROI 内 A/B 已就绪。如有需要，请基于新画面重新计算。",
+    );
     if (!silent || payload.detail) {
       setLiveRunMessage(
         payload.detail ||
@@ -1774,12 +2700,19 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
   updateLiveRunControls();
 }
 
-async function saveLiveDefinition() {
-  if (!liveRunState.runId || !saveLiveDefinitionButton) {
-    return;
+async function persistLiveDefinition({ announce = true } = {}) {
+  if (!liveRunState.runId) {
+    return null;
   }
-  saveLiveDefinitionButton.disabled = true;
-  setLiveRunMessage("Saving live definition...", "info");
+  if (!hasLocallyCompleteDefinition()) {
+    throw new Error(currentLocale === "en" ? "ROI and A/B must be valid before starting." : "需要先让 ROI 和 A/B 进入有效状态。");
+  }
+  if (saveLiveDefinitionButton) {
+    saveLiveDefinitionButton.disabled = true;
+  }
+  if (announce) {
+    setLiveRunMessage(currentLocale === "en" ? "Syncing live setup..." : "正在同步实时测试参数...", "info");
+  }
   try {
     const response = await fetch(`/api/runs/${liveRunState.runId}/definition`, {
       method: "PUT",
@@ -1792,28 +2725,34 @@ async function saveLiveDefinition() {
     }
     renderLiveRunDetail(payload);
     liveRunState.definitionDirty = false;
-    setLiveRunMessage(
-      payload.status === "run_ready"
-        ? "Definition saved. Live run is ready for the Phase 3 start flow."
-        : "Definition saved.",
-      "success",
-    );
+    if (announce) {
+      setLiveRunMessage(
+        payload.status === "run_ready"
+          ? currentLocale === "en"
+            ? "Setup synced. You can start the live run now."
+            : "参数已同步，现在可以开始实时测试。"
+          : currentLocale === "en"
+            ? "Setup synced."
+            : "参数已同步。",
+        "success",
+      );
+    }
+    return payload;
   } catch (error) {
-    setLiveRunMessage(String(error), "error");
+    if (announce) {
+      setLiveRunMessage(String(error), "error");
+    }
+    throw error;
   } finally {
-    saveLiveDefinitionButton.disabled = false;
+    if (saveLiveDefinitionButton) {
+      saveLiveDefinitionButton.disabled = false;
+    }
     updateLiveRunControls();
   }
 }
 
-function setActivePointTarget(target) {
-  if (target === "a") {
-    setActiveLiveTool("pick-a");
-  } else if (target === "b") {
-    setActiveLiveTool("pick-b");
-  } else {
-    setActiveLiveTool("");
-  }
+async function saveLiveDefinition() {
+  await persistLiveDefinition({ announce: true });
 }
 
 function updateLiveDefinitionAfterLocalEdit() {
@@ -1821,29 +2760,6 @@ function updateLiveDefinitionAfterLocalEdit() {
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
   updateLiveRunControls();
-}
-
-function setPointValue(target, x, y) {
-  if (target === "a") {
-    if (livePointAXInput) {
-      livePointAXInput.value = String(x);
-    }
-    if (livePointAYInput) {
-      livePointAYInput.value = String(y);
-    }
-    setLiveRunMessage(`Point A placed at (${x}, ${y}).`, "info");
-  }
-  if (target === "b") {
-    if (livePointBXInput) {
-      livePointBXInput.value = String(x);
-    }
-    if (livePointBYInput) {
-      livePointBYInput.value = String(y);
-    }
-    setLiveRunMessage(`Point B placed at (${x}, ${y}).`, "info");
-  }
-  setLivePointPickerStatus("Point updated. Save Definition when the ROI and A/B look correct.");
-  updateLiveDefinitionAfterLocalEdit();
 }
 
 function getOverlayCoordinates(event) {
@@ -1891,16 +2807,6 @@ function handleLivePreviewPointerDown(event) {
   }
   const point = getOverlayCoordinates(event);
   if (!point) {
-    return;
-  }
-  if (liveRunState.activeTool === "pick-a") {
-    setPointValue("a", point.x, point.y);
-    setActiveLiveTool("");
-    return;
-  }
-  if (liveRunState.activeTool === "pick-b") {
-    setPointValue("b", point.x, point.y);
-    setActiveLiveTool("");
     return;
   }
   if (!liveRunState.activeTool) {
@@ -2011,9 +2917,16 @@ function handleLivePreviewPointerUp(event) {
   const completedTool = liveRunState.overlayDrag.tool;
   liveRunState.overlayDrag = null;
   if (completedTool === "draw-roi") {
-    commitAnalysisRoiSelection({ force: true, message: "ROI updated from the preview overlay." });
+    commitAnalysisRoiSelection({
+      force: true,
+      message: currentLocale === "en" ? "ROI updated from the preview overlay." : "ROI 已从预览中更新。",
+    });
   } else if (["move-roi", "resize-roi", "rotate-roi"].includes(completedTool)) {
-    commitAnalysisRoiSelection({ force: true, message: "ROI adjusted. Recomputed ROI-local A/B from a fresh frozen frame." });
+    commitAnalysisRoiSelection({
+      force: true,
+      message:
+        currentLocale === "en" ? "ROI adjusted. Capturing a new frame to recompute ROI-local A/B." : "ROI 已调整，正在抓取新画面并重算 ROI 内 A/B。",
+    });
   }
   setActiveLiveTool("");
 }
@@ -2022,21 +2935,39 @@ async function startLiveRun() {
   if (!liveRunState.runId || !startLiveRunButton) {
     return;
   }
-  if (!isTargetTemperatureConfirmed()) {
-    setLiveRunMessage("Confirm the target temperature before starting the live run.", "warning");
+  if (!isTemperatureSettingsConfirmed()) {
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "Confirm the bundled temperature settings before starting the live run."
+        : "开始实时测试前，请先确认整包温控设置。",
+      "warning",
+    );
+    updateLiveRunControls();
+    return;
+  }
+  if (!hasLocallyCompleteDefinition()) {
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "ROI and A/B must be valid before starting the live run."
+        : "开始实时测试前，需要先确认有效的 ROI 和 A/B。",
+      "warning",
+    );
     updateLiveRunControls();
     return;
   }
   startLiveRunButton.disabled = true;
   stopCurrentTemperaturePolling();
-  setLiveRunMessage("Starting live run...", "info");
+  setLiveRunMessage(currentLocale === "en" ? "Starting live run..." : "正在开始实时测试...", "info");
   try {
+    if (liveRunState.definitionDirty || !liveRunState.detail || liveRunState.detail.status !== "run_ready") {
+      await persistLiveDefinition({ announce: false });
+    }
     await stopLivePreviewStream({ clearImage: false, silent: true });
     const response = await fetch(`/api/runs/${liveRunState.runId}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        target_temperature_celsius: getNumericInputValue(liveTargetTemperatureInput, 75),
+        target_temperature_celsius: getNumericInputValue(liveTargetTemperatureInput, 25),
       }),
     });
     const payload = await response.json();
@@ -2046,7 +2977,9 @@ async function startLiveRun() {
     await refreshLiveRunDetail(liveRunState.runId);
     startLiveTrackingLoop(liveRunState.runId);
     setLiveRunMessage(
-      `Live run started. session=${payload.session_id}. Tracking ROI-local A/B in real time...`,
+      currentLocale === "en"
+        ? `Live run started. session=${payload.session_id}.`
+        : `实时测试已开始。session=${payload.session_id}。`,
       "success",
     );
   } catch (error) {
@@ -2063,7 +2996,7 @@ async function stopLiveRun() {
     return;
   }
   stopLiveRunButton.disabled = true;
-  setLiveRunMessage("Stopping live run...", "info");
+  setLiveRunMessage(currentLocale === "en" ? "Stopping live run..." : "正在停止实时测试...", "info");
   try {
     const response = await fetch(`/api/runs/${liveRunState.runId}/stop`, {
       method: "POST",
@@ -2074,7 +3007,7 @@ async function stopLiveRun() {
     }
     renderLiveRunDetail(payload);
     startLiveTrackingLoop(liveRunState.runId);
-    setLiveRunMessage("Stopping live run...", "info");
+    setLiveRunMessage(currentLocale === "en" ? "Stopping live run..." : "正在停止实时测试...", "info");
   } catch (error) {
     setLiveRunMessage(String(error), "error");
   } finally {
@@ -2085,25 +3018,30 @@ async function stopLiveRun() {
 async function loadHealth() {
   const response = await fetch("/health");
   const payload = await response.json();
-  healthStatusNode.textContent = payload.status;
+  updateHealthStatusBadge(payload.status);
 }
 
 async function loadProfile() {
   const response = await fetch("/api/system/profile");
   const payload = await response.json();
-  profileNameNode.textContent = payload.profile;
-  profileModeNode.textContent = payload.mode;
+  if (profileNameNode) {
+    profileNameNode.textContent = payload.profile;
+  }
+  if (profileModeNode) {
+    profileModeNode.textContent = payload.mode;
+  }
   syncCameraProbeDefaults(payload.profile);
 }
 
 function renderStatusPill(status) {
-  return `<span class="status-pill status-${status}">${status}</span>`;
+  return `<span class="status-pill status-${status}">${escapeHtml(localizeStateLabel(status))}</span>`;
 }
 
 function renderPrecheck(payload) {
   if (!precheckStatusNode || !precheckItemsNode) {
     return;
   }
+  precheckState = payload;
   precheckStatusNode.innerHTML = renderStatusPill(payload.status);
   precheckItemsNode.innerHTML = (payload.items || [])
     .map(
@@ -2129,7 +3067,7 @@ async function runCameraProbe() {
     return;
   }
   probeCameraButton.disabled = true;
-  probeCameraButton.textContent = "Probing...";
+  probeCameraButton.textContent = currentLocale === "en" ? "Probing..." : "正在探测...";
   try {
     const requestPayload = buildCameraProbeRequest();
     const response = await fetch("/api/system/camera/probe", {
@@ -2143,7 +3081,7 @@ async function runCameraProbe() {
     renderCameraProbeResult({ status: "fail", detail: String(error) });
   } finally {
     probeCameraButton.disabled = false;
-    probeCameraButton.textContent = "Probe Camera";
+    probeCameraButton.textContent = currentLocale === "en" ? "Probe Camera" : "探测相机";
   }
 }
 
@@ -2151,9 +3089,10 @@ function renderRecentSessions(items) {
   if (!recentSessionsNode) {
     return;
   }
+  recentSessionsState = Array.isArray(items) ? items : [];
   if (!items.length) {
     recentSessionsNode.innerHTML =
-      '<li class="session-item session-item--empty">No sessions have been recorded yet.</li>';
+      `<li class="session-item session-item--empty">${currentLocale === "en" ? "No sessions have been recorded yet." : "尚未记录任何会话。"}</li>`;
     return;
   }
 
@@ -2163,11 +3102,12 @@ function renderRecentSessions(items) {
         <li class="session-item">
           <strong>${item.session_id}</strong>
           <div class="session-meta">
-            state=${item.state} | point_count=${item.point_count} | af95=${
-              item.af95 === null ? "n/a" : item.af95
+            ${currentLocale === "en" ? "state" : "状态"}=${escapeHtml(localizeStateLabel(item.state))} |
+            ${currentLocale === "en" ? "point_count" : "点数"}=${item.point_count} |
+            af95=${item.af95 === null ? t("common.not_applicable", {}, "n/a") : item.af95
             }
           </div>
-          <a class="workspace-link" href="${workspaceUrl(item.session_id)}">Open Workspace</a>
+          <a class="workspace-link" href="${workspaceUrl(item.session_id)}">${t("common.open_workspace", {}, "打开分析工作台")}</a>
         </li>
       `,
     )
@@ -2275,23 +3215,26 @@ function renderWorkspaceSummary(summary) {
     workspaceSessionIdNode.textContent = summary.session_id;
   }
   if (workspaceSessionStateNode) {
-    workspaceSessionStateNode.textContent = summary.state;
+    workspaceSessionStateNode.textContent = localizeStateLabel(summary.state);
     workspaceSessionStateNode.className = `status-pill status-${summary.state === "completed" ? "ok" : "warn"}`;
   }
   if (workspaceSideStateNode) {
-    workspaceSideStateNode.textContent = summary.state;
+    workspaceSideStateNode.textContent = localizeStateLabel(summary.state);
   }
   if (workspacePointCountNode) {
     workspacePointCountNode.textContent = String(summary.point_count);
   }
   if (workspaceAf95Node) {
-    workspaceAf95Node.textContent = summary.af95 === null ? "N/A" : `${summary.af95} °C`;
+    workspaceAf95Node.textContent = summary.af95 === null ? t("common.na", {}, "N/A") : `${summary.af95} °C`;
   }
   const summaryCopyNode = document.getElementById("workspace-summary-copy");
   if (summaryCopyNode) {
     summaryCopyNode.textContent =
-      `Session ${summary.session_id} is currently recorded as ${summary.state} with ${summary.point_count} points.`;
+      currentLocale === "en"
+        ? `Session ${summary.session_id} is currently recorded as ${localizeStateLabel(summary.state)} with ${summary.point_count} points.`
+        : `当前记录：session ${summary.session_id}，状态 ${localizeStateLabel(summary.state)}，共 ${summary.point_count} 个点。`;
   }
+  refreshWorkspaceStages();
 }
 
 function formatValue(value, empty = "N/A") {
@@ -2313,8 +3256,7 @@ function formatResultValue(value, unit = "") {
 
 function hasWorkspaceAfasUi() {
   return Boolean(
-    workspaceAfasRunButton &&
-      workspaceAfasChannelNode &&
+    workspaceAfasChannelNode &&
       workspaceAfasStatusNode &&
       workspaceAfasOverviewSeriesNode &&
       workspaceAfasAnalysisLayersNode,
@@ -2326,7 +3268,44 @@ function isWorkspaceAfasAvailable() {
 }
 
 function getWorkspaceAfasUnavailableMessage() {
-  return "AFAS dataset is unavailable for this session.";
+  return currentLocale === "en" ? "AFAS dataset is unavailable for this session." : "该 session 当前没有可用的 AFAS 数据集。";
+}
+
+function getWorkspaceAfasPendingMessage() {
+  return currentLocale === "en" ? "Loading AFAS analysis for this session..." : "正在为当前 session 加载 AFAS 分析...";
+}
+
+function getWorkspaceAfasOverviewPendingMessage() {
+  return currentLocale === "en" ? "Overview will appear once analysis loads." : "分析加载后，这里会显示总览图。";
+}
+
+function getWorkspaceAfasChannelNote(channelCount) {
+  if (!isWorkspaceAfasAvailable()) {
+    return getWorkspaceAfasUnavailableMessage();
+  }
+  if (channelCount <= 0) {
+    return getWorkspaceAfasPendingMessage();
+  }
+  if (channelCount === 1) {
+    return currentLocale === "en"
+      ? "This dataset only has one valid channel, so the selector stays lightweight."
+      : "当前数据只有一个有效通道，因此这里保持为轻量单通道状态。";
+  }
+  return currentLocale === "en"
+    ? "Choose the channel you want to judge when multiple channels are available."
+    : "多通道数据时，先选择要判读的通道。";
+}
+
+function syncWorkspaceAfasSurfaceAvailability(available) {
+  if (workspaceAfasSurfaceNode) {
+    workspaceAfasSurfaceNode.hidden = !available;
+  }
+  if (workspaceAfasEmptyStateNode) {
+    workspaceAfasEmptyStateNode.hidden = available;
+  }
+  if (workspaceAfasChannelNoteNode && !available) {
+    workspaceAfasChannelNoteNode.textContent = getWorkspaceAfasUnavailableMessage();
+  }
 }
 
 function syncWorkspaceAfasAvailability() {
@@ -2334,11 +3313,11 @@ function syncWorkspaceAfasAvailability() {
     return;
   }
   const available = isWorkspaceAfasAvailable();
+  syncWorkspaceAfasSurfaceAvailability(available);
   for (const node of [
     workspaceAfasRunButton,
     workspaceAfasExportPngButton,
     workspaceAfasExportXlsxButton,
-    workspaceAfasChannelNode,
     workspaceAfasSavgolWindowNode,
     workspaceAfasSavgolPolyorderNode,
     workspaceAfasLowStartNode,
@@ -2351,6 +3330,9 @@ function syncWorkspaceAfasAvailability() {
       node.disabled = !available;
     }
   }
+  if (workspaceAfasChannelNode) {
+    workspaceAfasChannelNode.disabled = !available;
+  }
 }
 
 function setWorkspaceAfasStatus(message, tone = "neutral") {
@@ -2359,6 +3341,32 @@ function setWorkspaceAfasStatus(message, tone = "neutral") {
   }
   workspaceAfasStatusNode.textContent = message;
   workspaceAfasStatusNode.className = `workspace-adjustment-status workspace-adjustment-status--${tone}`;
+}
+
+function localizeWorkspaceAfasDetail(detail) {
+  const message = String(detail || "").trim();
+  if (!message) {
+    return message;
+  }
+  if (currentLocale !== "zh") {
+    return message;
+  }
+  if (message === "Parameterized tangent analysis completed.") {
+    return "参数化切线分析已完成。";
+  }
+  if (message === "AFAS analysis completed.") {
+    return "AFAS 分析已完成。";
+  }
+  return message;
+}
+
+function localizeWorkspaceSourceLabel(source) {
+  const key = String(source || "n/a").trim() || "n/a";
+  const localized = WORKSPACE_SOURCE_LABELS[key];
+  if (localized) {
+    return localized[currentLocale] || localized.en;
+  }
+  return key;
 }
 
 function formatAfasTemperature(value) {
@@ -2406,6 +3414,21 @@ function collectWorkspaceAfasPayload() {
   };
 }
 
+function queueWorkspaceAfasRefresh({ delay = 140, silent = true } = {}) {
+  if (!hasWorkspaceAfasUi() || !isWorkspaceAfasAvailable()) {
+    return;
+  }
+  const sessionId = getWorkspaceSessionId();
+  if (!sessionId) {
+    return;
+  }
+  window.clearTimeout(workspaceAfasRefreshTimer);
+  workspaceAfasRefreshTimer = window.setTimeout(() => {
+    workspaceAfasRefreshTimer = null;
+    void loadWorkspaceAfasAnalysis(sessionId, { silent });
+  }, delay);
+}
+
 function normalizeChartDomain(values, fallback = [0, 1]) {
   const numericValues = (values || []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
   if (!numericValues.length) {
@@ -2438,6 +3461,18 @@ function buildChartScaler(xValues, yValues, width, height, padding) {
   };
 }
 
+function renderWorkspaceChartGrid(width, height, padding, xTicks = 5, yTicks = 4) {
+  const verticalLines = Array.from({ length: xTicks + 1 }, (_, index) => {
+    const x = padding + ((width - padding * 2) / xTicks) * index;
+    return `<line x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
+  }).join("");
+  const horizontalLines = Array.from({ length: yTicks + 1 }, (_, index) => {
+    const y = padding + ((height - padding * 2) / yTicks) * index;
+    return `<line x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
+  }).join("");
+  return `${verticalLines}${horizontalLines}`;
+}
+
 function renderWorkspaceAfasOverview(overview, activeChannel) {
   if (!workspaceAfasOverviewSeriesNode || !workspaceAfasOverviewSummaryNode) {
     return;
@@ -2445,14 +3480,16 @@ function renderWorkspaceAfasOverview(overview, activeChannel) {
   const items = Array.isArray(overview) ? overview : [];
   if (!items.length) {
     workspaceAfasOverviewSeriesNode.innerHTML = "";
-    workspaceAfasOverviewSummaryNode.innerHTML = '<p class="session-item--empty">AFAS analysis is unavailable.</p>';
+    const emptyMessage = isWorkspaceAfasAvailable() ? getWorkspaceAfasOverviewPendingMessage() : getWorkspaceAfasUnavailableMessage();
+    workspaceAfasOverviewSummaryNode.innerHTML = `<p class="session-item--empty">${emptyMessage}</p>`;
     return;
   }
 
   const allTemps = items.flatMap((item) => (item.series ? item.series.temperature_celsius || [] : []));
   const allValues = items.flatMap((item) => (item.series ? item.series.values || [] : []));
   const scaler = buildChartScaler(allTemps, allValues, 640, 220, 28);
-  workspaceAfasOverviewSeriesNode.innerHTML = items
+  const grid = renderWorkspaceChartGrid(640, 220, 28, 5, 4);
+  const seriesLayers = items
     .map((item, index) => {
       const temperatures = item.series ? item.series.temperature_celsius || [] : [];
       const values = item.series ? item.series.values || [] : [];
@@ -2460,7 +3497,8 @@ function renderWorkspaceAfasOverview(overview, activeChannel) {
         .map((temperature, pointIndex) => `${scaler.x(temperature)},${scaler.y(values[pointIndex])}`)
         .join(" ");
       const isActive = item.channel_name === activeChannel;
-      const stroke = isActive ? "#cf1124" : ["#ffb454", "#36506c", "#0f766e", "#8b5e3c"][index % 4];
+      const accentColor = AFAS_OVERVIEW_CHANNEL_COLORS[index % AFAS_OVERVIEW_CHANNEL_COLORS.length];
+      const stroke = isActive ? AFAS_CHART_THEME.highlight : AFAS_OVERVIEW_CHANNEL_COLORS[index % AFAS_OVERVIEW_CHANNEL_COLORS.length];
       return `
         <polyline
           fill="none"
@@ -2468,19 +3506,23 @@ function renderWorkspaceAfasOverview(overview, activeChannel) {
           stroke-width="${isActive ? 4 : 2.5}"
           stroke-linecap="round"
           stroke-linejoin="round"
-          opacity="${isActive ? 1 : 0.55}"
+          opacity="${isActive ? 1 : 0.72}"
           points="${points}"
         ></polyline>
       `;
     })
     .join("");
+  workspaceAfasOverviewSeriesNode.innerHTML = `${grid}${seriesLayers}`;
   workspaceAfasOverviewSummaryNode.innerHTML = items
     .map(
-      (item) => `
-        <article class="workspace-afas-overview-item${item.channel_name === activeChannel ? " workspace-afas-overview-item--active" : ""}">
+      (item, index) => `
+        <article
+          class="workspace-afas-overview-item${item.channel_name === activeChannel ? " workspace-afas-overview-item--active" : ""}"
+          style="--workspace-series-accent: ${AFAS_OVERVIEW_CHANNEL_COLORS[index % AFAS_OVERVIEW_CHANNEL_COLORS.length]};"
+        >
           <strong>${escapeHtml(item.channel_name)}</strong>
-          <p>status=${escapeHtml(item.result_status)}</p>
-          <p>points=${item.point_count} outliers=${item.outlier_count}</p>
+          <p>${currentLocale === "en" ? "status" : "状态"}=${escapeHtml(localizeStateLabel(item.result_status))}</p>
+          <p>${currentLocale === "en" ? "points" : "点数"}=${item.point_count} ${currentLocale === "en" ? "outliers" : "离群点"}=${item.outlier_count}</p>
           <p>As=${item.as_value === null ? "N/A" : item.as_value.toFixed(2)} Af-tan=${item.af_tan === null ? "N/A" : item.af_tan.toFixed(2)}</p>
         </article>
       `,
@@ -2524,15 +3566,16 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
   }
   const scaler = buildChartScaler(temperatures.concat(fitLines), values, width, height, padding);
   const curvePoints = temperatures.map((temperature, index) => `${scaler.x(temperature)},${scaler.y(values[index])}`).join(" ");
+  const grid = renderWorkspaceChartGrid(width, height, padding, 5, 4);
 
-  function renderLineSegment(line, color, dash = "10 6") {
+  function renderLineSegment(line, color, dash = "8 6") {
     if (!line || !Array.isArray(line.range_celsius)) {
       return "";
     }
     const [start, end] = line.range_celsius;
     const y1 = line.slope * start + line.intercept;
     const y2 = line.slope * end + line.intercept;
-    return `<line x1="${scaler.x(start)}" y1="${scaler.y(y1)}" x2="${scaler.x(end)}" y2="${scaler.y(y2)}" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"></line>`;
+    return `<line x1="${scaler.x(start)}" y1="${scaler.y(y1)}" x2="${scaler.x(end)}" y2="${scaler.y(y2)}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-dasharray="${dash}"></line>`;
   }
 
   function renderInfiniteLine(line, color) {
@@ -2543,16 +3586,26 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
     const end = Math.max(...temperatures);
     const y1 = line.slope * start + line.intercept;
     const y2 = line.slope * end + line.intercept;
-    return `<line x1="${scaler.x(start)}" y1="${scaler.y(y1)}" x2="${scaler.x(end)}" y2="${scaler.y(y2)}" stroke="${color}" stroke-width="2.5" stroke-dasharray="10 6"></line>`;
+    return `<line x1="${scaler.x(start)}" y1="${scaler.y(y1)}" x2="${scaler.x(end)}" y2="${scaler.y(y2)}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-dasharray="8 6"></line>`;
   }
 
-  function renderMarker(xValue, yValue, label, color) {
+  function renderMarker(xValue, yValue, label, color, shape = "circle") {
     if (!Number.isFinite(xValue) || !Number.isFinite(yValue)) {
       return "";
     }
+    const cx = scaler.x(xValue);
+    const cy = scaler.y(yValue);
+    const labelWidth = Math.max(label.length * 7 + 18, 56);
+    const rectX = Math.min(Math.max(cx + 10, 12), width - labelWidth - 12);
+    const rectY = Math.max(cy - 28, 10);
+    const marker =
+      shape === "diamond"
+        ? `<rect x="${cx - 5}" y="${cy - 5}" width="10" height="10" fill="${color}" stroke="${AFAS_CHART_THEME.markerStroke}" stroke-width="2" transform="rotate(45 ${cx} ${cy})"></rect>`
+        : `<circle cx="${cx}" cy="${cy}" r="6.5" fill="${color}" stroke="${AFAS_CHART_THEME.markerStroke}" stroke-width="2"></circle>`;
     return `
-      <circle cx="${scaler.x(xValue)}" cy="${scaler.y(yValue)}" r="6.5" fill="${color}" stroke="#fffaf4" stroke-width="2"></circle>
-      <text x="${scaler.x(xValue) + 10}" y="${scaler.y(yValue) - 10}" fill="${color}" font-size="12" font-weight="700">${escapeHtml(label)}</text>
+      ${marker}
+      <rect x="${rectX}" y="${rectY}" width="${labelWidth}" height="20" rx="8" fill="${AFAS_CHART_THEME.labelBackground}" stroke="${AFAS_CHART_THEME.labelBorder}" stroke-width="1"></rect>
+      <text x="${rectX + 9}" y="${rectY + 13}" fill="${color}" font-size="12" font-weight="700" font-family="JetBrains Mono, monospace">${escapeHtml(label)}</text>
     `;
   }
 
@@ -2567,13 +3620,30 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
     : null;
 
   workspaceAfasAnalysisLayersNode.innerHTML = `
-    <polyline fill="none" stroke="#36506c" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" points="${curvePoints}"></polyline>
-    ${renderLineSegment(fit?.low_baseline, "#0f766e")}
-    ${renderLineSegment(fit?.high_baseline, "#b45309")}
-    ${renderInfiniteLine(fit?.tangent, "#cf1124")}
-    ${renderMarker(result?.As, asY, "As", "#0f766e")}
-    ${renderMarker(result?.Af_tan, afY, "Af-tan", "#b45309")}
-    ${renderMarker(result?.max_slope_temp, maxSlopeY, "Slope", "#cf1124")}
+    ${grid}
+    <polyline fill="none" stroke="${AFAS_CHART_THEME.primary}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" points="${curvePoints}"></polyline>
+    ${renderLineSegment(fit?.low_baseline, AFAS_CHART_THEME.green)}
+    ${renderLineSegment(fit?.high_baseline, AFAS_CHART_THEME.apricot)}
+    ${renderInfiniteLine(fit?.tangent, AFAS_CHART_THEME.rose)}
+    ${renderMarker(
+      result?.As,
+      asY,
+      Number.isFinite(Number(result?.As)) ? `As=${Number(result.As).toFixed(2)}` : "As",
+      AFAS_CHART_THEME.green,
+    )}
+    ${renderMarker(
+      result?.Af_tan,
+      afY,
+      Number.isFinite(Number(result?.Af_tan)) ? `Af-tan=${Number(result.Af_tan).toFixed(2)}` : "Af-tan",
+      AFAS_CHART_THEME.apricot,
+    )}
+    ${renderMarker(
+      result?.max_slope_temp,
+      maxSlopeY,
+      Number.isFinite(Number(result?.max_slope_temp)) ? `Slope=${Number(result.max_slope_temp).toFixed(2)}` : "Slope",
+      AFAS_CHART_THEME.rose,
+      "diamond",
+    )}
   `;
   workspaceAfasAnalysisEmptyNode.hidden = true;
 }
@@ -2583,7 +3653,10 @@ function renderWorkspaceAfasResults(state) {
     !workspaceAfasResultStatusNode ||
     !workspaceAfasResultAsNode ||
     !workspaceAfasResultAfTanNode ||
+    !workspaceAfasResultDeltaNode ||
     !workspaceAfasResultMaxSlopeNode ||
+    !workspaceAfasParameterSummaryNode ||
+    !workspaceAfasResultHintNode ||
     !workspaceAfasOutlierCountNode ||
     !workspaceAfasSmoothedCountNode ||
     !workspaceAfasWarningListNode
@@ -2594,10 +3667,21 @@ function renderWorkspaceAfasResults(state) {
     workspaceAfasResultStatusNode.textContent = "N/A";
     workspaceAfasResultAsNode.textContent = "N/A";
     workspaceAfasResultAfTanNode.textContent = "N/A";
+    workspaceAfasResultDeltaNode.textContent = "N/A";
     workspaceAfasResultMaxSlopeNode.textContent = "N/A";
+    workspaceAfasParameterSummaryNode.textContent = isWorkspaceAfasAvailable()
+      ? currentLocale === "en"
+        ? "Parameter summary will appear here once analysis loads."
+        : "分析加载后，这里会显示参数摘要。"
+      : getWorkspaceAfasUnavailableMessage();
+    workspaceAfasResultHintNode.textContent = isWorkspaceAfasAvailable()
+      ? currentLocale === "en"
+        ? "AFAS will load automatically for the current channel and committed parameter values."
+        : "当前通道与已提交参数会自动触发 AFAS 分析，无需再手动点击运行。"
+      : getWorkspaceAfasUnavailableMessage();
     workspaceAfasOutlierCountNode.textContent = "0";
     workspaceAfasSmoothedCountNode.textContent = "0";
-    workspaceAfasWarningListNode.innerHTML = '<p class="session-item--empty">Warnings will appear here when analysis runs.</p>';
+    workspaceAfasWarningListNode.innerHTML = `<p class="session-item--empty">${currentLocale === "en" ? "Warnings will appear here when analysis runs." : "分析运行后，这里会显示告警。"}</p>`;
     return;
   }
 
@@ -2605,19 +3689,64 @@ function renderWorkspaceAfasResults(state) {
   const analysis = state.analysis || {};
   const result = analysis.result || {};
   const warnings = [...(preprocessing.warnings || []), ...(analysis.warnings || [])];
-  workspaceAfasResultStatusNode.textContent = analysis.result_status || "N/A";
+  const resolvedLowRange = analysis.parameters?.resolved_low_range_celsius || [];
+  const resolvedHighRange = analysis.parameters?.resolved_high_range_celsius || [];
+  const delta =
+    Number.isFinite(Number(result.As)) && Number.isFinite(Number(result.Af_tan))
+      ? Number(result.Af_tan) - Number(result.As)
+      : null;
+  const summaryParts = [
+    state.active_channel ? (currentLocale === "en" ? `Channel ${state.active_channel}` : `通道 ${state.active_channel}`) : null,
+    Number.isFinite(Number(preprocessing.parameters?.savgol_window_length))
+      ? `Savgol ${preprocessing.parameters.savgol_window_length}/${preprocessing.parameters?.savgol_polyorder ?? "?"}`
+      : null,
+    resolvedLowRange.length === 2
+      ? currentLocale === "en"
+        ? `Low ${resolvedLowRange[0]}-${resolvedLowRange[1]} °C`
+        : `低温 ${resolvedLowRange[0]}-${resolvedLowRange[1]} °C`
+      : null,
+    resolvedHighRange.length === 2
+      ? currentLocale === "en"
+        ? `High ${resolvedHighRange[0]}-${resolvedHighRange[1]} °C`
+        : `高温 ${resolvedHighRange[0]}-${resolvedHighRange[1]} °C`
+      : null,
+    Number.isFinite(Number(preprocessing.parameters?.tangent_offset))
+      ? currentLocale === "en"
+        ? `Offset ${preprocessing.parameters.tangent_offset}`
+        : `偏移 ${preprocessing.parameters.tangent_offset}`
+      : null,
+  ].filter(Boolean);
+  workspaceAfasResultStatusNode.textContent = analysis.result_status ? localizeStateLabel(analysis.result_status) : "N/A";
   workspaceAfasResultAsNode.textContent = formatAfasTemperature(result.As);
   workspaceAfasResultAfTanNode.textContent = formatAfasTemperature(result.Af_tan);
+  workspaceAfasResultDeltaNode.textContent = delta === null ? "N/A" : `${delta.toFixed(2)} °C`;
   workspaceAfasResultMaxSlopeNode.textContent = formatAfasTemperature(result.max_slope_temp);
+  workspaceAfasParameterSummaryNode.textContent = summaryParts.length
+    ? summaryParts.join(" · ")
+    : currentLocale === "en"
+      ? "Parameter summary is unavailable for this AFAS run."
+      : "本次 AFAS 运行暂时没有参数摘要。";
+  workspaceAfasResultHintNode.textContent =
+    analysis.result_status === "ok"
+      ? currentLocale === "en"
+        ? "Result is readable. Review the charts, then export or move into adjustment."
+        : "结果可读。请先复核图表，再决定导出或进入调整。"
+      : analysis.detail ||
+        (currentLocale === "en"
+          ? "Result is incomplete. Try adjusting the tangent parameters before exporting."
+          : "结果尚不完整。导出前请先尝试调整切线参数。");
   workspaceAfasOutlierCountNode.textContent = String(preprocessing.outlier_repair?.outlier_count ?? 0);
   workspaceAfasSmoothedCountNode.textContent = String((preprocessing.smoothed?.temperature_celsius || []).length);
   workspaceAfasWarningListNode.innerHTML = warnings.length
     ? `<ul class="workspace-adjustment-notes-list">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
-    : '<p class="session-item--empty">No preprocessing or analysis warnings.</p>';
+    : `<p class="session-item--empty">${currentLocale === "en" ? "No preprocessing or analysis warnings." : "当前没有预处理或分析告警。"}</p>`;
 }
 
 function syncWorkspaceAfasControls(state) {
   if (!state) {
+    if (workspaceAfasChannelNoteNode) {
+      workspaceAfasChannelNoteNode.textContent = getWorkspaceAfasChannelNote(0);
+    }
     return;
   }
   const availableChannels = Array.isArray(state.available_channels) ? state.available_channels : [];
@@ -2632,6 +3761,10 @@ function syncWorkspaceAfasControls(state) {
     if (!currentValue && state.active_channel) {
       workspaceAfasChannelNode.value = state.active_channel;
     }
+    workspaceAfasChannelNode.disabled = !isWorkspaceAfasAvailable() || availableChannels.length <= 1;
+  }
+  if (workspaceAfasChannelNoteNode) {
+    workspaceAfasChannelNoteNode.textContent = getWorkspaceAfasChannelNote(availableChannels.length);
   }
 
   const preprocessingParameters = state.preprocessing?.parameters || {};
@@ -2650,23 +3783,33 @@ function renderWorkspaceAfas(state) {
   }
   if (!state) {
     syncWorkspaceAfasAvailability();
+    syncWorkspaceAfasSurfaceAvailability(isWorkspaceAfasAvailable());
     renderWorkspaceAfasOverview([], "");
     renderWorkspaceAfasAnalysisChart(null);
     renderWorkspaceAfasResults(null);
     setWorkspaceAfasStatus(
-      isWorkspaceAfasAvailable() ? "AFAS analysis has not been loaded yet." : getWorkspaceAfasUnavailableMessage(),
+      isWorkspaceAfasAvailable()
+        ? currentLocale === "en"
+          ? "AFAS analysis is waiting for the current session context."
+          : "AFAS 分析正在等待当前 session 上下文。"
+        : getWorkspaceAfasUnavailableMessage(),
       isWorkspaceAfasAvailable() ? "neutral" : "info",
     );
+    refreshWorkspaceStages();
     return;
   }
   syncWorkspaceAfasAvailability();
+  syncWorkspaceAfasSurfaceAvailability(true);
   syncWorkspaceAfasControls(state);
   renderWorkspaceAfasOverview(state.overview || [], state.active_channel);
   renderWorkspaceAfasAnalysisChart(state.analysis || null);
   renderWorkspaceAfasResults(state);
   const analysis = state.analysis || {};
-  const detail = analysis.detail || "AFAS analysis completed.";
+  const detail = localizeWorkspaceAfasDetail(
+    analysis.detail || (currentLocale === "en" ? "AFAS analysis completed." : "AFAS 分析已完成。"),
+  );
   setWorkspaceAfasStatus(detail, analysis.result_status === "ok" ? "success" : "info");
+  refreshWorkspaceStages();
 }
 
 async function loadWorkspaceAfasAnalysis(sessionId, { silent = false } = {}) {
@@ -2677,10 +3820,14 @@ async function loadWorkspaceAfasAnalysis(sessionId, { silent = false } = {}) {
     renderWorkspaceAfas(null);
     return null;
   }
+  const requestToken = ++workspaceAfasRequestToken;
   if (workspaceAfasRunButton) {
     workspaceAfasRunButton.disabled = true;
   }
-  setWorkspaceAfasStatus("Running AFAS preprocessing and tangent analysis...", "info");
+  setWorkspaceAfasStatus(
+    currentLocale === "en" ? "Loading AFAS preprocessing and tangent analysis..." : "正在加载 AFAS 预处理与切线分析...",
+    "info",
+  );
   try {
     const response = await fetch(`/api/session/${sessionId}/afas/analysis`, {
       method: "POST",
@@ -2691,9 +3838,15 @@ async function loadWorkspaceAfasAnalysis(sessionId, { silent = false } = {}) {
     if (!response.ok) {
       throw new Error(payload.detail || `AFAS analysis request failed: ${response.status}`);
     }
+    if (requestToken !== workspaceAfasRequestToken) {
+      return payload;
+    }
     renderWorkspaceAfas(payload);
     return payload;
   } catch (error) {
+    if (requestToken !== workspaceAfasRequestToken) {
+      return null;
+    }
     renderWorkspaceAfas(null);
     if (!silent) {
       setWorkspaceAfasStatus(String(error), "error");
@@ -2796,7 +3949,7 @@ function renderAdjustmentState(state) {
     if (adjustmentApplyButton) {
       adjustmentApplyButton.disabled = true;
     }
-    setAdjustmentStatusMessage("Adjustment state is unavailable.", "error");
+    setAdjustmentStatusMessage(currentLocale === "en" ? "Adjustment state is unavailable." : "当前无法获取 adjustment 状态。", "error");
     return;
   }
 
@@ -2828,20 +3981,24 @@ function renderAdjustmentState(state) {
   }
   if (adjustmentLatestNoteNode) {
     adjustmentLatestNoteNode.textContent = hasManualOverride
-      ? "Latest result reflects the newest applied adjustment version."
-      : "Latest result currently matches the automatic result.";
+      ? currentLocale === "en"
+        ? "Latest result reflects the newest applied adjustment version."
+        : "最新结果已反映最近一次应用的 adjustment 版本。"
+      : currentLocale === "en"
+        ? "Latest result currently matches the automatic result."
+        : "当前最新结果与自动结果一致。";
   }
   if (adjustmentHasDraftNode) {
-    adjustmentHasDraftNode.textContent = draft ? "Yes" : "No";
+    adjustmentHasDraftNode.textContent = draft ? t("common.yes", {}, "Yes") : t("common.no", {}, "No");
   }
   if (adjustmentAppliedCountNode) {
     adjustmentAppliedCountNode.textContent = String(appliedVersions.length);
   }
   if (adjustmentIsManualNode) {
-    adjustmentIsManualNode.textContent = hasManualOverride ? "Yes" : "No";
+    adjustmentIsManualNode.textContent = hasManualOverride ? t("common.yes", {}, "Yes") : t("common.no", {}, "No");
   }
   if (adjustmentDraftUpdatedNode) {
-    adjustmentDraftUpdatedNode.textContent = draft ? formatValue(draft.updated_at_ms) : "N/A";
+    adjustmentDraftUpdatedNode.textContent = draft ? formatValue(draft.updated_at_ms) : t("common.na", {}, "N/A");
   }
   if (adjustmentDraftAf95Node) {
     adjustmentDraftAf95Node.value = draft && draft.overrides ? formatValue(draft.overrides.af95, "") : "";
@@ -2855,7 +4012,7 @@ function renderAdjustmentState(state) {
   if (adjustmentVersionHistoryNode) {
     if (!appliedVersions.length) {
       adjustmentVersionHistoryNode.innerHTML =
-        '<p class="session-item--empty">No applied adjustment versions yet.</p>';
+        `<p class="session-item--empty">${currentLocale === "en" ? "No applied adjustment versions yet." : "尚无已应用的 adjustment 版本。"}</p>`;
     } else {
       adjustmentVersionHistoryNode.innerHTML = appliedVersions
         .slice()
@@ -2876,11 +4033,19 @@ function renderAdjustmentState(state) {
   }
 
   if (draft) {
-    setAdjustmentStatusMessage(`Draft ready: ${draft.reason}`, "info");
+    setAdjustmentStatusMessage(
+      currentLocale === "en" ? `Draft ready: ${draft.reason}` : `草稿已就绪：${draft.reason}`,
+      "info",
+    );
   } else if (hasManualOverride) {
-    setAdjustmentStatusMessage(`Applied ${appliedVersions.length} adjustment version(s).`, "success");
+    setAdjustmentStatusMessage(
+      currentLocale === "en"
+        ? `Applied ${appliedVersions.length} adjustment version(s).`
+        : `已应用 ${appliedVersions.length} 个 adjustment 版本。`,
+      "success",
+    );
   } else {
-    setAdjustmentStatusMessage("No draft loaded.", "neutral");
+    setAdjustmentStatusMessage(currentLocale === "en" ? "No draft loaded." : "尚未加载草稿。", "neutral");
   }
 }
 
@@ -2921,8 +4086,12 @@ function updateWorkspaceAdjustmentPreview(selection) {
     workspaceAdjustmentActiveSummaryNode.textContent = "N/A";
     workspaceAdjustmentBasisCopyNode.textContent =
       detailAvailable
-        ? "Automatic basis is available, but no point or key frame is currently selected."
-        : "Automatic analysis basis will appear here when detail data is available.";
+        ? currentLocale === "en"
+          ? "Automatic basis is available, but no point or key frame is currently selected."
+          : "自动分析依据已可用，但当前尚未选中任何点或关键帧。"
+        : currentLocale === "en"
+          ? "Automatic analysis basis will appear here when detail data is available."
+          : "detail 数据可用后，这里会显示自动分析依据。";
     workspaceAdjustmentRoiNode.textContent = "N/A";
     workspaceAdjustmentFeaturePointNode.textContent = "N/A";
     workspaceAdjustmentBaselineNode.textContent = "N/A";
@@ -2935,9 +4104,13 @@ function updateWorkspaceAdjustmentPreview(selection) {
   }
 
   workspaceAdjustmentActiveSummaryNode.textContent =
-    `${selection.label || "point"} @ ${formatValue(selection.timestamp_ms)} ms, metric_raw=${formatValue(selection.metric_raw)}`;
+    currentLocale === "en"
+      ? `${selection.label || "point"} @ ${formatValue(selection.timestamp_ms)} ms, metric_raw=${formatValue(selection.metric_raw)}`
+      : `${selection.label || "点"} @ ${formatValue(selection.timestamp_ms)} ms，metric_raw=${formatValue(selection.metric_raw)}`;
   workspaceAdjustmentBasisCopyNode.textContent =
-    `Automatic basis is using ${formatValue(detail.source)} detail with ${String((detail.points || []).length)} points and the current selection context.`;
+    currentLocale === "en"
+      ? `Automatic basis is using ${formatValue(detail.source)} detail with ${String((detail.points || []).length)} points and the current selection context.`
+      : `自动依据当前正在使用 ${formatValue(detail.source)} detail、${String((detail.points || []).length)} 个点，以及当前选中的上下文。`;
   workspaceAdjustmentRoiNode.textContent = formatValue(selection.roi);
   workspaceAdjustmentFeaturePointNode.textContent = formatValue(selection.feature_point_px);
   workspaceAdjustmentBaselineNode.textContent = formatValue(selection.baseline_px);
@@ -2971,7 +4144,7 @@ function renderActiveSelection(selection) {
     workspaceActiveMetricNormNode.textContent = "N/A";
     workspaceActiveFeaturePointNode.textContent = "N/A";
     workspaceActiveQualityNode.textContent = "N/A";
-    workspaceActivePointNode.textContent = "No point selected.";
+    workspaceActivePointNode.textContent = currentLocale === "en" ? "No point selected." : "尚未选中任何点。";
     updateWorkspaceAdjustmentPreview(null);
     return;
   }
@@ -2984,42 +4157,72 @@ function renderActiveSelection(selection) {
   workspaceActiveFeaturePointNode.textContent = selection.feature_point_px ? selection.feature_point_px.join(", ") : "N/A";
   workspaceActiveQualityNode.textContent = selection.quality ?? "N/A";
   workspaceActivePointNode.textContent =
-    `Selected ${selection.label || "point"} at ${selection.timestamp_ms} ms, metric_raw=${selection.metric_raw ?? "N/A"}.`;
+    currentLocale === "en"
+      ? `Selected ${selection.label || "point"} at ${selection.timestamp_ms} ms, metric_raw=${selection.metric_raw ?? "N/A"}.`
+      : `已选择 ${selection.label || "点"}，时间 ${selection.timestamp_ms} ms，metric_raw=${selection.metric_raw ?? "N/A"}。`;
   updateWorkspaceAdjustmentPreview(selection);
 }
 
-function mapWorkspaceStages(summary, detail) {
+function mapWorkspaceStages(summary, detail, afasState) {
   const hasSummary = Boolean(summary);
   const hasDetail = Boolean(detail && (detail.points || []).length);
-  const hasKeyframes = Boolean(detail && (detail.key_frames || []).length);
   const isFailed = summary && summary.state === "failed";
   const source = detail && detail.source ? detail.source : "mock";
+  const hasAfasResult = Boolean(afasState && afasState.analysis);
+  const afasReady = Boolean(afasState && afasState.analysis && afasState.analysis.result_status === "ok");
 
   const statuses = WORKSPACE_STEPS.map((name) => ({ name, status: "todo" }));
   if (!hasSummary) {
     return {
-      currentStage: "准备",
+      currentStage: "打开分析",
       statuses,
       mode: source,
-      description: "No session summary available yet.",
+      description: currentLocale === "en" ? "No session summary is available yet." : "当前还没有可用的 session 摘要。",
     };
   }
 
-  statuses[0].status = "done";
-  statuses[1].status = "done";
-  statuses[2].status = hasDetail ? "done" : "done";
-  statuses[3].status = isFailed ? "error" : "active";
-  statuses[4].status = "upcoming";
-  statuses[5].status = summary.state === "completed" ? "done" : isFailed ? "todo" : "done";
+  for (let index = 0; index < 6; index += 1) {
+    statuses[index].status = "done";
+  }
+  statuses[6].status = hasDetail ? "done" : "active";
+  if (isFailed) {
+    statuses[7].status = "error";
+  } else if (afasReady) {
+    statuses[7].status = "done";
+  } else {
+    statuses[7].status = "active";
+  }
 
   return {
-    currentStage: isFailed ? "计算" : "计算",
+    currentStage: isFailed ? "打开分析" : hasAfasResult ? "AFAS 出点 / 导出" : "打开分析",
     statuses,
     mode: source,
-    description: hasDetail
-      ? `${source} detail is loaded; the workspace is focused on processing and calculation review.`
-      : `${source} detail is not available; summary-only workspace view is active.`,
+    description: isFailed
+      ? currentLocale === "en"
+        ? "The session did not complete cleanly. Review the replay context before trusting any downstream result."
+        : "该 session 并未正常完成。在信任任何下游结果之前，请先复核 replay 上下文。"
+      : hasAfasResult
+        ? currentLocale === "en"
+          ? "Replay and AFAS are both in view. Confirm the answer card, then export or continue into adjustment."
+          : "Replay 与 AFAS 都已就位。先确认答案卡，再决定导出或进入 adjustment。"
+        : hasDetail
+          ? currentLocale === "en"
+            ? `${source} detail is loaded. Run AFAS or review the decision context from the first screen.`
+            : `${source} detail 已加载。你可以运行 AFAS，或者先在第一屏复核决策上下文。`
+          : currentLocale === "en"
+            ? `${source} detail is not available, so Analysis Studio is staying in summary-only mode.`
+            : `${source} detail 暂不可用，因此分析工作台保持在 summary-only 模式。`,
   };
+}
+
+function refreshWorkspaceStages() {
+  if (!workspaceSummaryState) {
+    return;
+  }
+  renderWorkspaceStages(
+    mapWorkspaceStages(workspaceSummaryState, workspaceDetailState, workspaceAfasState),
+    workspaceSummaryState.state,
+  );
 }
 
 function renderWorkspaceStages(stageView, sessionState) {
@@ -3045,7 +4248,7 @@ function renderWorkspaceStages(stageView, sessionState) {
     node.classList.add(`workspace-step--${stage.status}`);
     const statusNode = node.querySelector("[data-testid='workspace-step-status']");
     if (statusNode) {
-      statusNode.textContent = stage.status;
+      statusNode.textContent = t(`workspace.step_status.${stage.status}`, {}, stage.status);
     }
   });
   if (workspaceSessionStateNode) {
@@ -3067,7 +4270,7 @@ function renderWorkspaceCurve(detail) {
     workspaceAf95LineNode.setAttribute("x2", "0");
     workspaceAf95LineNode.setAttribute("y1", "0");
     workspaceAf95LineNode.setAttribute("y2", "0");
-    workspaceCurveEmptyNode.textContent = "No replay detail available.";
+    workspaceCurveEmptyNode.textContent = currentLocale === "en" ? "No replay detail available." : "暂无 replay detail。";
     workspaceCurveEmptyNode.hidden = false;
     return;
   }
@@ -3162,7 +4365,7 @@ function renderWorkspaceKeyframes(detail) {
   }
   const keyFrames = detail.key_frames || [];
   if (!keyFrames.length) {
-    workspaceKeyframesNode.innerHTML = '<p class="session-item--empty">No replay detail available.</p>';
+    workspaceKeyframesNode.innerHTML = `<p class="session-item--empty">${currentLocale === "en" ? "No replay detail available." : "暂无 replay detail。"}</p>`;
     return;
   }
 
@@ -3202,7 +4405,7 @@ function renderWorkspaceKeyframes(detail) {
 function renderWorkspaceDetail(detail) {
   workspaceDetailState = detail;
   if (workspaceSourceNode) {
-    workspaceSourceNode.textContent = detail.source || "n/a";
+    workspaceSourceNode.textContent = localizeWorkspaceSourceLabel(detail.source);
   }
   if (workspaceDetailPointCountNode) {
     workspaceDetailPointCountNode.textContent = String((detail.points || []).length);
@@ -3211,7 +4414,9 @@ function renderWorkspaceDetail(detail) {
     workspaceKeyframeCountNode.textContent = String((detail.key_frames || []).length);
   }
   if (workspaceDetailStatusNode) {
-    workspaceDetailStatusNode.textContent = (detail.points || []).length ? "available" : "missing";
+    workspaceDetailStatusNode.textContent = (detail.points || []).length
+      ? localizeStateLabel("available")
+      : localizeStateLabel("missing");
   }
   if (workspaceAf95Node) {
     workspaceAf95Node.textContent = detail.af95 === null ? "N/A" : `${detail.af95} °C`;
@@ -3223,6 +4428,7 @@ function renderWorkspaceDetail(detail) {
   } else {
     updateWorkspaceAdjustmentPreview(null);
   }
+  refreshWorkspaceStages();
 }
 
 async function loadWorkspaceAdjustmentState(sessionId) {
@@ -3254,18 +4460,95 @@ async function loadSessionDetail(sessionId) {
   renderReplayDetail(payload);
 }
 
+async function hydrateHomeResultForSession(sessionId, fallbackPayload = null) {
+  if (!sessionId) {
+    if (fallbackPayload) {
+      renderSessionResult(fallbackPayload);
+    }
+    return;
+  }
+  let summaryLoaded = false;
+  try {
+    const summaryResponse = await fetch(`/api/session/${sessionId}`);
+    if (summaryResponse.ok) {
+      const summaryPayload = await summaryResponse.json();
+      renderSessionResult(summaryPayload);
+      summaryLoaded = true;
+    }
+  } catch (error) {
+    // Best effort only; keep the fallback payload if summary hydration fails.
+  }
+  try {
+    await loadSessionDetail(sessionId);
+  } catch (error) {
+    // Compact result still stays useful when replay detail is unavailable.
+  }
+  if (!summaryLoaded && fallbackPayload) {
+    renderSessionResult(fallbackPayload);
+  }
+}
+
+async function saveSessionData() {
+  const sessionId = homeCompactResultState?.session_id || "";
+  if (!sessionId || !saveSessionDataButton) {
+    setLiveRunMessage(currentLocale === "en" ? "No recorded session is available to save." : "当前没有可保存的会话数据。", "warning");
+    return;
+  }
+
+  saveSessionDataButton.disabled = true;
+  setLiveRunMessage(currentLocale === "en" ? "Preparing session data..." : "正在准备保存数据...", "info");
+  try {
+    const [summaryResponse, detailResponse] = await Promise.allSettled([
+      fetch(`/api/session/${sessionId}`),
+      fetch(`/api/session/${sessionId}/detail`),
+    ]);
+
+    let summaryPayload = null;
+    if (summaryResponse.status === "fulfilled" && summaryResponse.value.ok) {
+      summaryPayload = await summaryResponse.value.json();
+    }
+
+    let detailPayload = null;
+    if (detailResponse.status === "fulfilled" && detailResponse.value.ok) {
+      detailPayload = await detailResponse.value.json();
+    }
+
+    if (!summaryPayload && !detailPayload) {
+      throw new Error(currentLocale === "en" ? "Session artifacts are not available yet." : "当前会话的数据产物暂不可用。");
+    }
+
+    const bundle = {
+      exported_at: new Date().toISOString(),
+      session_id: sessionId,
+      summary: summaryPayload,
+      detail: detailPayload,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+    const objectUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = objectUrl;
+    downloadLink.download = `${sessionId}-session-data.json`;
+    downloadLink.click();
+    URL.revokeObjectURL(objectUrl);
+    setLiveRunMessage(currentLocale === "en" ? "Session data saved to a local file." : "测试数据已保存为本地文件。", "success");
+  } catch (error) {
+    setLiveRunMessage(String(error), "error");
+  } finally {
+    saveSessionDataButton.disabled = false;
+    renderHomeCompactResultSummary(homeCompactResultState);
+  }
+}
+
 async function runSession(endpoint, button, idleLabel) {
   button.disabled = true;
-  button.textContent = "Running...";
+  button.textContent = currentLocale === "en" ? "Running..." : "运行中...";
   try {
     const runResponse = await fetch(endpoint, { method: "POST" });
     const runPayload = await runResponse.json();
     renderSessionResult(runPayload);
 
     if (runPayload.session_id) {
-      const summaryResponse = await fetch(`/api/session/${runPayload.session_id}`);
-      const summaryPayload = await summaryResponse.json();
-      renderSessionResult(summaryPayload);
+      await hydrateHomeResultForSession(runPayload.session_id, runPayload);
     }
     await loadRecentSessions();
   } catch (error) {
@@ -3277,28 +4560,127 @@ async function runSession(endpoint, button, idleLabel) {
 }
 
 async function runMockSession() {
-  await runSession("/api/session/run-mock", runMockButton, "Run Mock Session");
+  await runSession("/api/session/run-mock", runMockButton, currentLocale === "en" ? "Run Mock Session" : "运行 Mock 会话");
 }
 
 async function runReplaySession() {
   runReplayButton.disabled = true;
-  runReplayButton.textContent = "Running...";
+  runReplayButton.textContent = currentLocale === "en" ? "Running..." : "运行中...";
   try {
     const runResponse = await fetch("/api/session/run-replay", { method: "POST" });
     const runPayload = await runResponse.json();
     renderSessionResult(runPayload);
     if (runPayload.session_id) {
-      const summaryResponse = await fetch(`/api/session/${runPayload.session_id}`);
-      const summaryPayload = await summaryResponse.json();
-      renderSessionResult(summaryPayload);
-      await loadSessionDetail(runPayload.session_id);
+      await hydrateHomeResultForSession(runPayload.session_id, runPayload);
     }
     await loadRecentSessions();
   } catch (error) {
     renderSessionResult({ detail: String(error) });
   } finally {
     runReplayButton.disabled = false;
-    runReplayButton.textContent = "Run Replay Session";
+    runReplayButton.textContent = currentLocale === "en" ? "Run Replay Session" : "运行 Replay 会话";
+  }
+}
+
+async function submitImportedAfasDataset(file) {
+  const parsedPayload = JSON.parse(await file.text());
+  const response = await fetch("/api/session/import-afas-dataset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(parsedPayload),
+  });
+  const responsePayload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(responsePayload.detail || `HTTP ${response.status}`);
+  }
+  return responsePayload;
+}
+
+async function importAfasDataset() {
+  if (!importAfasDatasetButton || !importAfasDatasetFileInput) {
+    return;
+  }
+  const file = importAfasDatasetFileInput.files?.[0];
+  if (!file) {
+    renderSessionResult({
+      detail:
+        currentLocale === "en"
+          ? "Choose an afas_dataset.json file before importing."
+          : "请先选择一个 afas_dataset.json 文件再导入。",
+    });
+    return;
+  }
+
+  importAfasDatasetButton.disabled = true;
+  importAfasDatasetButton.textContent = currentLocale === "en" ? "Importing..." : "导入中...";
+  try {
+    const responsePayload = await submitImportedAfasDataset(file);
+    renderSessionResult(responsePayload);
+    if (responsePayload.session_id) {
+      await hydrateHomeResultForSession(responsePayload.session_id, responsePayload);
+    }
+    importAfasDatasetFileInput.value = "";
+    await loadRecentSessions();
+  } catch (error) {
+    renderSessionResult({ detail: String(error) });
+  } finally {
+    importAfasDatasetButton.disabled = false;
+    importAfasDatasetButton.textContent = t(
+      "home.actions.import_afas_dataset",
+      {},
+      currentLocale === "en" ? "Import AFAS Dataset" : "导入 AFAS 数据集",
+    );
+  }
+}
+
+function setWorkspaceImportHint(message) {
+  if (workspaceImportAfasDatasetHintNode) {
+    workspaceImportAfasDatasetHintNode.textContent = message;
+  }
+}
+
+async function importWorkspaceAfasDataset() {
+  if (!workspaceImportAfasDatasetButton || !workspaceImportAfasDatasetFileInput) {
+    return;
+  }
+  const file = workspaceImportAfasDatasetFileInput.files?.[0];
+  if (!file) {
+    setWorkspaceImportHint(
+      currentLocale === "en"
+        ? "Choose an afas_dataset.json file before importing."
+        : "请先选择一个 afas_dataset.json 文件再导入。",
+    );
+    return;
+  }
+
+  workspaceImportAfasDatasetButton.disabled = true;
+  workspaceImportAfasDatasetButton.textContent = currentLocale === "en" ? "Importing..." : "导入中...";
+  setWorkspaceImportHint(
+    currentLocale === "en"
+      ? "Importing the dataset and opening the new analysis workspace..."
+      : "正在导入数据，并打开新的分析页面...",
+  );
+  try {
+    const responsePayload = await submitImportedAfasDataset(file);
+    if (!responsePayload.session_id) {
+      throw new Error(currentLocale === "en" ? "Import completed without a session id." : "导入完成，但没有返回会话 ID。");
+    }
+    setWorkspaceImportHint(
+      currentLocale === "en"
+        ? "Import succeeded. Redirecting to the new analysis workspace..."
+        : "导入成功，正在打开新的分析页面...",
+    );
+    window.location.assign(`/workspace/${encodeURIComponent(responsePayload.session_id)}`);
+  } catch (error) {
+    setWorkspaceImportHint(String(error));
+  } finally {
+    workspaceImportAfasDatasetButton.disabled = false;
+    workspaceImportAfasDatasetButton.textContent = t(
+      "workspace.actions.import_data",
+      {},
+      currentLocale === "en" ? "Import Data" : "导入数据",
+    );
+    workspaceImportAfasDatasetFileInput.value = "";
   }
 }
 
@@ -3328,16 +4710,18 @@ async function ensureLiveSetupBootstrapped({ forceRestart = false } = {}) {
     detail = await refreshLiveRunDetail(runId);
   }
   storeLiveSetupRunId(runId);
-  if (!detail.preview?.stream_active) {
-    await startLivePreviewStream({ silent: true });
-    setLiveRunMessage("Live preview started automatically. Press Freeze when you are ready to define the ROI.", "success");
-  } else {
-    setLivePointPickerStatus("Live preview is running. Press Freeze to capture a still frame.");
-  }
+  await startLivePreviewStream({ silent: true });
+  setLiveRunMessage(
+    currentLocale === "en"
+      ? "Live preview started automatically. Press Freeze when you are ready to define the ROI."
+      : "实时预览已自动启动。准备定义 ROI 时请按“冻结画面”。",
+    "success",
+  );
 }
 
 async function bootstrap() {
   try {
+    renderHomeCompactResultSummary(null);
     await Promise.all([loadHealth(), loadProfile(), loadPrecheck(), loadRecentSessions()]);
     if (liveRunPresetNode && liveRunPresetSelect) {
       liveRunPresetNode.textContent = liveRunPresetSelect.value;
@@ -3381,7 +4765,6 @@ async function bootstrapWorkspace() {
   if (detailResponse.status === "fulfilled" && detailResponse.value.ok) {
     const detail = await detailResponse.value.json();
     renderWorkspaceDetail(detail);
-    renderWorkspaceStages(mapWorkspaceStages(summary, detail), summary.state);
   } else {
     const emptyDetail = {
       source: "n/a",
@@ -3390,7 +4773,6 @@ async function bootstrapWorkspace() {
       key_frames: [],
     };
     renderWorkspaceDetail(emptyDetail);
-    renderWorkspaceStages(mapWorkspaceStages(summary, null), summary.state);
   }
 
   if (adjustmentResponse.status === "fulfilled" && adjustmentResponse.value.ok) {
@@ -3505,6 +4887,24 @@ if (liveRunPresetSelect && liveRunPresetNode) {
     }
   });
 }
+if (importAfasDatasetButton) {
+  importAfasDatasetButton.addEventListener("click", () => {
+    void importAfasDataset();
+  });
+}
+if (workspaceImportAfasDatasetButton && workspaceImportAfasDatasetFileInput) {
+  workspaceImportAfasDatasetButton.addEventListener("click", () => {
+    workspaceImportAfasDatasetFileInput.click();
+  });
+  workspaceImportAfasDatasetFileInput.addEventListener("change", () => {
+    void importWorkspaceAfasDataset();
+  });
+}
+if (saveSessionDataButton) {
+  saveSessionDataButton.addEventListener("click", () => {
+    void saveSessionData();
+  });
+}
 if (stopLivePreviewStreamButton) {
   stopLivePreviewStreamButton.addEventListener("click", () => {
     void stopLivePreviewStream();
@@ -3522,16 +4922,28 @@ if (confirmTargetTemperatureButton) {
 if (stopLiveRunButton) {
   stopLiveRunButton.addEventListener("click", stopLiveRun);
 }
-if (liveTargetTemperatureInput) {
-  for (const eventName of ["input", "change"]) {
-    liveTargetTemperatureInput.addEventListener(eventName, clearTargetTemperatureConfirmation);
+if (startLivePreviewStreamButton) {
+  startLivePreviewStreamButton.addEventListener("click", () => {
+    void startLivePreviewStream();
+  });
+}
+if (recomputeDefinitionButton) {
+  recomputeDefinitionButton.addEventListener("click", () => {
+    scheduleRoiPointRecompute({
+      message:
+        currentLocale === "en"
+          ? "Captured a new frame and recomputed ROI-local A/B."
+          : "已抓取新画面并重新计算 ROI 内 A/B。",
+    });
+  });
+}
+for (const temperatureInput of [liveTargetTemperatureInput, liveControlModeSelect, liveOutputPowerInput]) {
+  if (!temperatureInput) {
+    continue;
   }
-}
-if (pickPointAButton) {
-  pickPointAButton.addEventListener("click", () => setActivePointTarget("a"));
-}
-if (pickPointBButton) {
-  pickPointBButton.addEventListener("click", () => setActivePointTarget("b"));
+  for (const eventName of ["input", "change"]) {
+    temperatureInput.addEventListener(eventName, clearTemperatureSettingsConfirmation);
+  }
 }
 if (drawAnalysisRoiButton) {
   drawAnalysisRoiButton.addEventListener("click", () => setActiveLiveTool("draw-roi"));
@@ -3563,7 +4975,7 @@ if (liveSensitivityInput) {
   liveSensitivityInput.addEventListener("input", updateLiveDefinitionAfterLocalEdit);
   liveSensitivityInput.addEventListener("change", () => {
     updateLiveDefinitionAfterLocalEdit();
-    scheduleRoiPointRecompute({ message: "Sensitivity updated. Recomputed ROI-local A/B from a fresh frozen frame." });
+    scheduleRoiPointRecompute({ message: "Sensitivity updated. Captured a new frame and recomputed ROI-local A/B." });
   });
 }
 for (const pointInput of [livePointAXInput, livePointAYInput, livePointBXInput, livePointBYInput]) {
@@ -3633,11 +5045,23 @@ if (workspaceAfasExportXlsxButton) {
 }
 if (workspaceAfasChannelNode) {
   workspaceAfasChannelNode.addEventListener("change", () => {
-    const sessionId = getWorkspaceSessionId();
-    if (!sessionId) {
-      return;
-    }
-    void loadWorkspaceAfasAnalysis(sessionId);
+    queueWorkspaceAfasRefresh({ delay: 0, silent: true });
+  });
+}
+for (const node of [
+  workspaceAfasSavgolWindowNode,
+  workspaceAfasSavgolPolyorderNode,
+  workspaceAfasLowStartNode,
+  workspaceAfasLowEndNode,
+  workspaceAfasHighStartNode,
+  workspaceAfasHighEndNode,
+  workspaceAfasTangentOffsetNode,
+]) {
+  if (!node) {
+    continue;
+  }
+  node.addEventListener("change", () => {
+    queueWorkspaceAfasRefresh({ delay: 120, silent: true });
   });
 }
 if (adjustmentSaveDraftButton) {
@@ -3646,6 +5070,14 @@ if (adjustmentSaveDraftButton) {
 if (adjustmentApplyButton) {
   adjustmentApplyButton.addEventListener("click", applyWorkspaceAdjustment);
 }
+currentLocale = getSavedLocale() || document.body.dataset.locale || "zh";
+applyStaticTranslations();
+syncLanguageToggleUi();
+languageToggleButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setLocale(button.dataset.languageToggle || "zh");
+  });
+});
 if (document.body.dataset.page === "home") {
   syncCameraProbeControls();
   bootstrap();

@@ -1,6 +1,6 @@
 # Office-Hours Requirement Baseline v1
 
-Updated on 2026-03-27
+Updated on 2026-04-01
 Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 
 ## Purpose
@@ -21,7 +21,7 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 
 ## Source Lineage
 
-当前与本项目直接相关的 `/office-hours` 输出共有 4 份：
+当前与本项目直接相关的 `/office-hours` 输出共有 7 份：
 
 1. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260321-140012.md`
    标题：`YY/T 1771 浏览器分析工作台需求收敛 v1`
@@ -38,12 +38,35 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
    标题：`首页 Launch & Control Cockpit 与 Workspace Analysis Studio 信息架构收敛 v1`
    `Follows: lulingfeng-main-design-20260322-222900.md`
 
+5. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260329-095356.md`
+   标题：`首页与 Workspace 信息层级、Journey Flow 与工程模式收敛 v1`
+   `Follows: lulingfeng-main-design-20260327-102500.md`
+
+6. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260329-175019.md`
+   标题：`首页一线工人极简操作面与隐藏调试入口收敛 v1`
+   `Follows: lulingfeng-main-design-20260329-095356.md`
+
+7. `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260329-190658.md`
+   标题：`Analysis Studio 向 AFAS 内容模型收敛 v1`
+   `Follows: lulingfeng-main-design-20260329-175019.md`
+
 因此从 lineage 看：
 
 - 第 1 份不是“当前最新需求”，而是最早的 framing
 - 第 2 份覆盖了第 1 份的主产品定义
 - 第 3 份不是推翻第 2 份，而是在第 2 份已经确定“要做 full-chain live workstation”的前提下，进一步冻结 live setup 的交互需求
 - 第 4 份不是推翻前 3 份，而是在 live setup requirement 已冻结后，把首页和 workspace 的页面职责、信息架构和视觉系统收口成当前产品 shell
+- 第 5 份不是再次改 shell 角色，而是在 shell 角色已经确定后，把“默认可见 / 按需展开 / 工程模式”和跨页面 journey flow 冻结成当前页面层级基线
+- 第 6 份不是再改一次 shell 角色或 hierarchy 框架，而是把首页进一步收成面向一线工人的极简操作面，并把调试信息整体降到隐藏入口
+- 第 7 份不是再改一次首页，而是把 workspace 默认分析界面收成更接近 AFAS 的内容模型，并把研发过程类信息整体后移
+
+需要额外说明的是：
+
+- 2026-03-29 在 office-hours 之后，又补了一轮 `plan-eng-review`
+- 那一天的 `plan-eng-review` 没有再新增新的 office-hours 产品方向
+- 它只把两个最容易分叉的实现边界补成了 repo requirement addendum：
+  - worker-minimal cockpit 的 ready / handoff / save / state-machine 边界
+  - AFAS-style workspace 的 trigger / fallback / replay placement / compatibility 边界
 
 ---
 
@@ -123,13 +146,70 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 - `Future Adjustment Controls` 收进折叠区或抽屉，不占默认主视区
 - 首页和 workspace 应共享一套 dark glass + Morandi 风格的视觉 token，而不是继续各自一套卡片语义
 
+### Round 5 added
+
+第 5 份文档不是再次改产品目标，也不是再次改 shell 命名。
+
+它补的是第 4 份之后仍然没有冻结的页面层级问题：
+
+- 哪些内容必须默认可见
+- 哪些内容只在复核或高级调整时展开
+- 哪些内容属于工程模式，不应继续占据 operator 默认视区
+- 首页和 workspace 应如何共同表达同一条 operator journey
+- AFAS result card 应如何从“技术结果卡”升级为“第一屏答案卡”
+
+这轮真正锁定的是：
+
+- home / workspace 必须显式区分 `default visible / on-demand reveal / engineering mode`
+- 首页默认只服务单一 operator path，而不是功能总览
+- workspace 第一屏默认以 AFAS 分析和决策为主，replay 只保留轻量上下文角色
+- cross-surface journey 冻结为从设备就绪到 AFAS 出点 / 导出的 8 步
+- provenance / API / placeholder / coming-soon 内容不得继续与主流程争夺默认焦点
+
+### Round 6 added
+
+第 6 份文档不是再次改页面命名，也不是只提“删掉几段文字”。
+
+它补的是上一轮之后仍然存在的一个落地问题：
+
+- 首页虽然已经不再是完整分析页
+- 但默认第一屏仍然太像解释页、联调页，而不够像一线工人的操作面
+
+这轮真正锁定的是：
+
+- 首页默认不再展示 shell 标题、journey 说明、`当前任务` 说明块
+- 首页默认不再展示 `系统 / 配置 / 模式` 这类工程状态大卡
+- 首页默认首屏必须由 `实时预览 + 操作列` 填满，不允许留下大面积解释性空白
+- 首页完成态不再显示摘要卡，而是显示 `保存数据 / 进入分析` 的动作区
+- `Save Definition` 退出 operator flow
+- `ROI 定义 -> ROI 框选`
+- `查看 ROI 几何字段 -> 查看ROI参数`
+- `ROI 角度` 进入 `查看ROI参数`
+- 手动 `A/B` 校正面板必须保持显式展开，不能在刷新后自动回收
+
+### Round 7 added
+
+第 7 份文档不是推翻 `Analysis Studio` 这个页面角色，而是进一步冻结：
+
+- workspace 默认首屏应该像什么
+- 哪些内容应以 AFAS 风格的分析任务为主语
+- 哪些研发过程信息必须退出默认首屏
+
+这轮真正锁定的是：
+
+- workspace 默认分析界面向 AFAS 的内容模型收敛
+- 默认首屏以 `通道选择 -> 分析参数 -> 总览图 -> 单通道切线分析 -> 分析结果 -> 导出` 为主线
+- replay 继续保留，但降级为 session context，而不是默认 hero
+- rail、sticky summary、version、adjustment、future controls、API / provenance 等内容整体后移
+- workspace 继续跟首页共享视觉 token，但不再默认渲染产品说明型 hero
+
 ---
 
 ## Why The Old Docs Felt Duplicated
 
-如果只看标题，4 份文档容易显得像 4 套需求。
+如果只看标题，7 份文档容易显得像 7 套需求。
 
-其实它们分别解决的是 4 个不同层次的问题：
+其实它们分别解决的是 7 个不同层次的问题：
 
 1. 第 1 份：
    先把“这到底是 replay 工具还是设备工作站”的叙事梳理出来
@@ -143,12 +223,23 @@ Status: CANONICAL_SYNTHESIS_OF_OFFICE_HOURS_OUTPUTS
 4. 第 4 份：
    把首页和 workspace 的页面职责、信息架构与视觉收口冻结下来
 
+5. 第 5 份：
+   把首页 / workspace 的默认可见层级、按需展开边界、工程模式边界与跨页面 journey 表达冻结下来
+
+6. 第 6 份：
+   把首页进一步收成面向一线工人的极简操作面，并把完成态与调试入口收口到更直接的动作语义
+
+7. 第 7 份：
+   把 workspace 默认分析界面进一步收成 AFAS 风格的分析工作面，并把研发过程类信息整体后移
+
 所以真实关系不是“互相冲突”，而是：
 
 - `Round 1` 提供结构视角
 - `Round 2` 提供产品主目标
 - `Round 3` 提供 live setup 交互冻结
 - `Round 4` 提供首页 / workspace 的产品壳层分工与视觉收口
+- `Round 5` 提供首页 / workspace 的页面层级、journey flow 与结果语义收口
+- `Round 6` 提供首页的一线工人极简操作面、隐藏调试入口与完成态动作区收口
 
 ---
 
@@ -216,16 +307,68 @@ replay、workspace、adjustment 仍然重要，但定位已经变化：
 
 当前 baseline 已经倾向保留两个不同入口，但让它们的职责边界更清楚。
 
+同时，从 2026-03-29 起，screen architecture 还必须继续遵守：
+
+- home / workspace 都显式区分 `default visible / on-demand reveal / engineering mode`
+- 首页默认只服务单一 operator path
+- workspace 默认第一屏以 AFAS 分析和决策为主，replay 只保留轻量上下文角色
+- provenance / API / placeholder / coming-soon 内容不得继续占据默认主焦点
+- cross-surface operator journey 被固定为从设备就绪到 AFAS 出点 / 导出的 8 步
+
+并且，从 2026-03-29 的最新一轮 office-hours 起，首页 operator-facing surface 还必须继续遵守：
+
+- 首页默认首屏不再渲染 shell 标题、journey 说明和 `当前任务` 说明块
+- 首页默认首屏不再渲染 `系统 / 配置 / 模式` 大卡
+- 首页默认首屏必须收成 preview-led 的一线工人操作面
+- 首页完成态必须优先回答“保存，还是进入分析”，而不是显示迷你结果摘要卡
+- `Save Definition` 不再属于当前 operator path
+- `ROI 角度` 必须进入 `查看ROI参数`
+- 调试信息必须统一退到不抢眼的隐藏入口
+
+并且，从同日的 engineering review addendum 起，首页实现还必须继续遵守：
+
+- 默认首屏仍要保留一个极简 `ready` 信号
+- 完成态虽然收成动作区，但 `进入分析` 仍必须显示并指向唯一的 target session
+- `保存数据` 在当前 scope 内应被实现成已持久化结果的确认 / 导出动作，而不是新的 persistence contract
+- 温控设置确认之后如果目标温度、功率或方式改变，必须清掉 confirmed 状态
+- 温控设置确认之后如果 ROI / sensitivity 变化导致 `A/B` 重算，`开始测试` 必须暂时失效，直到新结果重新进入 valid 状态
+
+并且，从同日的 workspace engineering review addendum 起，Analysis Studio 的默认分析界面实现还必须继续遵守：
+
+- `afas_available=1` 时，workspace 应自动加载 active channel 分析，而不是继续把显式 `Run AFAS` 作为默认主步骤
+- `通道选择` 与已提交的参数变化应自动刷新分析结果
+- `afas_available=0`、single-channel、summary-only / no-detail 这几种状态都必须有明确降级路径，而不是退回旧的研发过程卡堆
+- replay 在默认首屏中的落位应固定为 AFAS 主分析区上方的 compact context strip / foldout
+- 第一轮 AFAS-style refactor 仍必须保持现有 DOM / JS / test-anchor compatibility
+
 如果讨论的问题是：
 
 - 首页 `Compact Result` 应该把用户带去哪个 workspace
 - 首页是否还允许 `observation_window / metric_box` 回到默认 operator path
-- `Point A / Point B` 在什么状态下必须重新显性供人工复核
+- `A-B` 在什么状态下必须重新显性供诊断复核
 - 首轮 shell refactor 能否重排 DOM 但保持现有 `id` / `data-testid` / API contract 稳定
 
 则必须优先联读：
 
 - [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
+
+如果讨论的问题是：
+
+- 首页哪些内容必须默认可见
+- 首页哪些内容只应按需展开
+- 哪些内容应视为工程模式
+- workspace 第一屏的主焦点到底是什么
+- workspace 哪些内容必须进入第二屏或折叠区
+- cross-surface journey 应如何表达
+- AFAS result card 应承担什么语义
+
+则必须优先联读：
+
+- [home_workspace_information_hierarchy_requirement_v1.md](./home_workspace_information_hierarchy_requirement_v1.md)
+- [analysis_studio_afas_alignment_requirement_v1.md](./analysis_studio_afas_alignment_requirement_v1.md)
+- [analysis_studio_afas_alignment_state_fallback_requirement_v1.md](./analysis_studio_afas_alignment_state_fallback_requirement_v1.md)
+- [home_worker_minimal_cockpit_requirement_v1.md](./home_worker_minimal_cockpit_requirement_v1.md)
+- [home_worker_minimal_cockpit_state_handoff_requirement_v1.md](./home_worker_minimal_cockpit_state_handoff_requirement_v1.md)
 
 ### 4. Result Scope
 
@@ -274,14 +417,15 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 - `analysis_roi`
   = Auto Detect Points 的主搜索区域
-  = manual A/B 放点的允许区域
+  = 当前 live setup operator flow 中唯一需要用户定义的主几何
 - `metric_box`
   = 在 `A-B` 确定之后生成和调整的 `Observation Window`
   = 后续 live run 阶段限制形变观测范围的旋转长方形
   = UI 文案应优先叫 `观测窗口` 或 `测试范围`
 - `point_a_px / point_b_px`
   = 目标物体的主几何锚点
-  = 既可手工指定，也可由 auto detect 生成
+  = 当前首页流程中由 auto detect 生成并在 live run 中持续更新
+  = 历史数据模型仍可保留点坐标字段，但当前首页流程不再要求手工摆点
 
 但从 2026-03-25 的后续澄清开始，如果讨论的问题是：
 
@@ -325,13 +469,14 @@ measurement definition 这层现在应视为已冻结到下面 3 个视觉原语
 
 7. 在当前首页的信息架构里，`ROI` 必须继续作为主几何出现
 
-8. `Point A / Point B` 必须保留可见和可校正能力，但视觉层级必须低于 `ROI`
-   它们更适合作为 detection result、advanced setup 或次级编辑层，而不是与 ROI 并列的一级主操作
+8. `A-B` 必须保留可见和可诊断能力，但视觉层级必须低于 `ROI`
+   它们更适合作为 detection result、advanced setup 或诊断复核层，而不是与 ROI 并列的一级主操作；当前首页流程不再要求手工摆点
 
 9. `Draw Window` 不是 `Auto Detect Points` 的前置条件
 
-10. 正确顺序应为：
+10. 历史上曾存在的顺序是：
    `Draw ROI -> manual A/B or Auto Detect Points -> Draw Window`
+   这条只保留旧 baseline 解释价值，不再代表当前首页最高优先级 operator flow
 
 11. Auto Detect Points 必须在 `ROI` 内寻找目标物体横向或纵向主跨度对应的两点，而不是在预定义 observation window 内沿固定轴取极值，也不应输出任意斜向直径
 
@@ -604,11 +749,32 @@ workspace 不需要推翻重来，当前推荐继续保留三栏逻辑，但把�
    回看：
    `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260327-102500.md`
 
-5. 如果你要看 repo 内当前 shell 实施边界，包括 `Compact Result` 路由、首页 A/B 显性规则和 DOM/API guardrails
+5. 如果你要看首页 / workspace 为什么必须把主流程、按需复核和工程模式分层，以及为什么需要跨页面 journey
+   回看：
+   `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260329-095356.md`
+
+6. 如果你要看 repo 内当前 shell 实施边界，包括 `Compact Result` 路由、首页 A/B 显性规则和 DOM/API guardrails
    优先看：
    [home_workspace_shell_requirement_v1.md](./home_workspace_shell_requirement_v1.md)
 
-6. 如果你要追溯“为什么 replay/workspace 还在产品里”
+7. 如果你要看 repo 内当前默认可见 / 按需展开 / 工程模式边界，以及 journey / AFAS result-card 语义
+   优先看：
+   [home_workspace_information_hierarchy_requirement_v1.md](./home_workspace_information_hierarchy_requirement_v1.md)
+
+8. 如果你要看首页为什么必须去掉 hero / journey / `当前任务`、隐藏 `系统 / 配置 / 模式`，并把完成态收成 `保存数据 / 进入分析`
+   优先看：
+   [home_worker_minimal_cockpit_requirement_v1.md](./home_worker_minimal_cockpit_requirement_v1.md)
+
+9. 如果你要看首页在极简完成态下，为什么还必须保留 tiny ready cue、明确的 session handoff 和 post-confirm state machine
+   优先看：
+   [home_worker_minimal_cockpit_state_handoff_requirement_v1.md](./home_worker_minimal_cockpit_state_handoff_requirement_v1.md)
+
+10. 如果你要看 workspace 为什么必须进一步收成 AFAS-style 分析工作面，以及为什么参数触发、fallback、replay 落位和兼容护栏都要继续锁死
+   优先看：
+   [analysis_studio_afas_alignment_requirement_v1.md](./analysis_studio_afas_alignment_requirement_v1.md)
+   [analysis_studio_afas_alignment_state_fallback_requirement_v1.md](./analysis_studio_afas_alignment_state_fallback_requirement_v1.md)
+
+11. 如果你要追溯“为什么 replay/workspace 还在产品里”
    回看：
    `/Users/lulingfeng/.gstack/projects/yyt1771_starter/lulingfeng-main-design-20260321-140012.md`
 
@@ -616,4 +782,4 @@ workspace 不需要推翻重来，当前推荐继续保留三栏逻辑，但把�
 
 ## One-Line Summary
 
-当前 `/office-hours` 的综合结论已经不是“继续在 replay 工作台上补功能”，而是：把项目正式当成 full-chain browser workstation 来推进，把首页收敛成 `Launch & Control Cockpit`，把 workspace 收敛成 `Analysis Studio`，同时保留 commissioning lane 与 replay/workspace 的辅助链定位，并优先冻结 live setup 的交互语义与产品壳层分工。
+当前 `/office-hours` 的综合结论已经不是“继续在 replay 工作台上补功能”，而是：把项目正式当成 full-chain browser workstation 来推进，把首页收敛成 `Launch & Control Cockpit`，把 workspace 收敛成 `Analysis Studio`，并进一步把首页收成面向一线工人的极简操作面、把调试信息退到隐藏入口、把完成态收成 `保存数据 / 进入分析` 的动作区，同时把 workspace 默认分析界面进一步收成 AFAS 风格的分析工作面。

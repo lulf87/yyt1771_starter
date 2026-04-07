@@ -21,10 +21,18 @@ def test_local_visible_flow_from_home_to_workspace(tmp_path: Path) -> None:
     precheck_response = client.get("/api/system/precheck")
 
     assert home_response.status_code == 200
-    assert "Launch &amp; Control Cockpit" in home_response.text
-    assert "Probe Camera" in home_response.text
-    assert "Run Replay Session" in home_response.text
-    assert "Open Workspace" in home_response.text
+    assert "实时预览" in home_response.text
+    assert "ROI 框选" in home_response.text
+    assert "查看ROI参数" in home_response.text
+    assert "更多工具与诊断" in home_response.text
+    assert "保存数据" in home_response.text
+    assert "进入分析" in home_response.text
+    assert "启动与控制驾驶舱" not in home_response.text
+    assert "操作路径" not in home_response.text
+    assert "当前任务" not in home_response.text
+    assert "保存定义" not in home_response.text
+    assert "探测相机" in home_response.text
+    assert "运行 Replay 会话" in home_response.text
     assert health_response.status_code == 200
     assert profile_response.status_code == 200
     assert precheck_response.status_code == 200
@@ -41,11 +49,19 @@ def test_local_visible_flow_from_home_to_workspace(tmp_path: Path) -> None:
     workspace_response = client.get(f"/workspace/{session_id}")
 
     assert workspace_response.status_code == 200
-    assert "Analysis Studio" in workspace_response.text
-    assert "Replay Curve" in workspace_response.text
-    assert "Key Frames" in workspace_response.text
-    assert "Adjustment MVP" in workspace_response.text
-    assert "Version History" in workspace_response.text
+    assert "分析工作台" in workspace_response.text
+    assert "数据与会话" in workspace_response.text
+    assert "分析设置" in workspace_response.text
+    assert "返回首页" in workspace_response.text
+    assert "导入数据" in workspace_response.text
+    assert "返回首页导入数据" not in workspace_response.text
+    assert "路径导轨" in workspace_response.text
+    assert "Replay 上下文" in workspace_response.text
+    assert "通道选择" in workspace_response.text
+    assert "分析参数" in workspace_response.text
+    assert "分析结果" in workspace_response.text
+    assert "打开 Adjustment、版本与追溯" in workspace_response.text
+    assert "打开流程与工程信息" in workspace_response.text
 
     detail_response = client.get(f"/api/session/{session_id}/detail")
 

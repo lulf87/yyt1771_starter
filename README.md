@@ -60,7 +60,7 @@ pip install -e .[dev]
 当前最容易本地启动的是过渡期 Web shell：
 
 ```bash
-python -m src.webapp.serve --profile dev_mock
+python -m src.webapp.serve --profile dev_lab
 ```
 
 ### 3. 浏览器地址

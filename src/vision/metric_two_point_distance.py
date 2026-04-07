@@ -2,25 +2,38 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Any
+
+import numpy as np
+from scipy import ndimage
 
 from src.core.contracts import VisionMetricExtractor
 from src.core.models import FramePacket, MetricBox, PixelPoint, RectRegion, ShapeMetric
 
 Roi = tuple[int, int, int, int]
+ROI_FLOAT_EPSILON = 0.5
 
 
 @dataclass(slots=True)
 class _Component:
-    pixels: list[tuple[int, int]]
+    coords: np.ndarray
+    _pixels_cache: list[tuple[int, int]] | None = field(default=None, init=False, repr=False)
 
     @property
     def area(self) -> int:
-        return len(self.pixels)
+        return int(len(self.coords))
+
+    @property
+    def pixels(self) -> list[tuple[int, int]]:
+        if self._pixels_cache is None:
+            self._pixels_cache = [
+                (int(x), int(y))
+                for x, y in self.coords.tolist()
+            ]
+        return self._pixels_cache
 
 
 class RoiLongestSpanPointDetector:
@@ -64,13 +77,14 @@ class RoiLongestSpanPointDetector:
             image = normalize_frame_image(frame.image)
         except ValueError as exc:
             return self._failure_metric(frame, reason="invalid_image", detail=str(exc))
+        array_view = _as_grayscale_ndarray(image)
 
         effective_roi = _resolve_roi(self.analysis_roi, image)
         if effective_roi.width == 0 or effective_roi.height == 0:
             return self._failure_metric(frame, reason="roi_outside_image", roi=effective_roi)
 
         sample_values = _sample_region_values(image, effective_roi)
-        if not sample_values:
+        if len(sample_values) == 0:
             return self._failure_metric(frame, reason="roi_has_no_pixels", roi=effective_roi)
 
         threshold_value = _resolve_threshold(
@@ -79,7 +93,47 @@ class RoiLongestSpanPointDetector:
             polarity=self.foreground_polarity,
             margin=_threshold_margin_for_sensitivity(self.threshold_margin, self.sensitivity),
         )
-        if self.roi_box is not None:
+        if array_view is not None and self.roi_box is not None:
+            if not _metric_box_within_region(effective_roi, self.roi_box):
+                return self._failure_metric(frame, reason="roi_box_outside_roi", roi=effective_roi)
+            selected_mask, min_x, min_y = _select_foreground_mask(
+                array_view,
+                self.roi_box,
+                threshold_value=threshold_value,
+                foreground_polarity=self.foreground_polarity,
+            )
+            if self.ignore_internal_texture or self.sensitivity > 0:
+                selected_mask = _fill_internal_texture_mask(
+                    selected_mask,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component_from_mask(
+                selected_mask,
+                self.min_target_area_px,
+                min_x=min_x,
+                min_y=min_y,
+                selection_region=effective_roi,
+            )
+        elif array_view is not None:
+            selected_mask, min_x, min_y = _select_foreground_region_mask(
+                array_view,
+                effective_roi,
+                threshold_value=threshold_value,
+                foreground_polarity=self.foreground_polarity,
+            )
+            if self.ignore_internal_texture:
+                selected_mask = _fill_internal_texture_mask(
+                    selected_mask,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component_from_mask(
+                selected_mask,
+                self.min_target_area_px,
+                min_x=min_x,
+                min_y=min_y,
+                selection_region=effective_roi,
+            )
+        elif self.roi_box is not None:
             if not _metric_box_within_region(effective_roi, self.roi_box):
                 return self._failure_metric(frame, reason="roi_box_outside_roi", roi=effective_roi)
             selected_pixels = _select_foreground_pixels(
@@ -88,6 +142,16 @@ class RoiLongestSpanPointDetector:
                 threshold_value=threshold_value,
                 foreground_polarity=self.foreground_polarity,
             )
+            if self.ignore_internal_texture or self.sensitivity > 0:
+                selected_pixels = _fill_internal_texture(
+                    selected_pixels,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component(
+                selected_pixels,
+                self.min_target_area_px,
+                selection_region=effective_roi,
+            )
         else:
             selected_pixels = _select_foreground_pixels_in_region(
                 image,
@@ -95,16 +159,16 @@ class RoiLongestSpanPointDetector:
                 threshold_value=threshold_value,
                 foreground_polarity=self.foreground_polarity,
             )
-        if self.ignore_internal_texture or (self.roi_box is not None and self.sensitivity > 0):
-            selected_pixels = _fill_internal_texture(
+            if self.ignore_internal_texture:
+                selected_pixels = _fill_internal_texture(
+                    selected_pixels,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component(
                 selected_pixels,
-                max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                self.min_target_area_px,
+                selection_region=effective_roi,
             )
-        component = _pick_target_component(
-            selected_pixels,
-            self.min_target_area_px,
-            selection_region=effective_roi,
-        )
         if component is None:
             return self._failure_metric(
                 frame,
@@ -115,7 +179,9 @@ class RoiLongestSpanPointDetector:
             )
 
         if self.roi_box is not None and self.selection_strategy == "roi_local_horizontal_boundary":
-            point_a, point_b = _roi_local_horizontal_boundary_points(component.pixels, self.roi_box)
+            boundary_coords = _roi_local_horizontal_boundary_object_coords(component.coords, self.roi_box)
+            point_a, point_b = _roi_local_horizontal_boundary_points(boundary_coords, self.roi_box)
+            component = _Component(coords=boundary_coords)
             selection_axis = "roi_local_horizontal"
             span_reference = float(max(self.roi_box.width, 1))
         else:
@@ -249,6 +315,7 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
             image = normalize_frame_image(frame.image)
         except ValueError as exc:
             return self._failure_metric(frame, reason="invalid_image", detail=str(exc))
+        array_view = _as_grayscale_ndarray(image)
 
         effective_roi = _resolve_roi(self.analysis_roi, image)
         if effective_roi.width == 0 or effective_roi.height == 0:
@@ -282,7 +349,7 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
             )
 
         sample_values = _sample_metric_box_values(image, effective_box)
-        if not sample_values:
+        if len(sample_values) == 0:
             return self._failure_metric(frame, reason="metric_box_has_no_pixels", roi=effective_roi, metric_box=effective_box)
 
         threshold_value = _resolve_threshold(
@@ -291,18 +358,37 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
             polarity=self.foreground_polarity,
             margin=_threshold_margin_for_sensitivity(self.threshold_margin, self.sensitivity),
         )
-        selected_pixels = _select_foreground_pixels(
-            image,
-            effective_box,
-            threshold_value=threshold_value,
-            foreground_polarity=self.foreground_polarity,
-        )
-        if self.ignore_internal_texture or self.selection_strategy == "roi_local_horizontal_boundary":
-            selected_pixels = _fill_internal_texture(
-                selected_pixels,
-                max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+        if array_view is not None:
+            selected_mask, min_x, min_y = _select_foreground_mask(
+                array_view,
+                effective_box,
+                threshold_value=threshold_value,
+                foreground_polarity=self.foreground_polarity,
             )
-        component = _pick_target_component(selected_pixels, self.min_target_area_px)
+            if self.ignore_internal_texture or self.selection_strategy == "roi_local_horizontal_boundary":
+                selected_mask = _fill_internal_texture_mask(
+                    selected_mask,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component_from_mask(
+                selected_mask,
+                self.min_target_area_px,
+                min_x=min_x,
+                min_y=min_y,
+            )
+        else:
+            selected_pixels = _select_foreground_pixels(
+                image,
+                effective_box,
+                threshold_value=threshold_value,
+                foreground_polarity=self.foreground_polarity,
+            )
+            if self.ignore_internal_texture or self.selection_strategy == "roi_local_horizontal_boundary":
+                selected_pixels = _fill_internal_texture(
+                    selected_pixels,
+                    max_gap_px=_texture_gap_px_for_sensitivity(self.sensitivity),
+                )
+            component = _pick_target_component(selected_pixels, self.min_target_area_px)
         if component is None:
             return self._failure_metric(
                 frame,
@@ -315,7 +401,9 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
 
         measurement_axis_deg = self.measurement_axis_deg if self.measurement_axis_deg is not None else effective_box.angle_deg
         if self.selection_strategy == "roi_local_horizontal_boundary":
-            point_a, point_b = _roi_local_horizontal_boundary_points(component.pixels, effective_box)
+            boundary_coords = _roi_local_horizontal_boundary_object_coords(component.coords, effective_box)
+            point_a, point_b = _roi_local_horizontal_boundary_points(boundary_coords, effective_box)
+            component = _Component(coords=boundary_coords)
             selection_mode = "roi_local_horizontal_boundary"
             axis_span_px = float(max(effective_box.width, 1))
         else:
@@ -441,6 +529,44 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
 
 
 def normalize_frame_image(image: Any) -> list[list[int]]:
+    if isinstance(image, np.ndarray):
+        if image.ndim < 2:
+            raise ValueError("image must be a 2D sequence")
+        if image.shape[0] == 0 or image.shape[1] == 0:
+            raise ValueError("image width and height must be greater than zero")
+        if image.ndim == 2:
+            if image.dtype == np.bool_:
+                return image.astype(np.uint8, copy=False) * 255
+            if np.issubdtype(image.dtype, np.number):
+                if np.issubdtype(image.dtype, np.floating):
+                    image = np.rint(image)
+                return np.clip(image, 0, 255).astype(np.uint8, copy=False)
+            raise ValueError("unsupported pixel type")
+        if image.ndim == 3:
+            if image.shape[2] == 0:
+                raise ValueError("pixel channel sequence must not be empty")
+            if image.dtype == np.bool_:
+                image = image.astype(np.uint8, copy=False) * 255
+            elif np.issubdtype(image.dtype, np.number):
+                if np.issubdtype(image.dtype, np.floating):
+                    image = np.rint(image)
+                image = np.clip(image, 0, 255).astype(np.uint8, copy=False)
+            else:
+                raise ValueError("unsupported pixel type")
+            return np.rint(np.mean(image, axis=2)).astype(np.uint8, copy=False)
+        raise ValueError("image must be a 2D sequence")
+    shape = getattr(image, "shape", None)
+    if isinstance(shape, tuple) and len(shape) == 2:
+        height, width = shape
+        if int(height) < 1 or int(width) < 1:
+            raise ValueError("image width and height must be greater than zero")
+        try:
+            first_row = image[0]
+            first_value = first_row[0]
+        except Exception as exc:
+            raise ValueError("image must be a 2D sequence") from exc
+        if isinstance(first_value, (bool, int, float, np.generic)):
+            return image
     if hasattr(image, "tolist"):
         image = image.tolist()
     if not isinstance(image, Sequence) or isinstance(image, (str, bytes)):
@@ -547,6 +673,12 @@ def _points_valid_for_definition(
 
 
 def _sample_metric_box_values(image: list[list[int]], metric_box: MetricBox) -> list[int]:
+    array_view = _as_grayscale_ndarray(image)
+    if array_view is not None:
+        min_x, max_x, min_y, max_y = _metric_box_bounds(metric_box, width=array_view.shape[1], height=array_view.shape[0])
+        region = array_view[min_y : max_y + 1, min_x : max_x + 1]
+        mask = _metric_box_mask(metric_box, min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y)
+        return region[mask]
     values: list[int] = []
     min_x = max(0, int(math.floor(metric_box.center_x - metric_box.width / 2 - 1)))
     max_x = min(len(image[0]) - 1, int(math.ceil(metric_box.center_x + metric_box.width / 2 + 1)))
@@ -560,6 +692,11 @@ def _sample_metric_box_values(image: list[list[int]], metric_box: MetricBox) -> 
 
 
 def _sample_region_values(image: list[list[int]], region: RectRegion) -> list[int]:
+    array_view = _as_grayscale_ndarray(image)
+    if array_view is not None:
+        max_y = min(array_view.shape[0], region.y + region.height)
+        max_x = min(array_view.shape[1], region.x + region.width)
+        return array_view[region.y:max_y, region.x:max_x].reshape(-1)
     values: list[int] = []
     max_y = min(len(image), region.y + region.height)
     max_x = min(len(image[0]), region.x + region.width)
@@ -575,10 +712,16 @@ def _resolve_threshold(
     polarity: str,
     margin: float,
 ) -> float:
-    minimum = min(sample_values)
-    maximum = max(sample_values)
-    sorted_values = sorted(sample_values)
-    median = sorted_values[len(sorted_values) // 2]
+    if isinstance(sample_values, np.ndarray):
+        minimum = int(sample_values.min())
+        maximum = int(sample_values.max())
+        sorted_values = np.sort(sample_values, axis=None)
+        median = int(sorted_values[len(sorted_values) // 2])
+    else:
+        minimum = min(sample_values)
+        maximum = max(sample_values)
+        sorted_values = sorted(sample_values)
+        median = sorted_values[len(sorted_values) // 2]
     if mode == "binary":
         if polarity == "dark_on_light":
             return float(max(0, min(255, minimum + margin)))
@@ -597,6 +740,15 @@ def _select_foreground_pixels(
     threshold_value: float,
     foreground_polarity: str,
 ) -> set[tuple[int, int]]:
+    array_view = _as_grayscale_ndarray(image)
+    if array_view is not None:
+        min_x, max_x, min_y, max_y = _metric_box_bounds(metric_box, width=array_view.shape[1], height=array_view.shape[0])
+        region = array_view[min_y : max_y + 1, min_x : max_x + 1]
+        metric_mask = _metric_box_mask(metric_box, min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y)
+        foreground_mask = region <= threshold_value if foreground_polarity == "dark_on_light" else region >= threshold_value
+        selected_mask = metric_mask & foreground_mask
+        ys, xs = np.nonzero(selected_mask)
+        return {(int(min_x + x), int(min_y + y)) for y, x in zip(ys.tolist(), xs.tolist(), strict=False)}
     pixels: set[tuple[int, int]] = set()
     min_x = max(0, int(math.floor(metric_box.center_x - metric_box.width / 2 - 1)))
     max_x = min(len(image[0]) - 1, int(math.ceil(metric_box.center_x + metric_box.width / 2 + 1)))
@@ -613,6 +765,20 @@ def _select_foreground_pixels(
     return pixels
 
 
+def _select_foreground_mask(
+    array_view: np.ndarray,
+    metric_box: MetricBox,
+    *,
+    threshold_value: float,
+    foreground_polarity: str,
+) -> tuple[np.ndarray, int, int]:
+    min_x, max_x, min_y, max_y = _metric_box_bounds(metric_box, width=array_view.shape[1], height=array_view.shape[0])
+    region = array_view[min_y : max_y + 1, min_x : max_x + 1]
+    metric_mask = _metric_box_mask(metric_box, min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y)
+    foreground_mask = region <= threshold_value if foreground_polarity == "dark_on_light" else region >= threshold_value
+    return metric_mask & foreground_mask, min_x, min_y
+
+
 def _select_foreground_pixels_in_region(
     image: list[list[int]],
     region: RectRegion,
@@ -620,6 +786,14 @@ def _select_foreground_pixels_in_region(
     threshold_value: float,
     foreground_polarity: str,
 ) -> set[tuple[int, int]]:
+    array_view = _as_grayscale_ndarray(image)
+    if array_view is not None:
+        max_y = min(array_view.shape[0], region.y + region.height)
+        max_x = min(array_view.shape[1], region.x + region.width)
+        roi = array_view[region.y:max_y, region.x:max_x]
+        foreground_mask = roi <= threshold_value if foreground_polarity == "dark_on_light" else roi >= threshold_value
+        ys, xs = np.nonzero(foreground_mask)
+        return {(int(region.x + x), int(region.y + y)) for y, x in zip(ys.tolist(), xs.tolist(), strict=False)}
     pixels: set[tuple[int, int]] = set()
     max_y = min(len(image), region.y + region.height)
     max_x = min(len(image[0]), region.x + region.width)
@@ -632,9 +806,151 @@ def _select_foreground_pixels_in_region(
     return pixels
 
 
+def _select_foreground_region_mask(
+    array_view: np.ndarray,
+    region: RectRegion,
+    *,
+    threshold_value: float,
+    foreground_polarity: str,
+) -> tuple[np.ndarray, int, int]:
+    max_y = min(array_view.shape[0], region.y + region.height)
+    max_x = min(array_view.shape[1], region.x + region.width)
+    roi = array_view[region.y:max_y, region.x:max_x]
+    foreground_mask = roi <= threshold_value if foreground_polarity == "dark_on_light" else roi >= threshold_value
+    return foreground_mask, region.x, region.y
+
+
 def _threshold_margin_for_sensitivity(base_margin: float, sensitivity: float) -> float:
     normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
     return max(2.0, float(base_margin) * (0.5 + normalized))
+
+
+def _as_grayscale_ndarray(image: Any) -> np.ndarray | None:
+    if isinstance(image, np.ndarray):
+        return image
+    if all(hasattr(image, attr) for attr in ("_buffer", "width", "height")):
+        try:
+            width = int(getattr(image, "width"))
+            height = int(getattr(image, "height"))
+            buffer_bytes = getattr(image, "_buffer")
+        except Exception:
+            return None
+        if width < 1 or height < 1:
+            return None
+        try:
+            return np.frombuffer(buffer_bytes, dtype=np.uint8, count=width * height).reshape(height, width)
+        except Exception:
+            return None
+    return None
+
+
+def _metric_box_bounds(metric_box: MetricBox, *, width: int, height: int) -> tuple[int, int, int, int]:
+    min_x = max(0, int(math.floor(metric_box.center_x - metric_box.width / 2 - 1)))
+    max_x = min(width - 1, int(math.ceil(metric_box.center_x + metric_box.width / 2 + 1)))
+    min_y = max(0, int(math.floor(metric_box.center_y - metric_box.height / 2 - 1)))
+    max_y = min(height - 1, int(math.ceil(metric_box.center_y + metric_box.height / 2 + 1)))
+    return min_x, max_x, min_y, max_y
+
+
+def _metric_box_mask(
+    metric_box: MetricBox,
+    *,
+    min_x: int,
+    max_x: int,
+    min_y: int,
+    max_y: int,
+) -> np.ndarray:
+    y_coords, x_coords = np.ogrid[min_y : max_y + 1, min_x : max_x + 1]
+    angle_rad = math.radians(metric_box.angle_deg)
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = x_coords - float(metric_box.center_x)
+    translated_y = y_coords - float(metric_box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    return (np.abs(local_x) <= (metric_box.width / 2)) & (np.abs(local_y) <= (metric_box.height / 2))
+
+
+def _pixel_coords_array(pixels: Sequence[tuple[int, int]] | set[tuple[int, int]]) -> np.ndarray:
+    if isinstance(pixels, np.ndarray):
+        return pixels.astype(np.int32, copy=False)
+    if not pixels:
+        return np.empty((0, 2), dtype=np.int32)
+    return np.asarray(list(pixels), dtype=np.int32)
+
+
+def _pixels_to_mask(pixels: Sequence[tuple[int, int]] | set[tuple[int, int]]) -> tuple[np.ndarray, int, int]:
+    coords = _pixel_coords_array(pixels)
+    if len(coords) == 0:
+        return np.zeros((0, 0), dtype=bool), 0, 0
+    min_x = int(coords[:, 0].min())
+    max_x = int(coords[:, 0].max())
+    min_y = int(coords[:, 1].min())
+    max_y = int(coords[:, 1].max())
+    mask = np.zeros((max_y - min_y + 1, max_x - min_x + 1), dtype=bool)
+    mask[coords[:, 1] - min_y, coords[:, 0] - min_x] = True
+    return mask, min_x, min_y
+
+
+def _mask_to_pixels(mask: np.ndarray, *, min_x: int, min_y: int) -> set[tuple[int, int]]:
+    ys, xs = np.nonzero(mask)
+    return {(int(min_x + x), int(min_y + y)) for y, x in zip(ys.tolist(), xs.tolist(), strict=False)}
+
+
+def _component_from_mask(mask: np.ndarray, *, min_x: int, min_y: int) -> _Component:
+    ys, xs = np.nonzero(mask)
+    coords = np.column_stack((xs + int(min_x), ys + int(min_y))).astype(np.int32, copy=False)
+    return _Component(coords=coords)
+
+
+def _best_local_band_index(coords: np.ndarray, local_y: np.ndarray, candidate_mask: np.ndarray) -> int:
+    candidate_indices = np.flatnonzero(candidate_mask)
+    candidate_local_abs_y = np.abs(local_y[candidate_indices])
+    candidate_y = coords[candidate_indices, 1]
+    candidate_x = coords[candidate_indices, 0]
+    order = np.lexsort((candidate_x, candidate_y, candidate_local_abs_y))
+    return int(candidate_indices[int(order[0])])
+
+
+def _longest_true_run(mask: np.ndarray) -> tuple[int | None, int | None]:
+    best_start: int | None = None
+    best_end: int | None = None
+    current_start: int | None = None
+    for idx, flag in enumerate(mask.tolist()):
+        if flag and current_start is None:
+            current_start = idx
+        elif not flag and current_start is not None:
+            current_end = idx - 1
+            if best_start is None or (current_end - current_start) > (best_end - best_start):
+                best_start = current_start
+                best_end = current_end
+            current_start = None
+    if current_start is not None:
+        current_end = len(mask) - 1
+        if best_start is None or (current_end - current_start) > (best_end - best_start):
+            best_start = current_start
+            best_end = current_end
+    return best_start, best_end
+
+
+def _fill_small_false_runs_1d(mask: np.ndarray, *, max_gap_bins: int) -> np.ndarray:
+    if mask.ndim != 1:
+        raise ValueError("mask must be one-dimensional")
+    if mask.size == 0 or max_gap_bins <= 0:
+        return mask
+
+    filled = mask.astype(bool, copy=True)
+    true_indices = np.flatnonzero(filled)
+    if len(true_indices) < 2:
+        return filled
+
+    previous = int(true_indices[0])
+    for current in true_indices[1:]:
+        gap = int(current) - previous - 1
+        if 0 < gap <= max_gap_bins:
+            filled[previous + 1 : int(current)] = True
+        previous = int(current)
+    return filled
 
 
 def _texture_gap_px_for_sensitivity(sensitivity: float) -> int:
@@ -645,65 +961,105 @@ def _texture_gap_px_for_sensitivity(sensitivity: float) -> int:
 def _fill_internal_texture(pixels: set[tuple[int, int]], *, max_gap_px: int = 8) -> set[tuple[int, int]]:
     if not pixels:
         return set()
-    filled = set(pixels)
-
-    # Bridge only short gaps so we suppress local texture holes without merging
-    # unrelated foreground regions across the full ROI.
-    rows: dict[int, list[int]] = {}
-    columns: dict[int, list[int]] = {}
-    for x, y in pixels:
-        rows.setdefault(y, []).append(x)
-        columns.setdefault(x, []).append(y)
-
-    for y, xs in rows.items():
-        sorted_xs = sorted(xs)
-        for left, right in zip(sorted_xs, sorted_xs[1:]):
-            gap = right - left - 1
-            if 0 < gap <= max_gap_px:
-                filled.update((x, y) for x in range(left, right + 1))
-
-    for x, ys in columns.items():
-        sorted_ys = sorted(ys)
-        for top, bottom in zip(sorted_ys, sorted_ys[1:]):
-            gap = bottom - top - 1
-            if 0 < gap <= max_gap_px:
-                filled.update((x, y) for y in range(top, bottom + 1))
-
-    return filled
+    mask, min_x, min_y = _pixels_to_mask(pixels)
+    filled = _fill_internal_texture_mask(mask, max_gap_px=max_gap_px)
+    return _mask_to_pixels(filled, min_x=min_x, min_y=min_y)
 
 
-def _roi_local_horizontal_boundary_points(pixels: list[tuple[int, int]], roi_box: MetricBox) -> tuple[PixelPoint, PixelPoint]:
-    if not pixels:
+def _fill_internal_texture_mask(mask: np.ndarray, *, max_gap_px: int = 8) -> np.ndarray:
+    if mask.size == 0:
+        return mask
+    kernel_span = max(2, int(max_gap_px) + 1)
+    horizontal = ndimage.binary_closing(mask, structure=np.ones((1, kernel_span), dtype=bool))
+    vertical = ndimage.binary_closing(mask, structure=np.ones((kernel_span, 1), dtype=bool))
+    return horizontal | vertical | mask
+
+
+def _roi_local_horizontal_boundary_points(
+    pixels: Sequence[tuple[int, int]] | np.ndarray,
+    roi_box: MetricBox,
+) -> tuple[PixelPoint, PixelPoint]:
+    if len(pixels) == 0:
+        raise ValueError("pixels must not be empty")
+
+    coords = _pixel_coords_array(pixels)
+    angle_rad = math.radians(float(roi_box.angle_deg))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = coords[:, 0].astype(np.float64) - float(roi_box.center_x)
+    translated_y = coords[:, 1].astype(np.float64) - float(roi_box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+
+    max_band = max(1.0, float(roi_box.height) / 2.0)
+    band = 0.75
+    selected_mask = np.ones(len(coords), dtype=bool)
+    while band <= max_band:
+        candidate_mask = np.abs(local_y) <= band
+        if int(np.count_nonzero(candidate_mask)) >= 2:
+            selected_mask = candidate_mask
+            break
+        band += 0.5
+
+    selected_local_x = local_x[selected_mask]
+    min_local_x = float(selected_local_x.min())
+    max_local_x = float(selected_local_x.max())
+    left_mask = selected_mask & (np.abs(local_x - min_local_x) <= 0.5)
+    right_mask = selected_mask & (np.abs(local_x - max_local_x) <= 0.5)
+    left_index = _best_local_band_index(coords, local_y, left_mask)
+    right_index = _best_local_band_index(coords, local_y, right_mask)
+    left = coords[left_index]
+    right = coords[right_index]
+    return PixelPoint(x=int(left[0]), y=int(left[1])), PixelPoint(x=int(right[0]), y=int(right[1]))
+
+
+def _roi_local_horizontal_boundary_object_coords(
+    pixels: Sequence[tuple[int, int]] | np.ndarray,
+    roi_box: MetricBox,
+) -> np.ndarray:
+    coords = _pixel_coords_array(pixels)
+    if len(coords) == 0:
         raise ValueError("pixels must not be empty")
 
     angle_rad = math.radians(float(roi_box.angle_deg))
     cos_theta = math.cos(angle_rad)
     sin_theta = math.sin(angle_rad)
-    local_points: list[tuple[int, int, float, float]] = []
-    for x, y in pixels:
-        translated_x = x - float(roi_box.center_x)
-        translated_y = y - float(roi_box.center_y)
-        local_x = translated_x * cos_theta + translated_y * sin_theta
-        local_y = -translated_x * sin_theta + translated_y * cos_theta
-        local_points.append((x, y, local_x, local_y))
+    translated_x = coords[:, 0].astype(np.float64) - float(roi_box.center_x)
+    translated_y = coords[:, 1].astype(np.float64) - float(roi_box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
 
     max_band = max(1.0, float(roi_box.height) / 2.0)
     band = 0.75
-    selected_band = local_points
+    best_mask = np.ones(len(coords), dtype=bool)
+    best_span = -1
+
     while band <= max_band:
-        candidates = [point for point in local_points if abs(point[3]) <= band]
-        if len(candidates) >= 2:
-            selected_band = candidates
-            break
+        band_mask = np.abs(local_y) <= band
+        if int(np.count_nonzero(band_mask)) < 2:
+            band += 0.5
+            continue
+        candidate_indices = np.flatnonzero(band_mask)
+        candidate_local_x = np.rint(local_x[candidate_indices]).astype(np.int32)
+        min_bin = int(candidate_local_x.min())
+        max_bin = int(candidate_local_x.max())
+        occupancy = np.zeros(max_bin - min_bin + 1, dtype=bool)
+        occupancy[candidate_local_x - min_bin] = True
+        closed = _fill_small_false_runs_1d(occupancy, max_gap_bins=1)
+        start, end = _longest_true_run(closed)
+        if start is None or end is None:
+            band += 0.5
+            continue
+        run_left = min_bin + start - 0.5
+        run_right = min_bin + end + 0.5
+        run_mask = band_mask & (local_x >= run_left) & (local_x <= run_right)
+        run_span = end - start
+        if run_span > best_span and int(np.count_nonzero(run_mask)) >= 2:
+            best_mask = run_mask
+            best_span = run_span
         band += 0.5
 
-    min_local_x = min(point[2] for point in selected_band)
-    max_local_x = max(point[2] for point in selected_band)
-    left_candidates = [point for point in selected_band if abs(point[2] - min_local_x) <= 0.5]
-    right_candidates = [point for point in selected_band if abs(point[2] - max_local_x) <= 0.5]
-    left = min(left_candidates, key=lambda point: (abs(point[3]), point[1], point[0]))
-    right = min(right_candidates, key=lambda point: (abs(point[3]), point[1], point[0]))
-    return PixelPoint(x=left[0], y=left[1]), PixelPoint(x=right[0], y=right[1])
+    return coords[best_mask]
 
 
 def _pick_target_component(
@@ -714,51 +1070,79 @@ def _pick_target_component(
 ) -> _Component | None:
     if not pixels:
         return None
-    remaining = set(pixels)
-    components: list[_Component] = []
-    while remaining:
-        start = remaining.pop()
-        queue: deque[tuple[int, int]] = deque([start])
-        component_pixels = [start]
-        while queue:
-            current_x, current_y = queue.popleft()
-            for next_x, next_y in _neighbors(current_x, current_y):
-                if (next_x, next_y) not in remaining:
-                    continue
-                remaining.remove((next_x, next_y))
-                queue.append((next_x, next_y))
-                component_pixels.append((next_x, next_y))
-        components.append(_Component(pixels=component_pixels))
-
-    valid_components = [component for component in components if component.area >= min_area_px]
-    if not valid_components:
-        return None
-    if selection_region is None:
-        return max(valid_components, key=lambda component: (component.area, len(component.pixels)))
-    return max(
-        valid_components,
-        key=lambda component: _roi_component_selection_key(component, selection_region),
+    mask, min_x, min_y = _pixels_to_mask(pixels)
+    return _pick_target_component_from_mask(
+        mask,
+        min_area_px,
+        min_x=min_x,
+        min_y=min_y,
+        selection_region=selection_region,
     )
 
 
+def _pick_target_component_from_mask(
+    mask: np.ndarray,
+    min_area_px: int,
+    *,
+    min_x: int,
+    min_y: int,
+    selection_region: RectRegion | None = None,
+) -> _Component | None:
+    if mask.size == 0 or not bool(mask.any()):
+        return None
+    labels, component_count = ndimage.label(mask, structure=np.ones((3, 3), dtype=np.uint8))
+    if component_count == 0:
+        return None
+    component_ids = np.arange(1, component_count + 1, dtype=np.int32)
+    component_areas = ndimage.sum(mask, labels=labels, index=component_ids)
+    valid_ids = component_ids[np.asarray(component_areas) >= float(min_area_px)]
+    if len(valid_ids) == 0:
+        return None
+    if selection_region is None:
+        best_component_id = int(
+            valid_ids[
+                int(
+                    np.argmax(
+                        np.asarray(component_areas, dtype=np.float64)[valid_ids - 1],
+                    )
+                )
+            ]
+        )
+        return _component_from_mask(labels == best_component_id, min_x=min_x, min_y=min_y)
+
+    best_component: _Component | None = None
+    best_key: tuple[float, float, int, int, float] | None = None
+    for component_id in valid_ids.tolist():
+        component = _component_from_mask(labels == int(component_id), min_x=min_x, min_y=min_y)
+        component_key = _roi_component_selection_key(component, selection_region)
+        if best_key is None or component_key > best_key:
+            best_component = component
+            best_key = component_key
+    return best_component
+
+
 def _component_border_touch_count(component: _Component, region: RectRegion) -> int:
-    touches_left = any(x == region.x for x, _ in component.pixels)
-    touches_right = any(x == (region.x + region.width - 1) for x, _ in component.pixels)
-    touches_top = any(y == region.y for _, y in component.pixels)
-    touches_bottom = any(y == (region.y + region.height - 1) for _, y in component.pixels)
+    coords = component.coords
+    touches_left = bool(np.any(coords[:, 0] == region.x))
+    touches_right = bool(np.any(coords[:, 0] == (region.x + region.width - 1)))
+    touches_top = bool(np.any(coords[:, 1] == region.y))
+    touches_bottom = bool(np.any(coords[:, 1] == (region.y + region.height - 1)))
     return sum((touches_left, touches_right, touches_top, touches_bottom))
 
 
 def _component_border_pixel_count(component: _Component, region: RectRegion) -> int:
-    return sum(
-        1
-        for x, y in component.pixels
-        if x == region.x or x == (region.x + region.width - 1) or y == region.y or y == (region.y + region.height - 1)
+    coords = component.coords
+    border_mask = (
+        (coords[:, 0] == region.x)
+        | (coords[:, 0] == (region.x + region.width - 1))
+        | (coords[:, 1] == region.y)
+        | (coords[:, 1] == (region.y + region.height - 1))
     )
+    return int(np.count_nonzero(border_mask))
 
 
 def _roi_component_selection_key(component: _Component, region: RectRegion) -> tuple[float, float, int, int, float]:
-    point_a, point_b, _selection_axis = _axis_aligned_span_points(component.pixels)
+    point_a, point_b, _selection_axis = _axis_aligned_span_points(component.coords)
     span = _distance_between(point_a, point_b)
     region_area = max(region.width * region.height, 1)
     region_diagonal = max(math.hypot(region.width, region.height), 1.0)
@@ -772,62 +1156,46 @@ def _roi_component_selection_key(component: _Component, region: RectRegion) -> t
     return (objectness, span, component.area, -border_touch_count, -border_pixel_ratio)
 
 
-def _neighbors(x: int, y: int) -> list[tuple[int, int]]:
-    return [
-        (x - 1, y - 1),
-        (x, y - 1),
-        (x + 1, y - 1),
-        (x - 1, y),
-        (x + 1, y),
-        (x - 1, y + 1),
-        (x, y + 1),
-        (x + 1, y + 1),
-    ]
-
-
-def _axis_extreme_points(pixels: list[tuple[int, int]], angle_deg: float) -> tuple[PixelPoint, PixelPoint]:
+def _axis_extreme_points(pixels: Sequence[tuple[int, int]] | np.ndarray, angle_deg: float) -> tuple[PixelPoint, PixelPoint]:
+    coords = _pixel_coords_array(pixels)
+    if len(coords) == 0:
+        raise ValueError("pixels must not be empty")
     angle_rad = math.radians(angle_deg)
     axis_x = math.cos(angle_rad)
     axis_y = math.sin(angle_rad)
     orthogonal_x = -axis_y
     orthogonal_y = axis_x
-
-    def _project_axis(point: tuple[int, int]) -> float:
-        return point[0] * axis_x + point[1] * axis_y
-
-    def _project_orthogonal(point: tuple[int, int]) -> float:
-        return point[0] * orthogonal_x + point[1] * orthogonal_y
-
-    min_projection = min(_project_axis(point) for point in pixels)
-    max_projection = max(_project_axis(point) for point in pixels)
-
-    start_candidates = [point for point in pixels if abs(_project_axis(point) - min_projection) < 1e-6]
-    end_candidates = [point for point in pixels if abs(_project_axis(point) - max_projection) < 1e-6]
-
-    start = _median_orthogonal_point(start_candidates, _project_orthogonal)
-    end = _median_orthogonal_point(end_candidates, _project_orthogonal)
-    return (PixelPoint(x=start[0], y=start[1]), PixelPoint(x=end[0], y=end[1]))
+    axis_projection = coords[:, 0] * axis_x + coords[:, 1] * axis_y
+    orthogonal_projection = coords[:, 0] * orthogonal_x + coords[:, 1] * orthogonal_y
+    min_projection = float(axis_projection.min())
+    max_projection = float(axis_projection.max())
+    start_candidates = coords[np.abs(axis_projection - min_projection) < 1e-6]
+    end_candidates = coords[np.abs(axis_projection - max_projection) < 1e-6]
+    start = _median_orthogonal_coord(start_candidates, orthogonal_projection[np.abs(axis_projection - min_projection) < 1e-6])
+    end = _median_orthogonal_coord(end_candidates, orthogonal_projection[np.abs(axis_projection - max_projection) < 1e-6])
+    return (PixelPoint(x=int(start[0]), y=int(start[1])), PixelPoint(x=int(end[0]), y=int(end[1])))
 
 
-def _axis_aligned_span_points(pixels: list[tuple[int, int]]) -> tuple[PixelPoint, PixelPoint, str]:
-    if not pixels:
+def _axis_aligned_span_points(pixels: Sequence[tuple[int, int]] | np.ndarray) -> tuple[PixelPoint, PixelPoint, str]:
+    coords = _pixel_coords_array(pixels)
+    if len(coords) == 0:
         raise ValueError("pixels must not be empty")
-    if len(pixels) == 1:
-        point = pixels[0]
-        return PixelPoint(x=point[0], y=point[1]), PixelPoint(x=point[0], y=point[1]), "horizontal"
+    if len(coords) == 1:
+        point = coords[0]
+        return PixelPoint(x=int(point[0]), y=int(point[1])), PixelPoint(x=int(point[0]), y=int(point[1])), "horizontal"
 
-    min_x = min(point[0] for point in pixels)
-    max_x = max(point[0] for point in pixels)
-    min_y = min(point[1] for point in pixels)
-    max_y = max(point[1] for point in pixels)
+    min_x = int(coords[:, 0].min())
+    max_x = int(coords[:, 0].max())
+    min_y = int(coords[:, 1].min())
+    max_y = int(coords[:, 1].max())
     horizontal_span = max_x - min_x
     vertical_span = max_y - min_y
 
     if horizontal_span >= vertical_span:
-        shared_y = _median_scalar(point[1] for point in pixels)
+        shared_y = _median_scalar(coords[:, 1])
         return PixelPoint(x=min_x, y=shared_y), PixelPoint(x=max_x, y=shared_y), "horizontal"
 
-    shared_x = _median_scalar(point[0] for point in pixels)
+    shared_x = _median_scalar(coords[:, 0])
     return PixelPoint(x=shared_x, y=min_y), PixelPoint(x=shared_x, y=max_y), "vertical"
 
 
@@ -847,19 +1215,17 @@ def _longest_span_points(pixels: list[tuple[int, int]]) -> tuple[PixelPoint, Pix
     return PixelPoint(x=start[0], y=start[1]), PixelPoint(x=end[0], y=end[1])
 
 
-def _median_orthogonal_point(
-    candidates: list[tuple[int, int]],
-    orthogonal_projection: Any,
-) -> tuple[int, int]:
-    sorted_candidates = sorted(candidates, key=orthogonal_projection)
-    return sorted_candidates[len(sorted_candidates) // 2]
+def _median_orthogonal_coord(candidates: np.ndarray, orthogonal_projection: np.ndarray) -> np.ndarray:
+    order = np.argsort(orthogonal_projection, kind="stable")
+    return candidates[int(order[len(order) // 2])]
 
 
-def _median_scalar(values: Sequence[int]) -> int:
-    sorted_values = sorted(values)
-    if not sorted_values:
+def _median_scalar(values: Sequence[int] | np.ndarray) -> int:
+    if len(values) == 0:
         raise ValueError("values must not be empty")
-    return int(sorted_values[len(sorted_values) // 2])
+    array = np.asarray(values, dtype=np.int32).reshape(-1)
+    order = np.argsort(array, kind="stable")
+    return int(array[int(order[len(order) // 2])])
 
 
 def _score_quality(
@@ -991,4 +1357,7 @@ def _point_in_region(region: RectRegion, x: int, y: int) -> bool:
 
 
 def _point_in_region_float(region: RectRegion, x: float, y: float) -> bool:
-    return region.x <= x <= (region.x + region.width) and region.y <= y <= (region.y + region.height)
+    return (
+        (region.x - ROI_FLOAT_EPSILON) <= x <= (region.x + region.width + ROI_FLOAT_EPSILON)
+        and (region.y - ROI_FLOAT_EPSILON) <= y <= (region.y + region.height + ROI_FLOAT_EPSILON)
+    )

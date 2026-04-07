@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -10,13 +11,18 @@ from fastapi.responses import Response
 
 from src.application.runtime_config import RuntimeConfig
 from src.curve.afas_postprocessing_analysis import analyze_preprocessed_afas_channel
+from src.curve.afas_dataset_import import (
+    build_imported_session_detail,
+    build_imported_session_result,
+    normalize_imported_afas_dataset,
+)
 from src.curve.afas_postprocessing_export import (
     build_afas_analysis_png_bytes,
     build_afas_excel_report_bytes,
 )
 from src.curve.afas_preprocessing import preprocess_afas_channel
 from src.storage.session_artifacts import SessionArtifactStore
-from src.storage.sqlite_repo import SqliteSessionRepo
+from src.storage.sqlite_repo import SessionSummary, SqliteSessionRepo
 from src.webapp.deps import (
     get_adjustment_service,
     get_runtime_config,
@@ -93,6 +99,70 @@ def run_replay_session(
             detail=str(exc),
         ) from exc
 
+    return SessionSummaryResponse(
+        session_id=summary.session_id,
+        state=summary.state,
+        point_count=summary.point_count,
+        af95=summary.af95,
+    )
+
+
+@router.post("/import-afas-dataset", response_model=SessionSummaryResponse)
+def import_afas_dataset(
+    payload: dict[str, Any],
+    repo: SqliteSessionRepo = Depends(get_session_repo),
+    artifact_store: SessionArtifactStore = Depends(get_session_artifact_store),
+) -> SessionSummaryResponse:
+    requested_session_id = str(payload.get("session_id") or f"import-{uuid.uuid4().hex[:12]}")
+    if repo.get_summary(requested_session_id) is not None or artifact_store.session_exists(requested_session_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Session already exists: {requested_session_id}",
+        )
+
+    try:
+        dataset = normalize_imported_afas_dataset(payload, session_id=requested_session_id)
+        detail = build_imported_session_detail(dataset)
+        preprocessing = preprocess_afas_channel(dataset, channel_name=str(dataset["active_channel"]))
+        analysis = analyze_preprocessed_afas_channel(preprocessing)
+        resolved = {
+            "active_channel": str(dataset["active_channel"]),
+            "available_channels": [str(name) for name in dict(dataset["channel_map"]).keys()],
+            "overview": [
+                _build_afas_overview_item(
+                    dataset,
+                    channel_name=str(channel_name),
+                    preprocessing_overrides=None,
+                    analysis_overrides=None,
+                )
+                for channel_name in dict(dataset["channel_map"]).keys()
+            ],
+            "preprocessing": preprocessing,
+            "analysis": analysis,
+        }
+        result = build_imported_session_result(
+            dataset,
+            analysis=analysis,
+            point_count=int(detail["point_count"]),
+        )
+    except (KeyError, ValueError) as exc:
+        _raise_afas_validation_error(exc)
+
+    artifact_store.save_imported_afas_bundle(
+        requested_session_id,
+        detail=detail,
+        afas_dataset=dataset,
+        result=result,
+        afas_analysis=_build_afas_analysis_response_payload(requested_session_id, resolved),
+    )
+    summary = SessionSummary(
+        session_id=requested_session_id,
+        state="completed",
+        point_count=int(detail["point_count"]),
+        af95=detail["af95"],
+        created_at_ms=int(time.time() * 1000),
+    )
+    repo.save_summary(summary)
     return SessionSummaryResponse(
         session_id=summary.session_id,
         state=summary.state,

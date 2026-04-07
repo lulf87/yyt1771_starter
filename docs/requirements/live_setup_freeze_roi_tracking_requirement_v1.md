@@ -1,6 +1,6 @@
 # Live Setup Freeze / ROI / Tracking Requirement v1
 
-Updated on 2026-03-25
+Updated on 2026-04-01
 Status: CANONICAL_REQUIREMENT_ADDENDUM
 Supersedes (where conflicting): `live_setup_roi_ab_window_requirement_v1.md`
 
@@ -65,15 +65,19 @@ Supersedes (where conflicting): `live_setup_roi_ab_window_requirement_v1.md`
 3. 操作员点击 `Freeze`
 4. 操作员绘制 `ROI`
 5. 系统在该 ROI 内自动计算起始 `A-B`
-6. 如果需要，操作员可继续调整：
+6. 如果当前 frozen frame 不合适，操作员可点击 `解除冻结` 回到 live preview，再重新 `Freeze`
+7. 如果需要，操作员可继续调整：
    - ROI 中心点位置
    - ROI 宽高
    - ROI 角度
    - 灵敏度参数
-7. 每次 ROI 或灵敏度发生变化时，系统必须重新抓取一帧并重新计算起始 `A-B`
-8. 操作员确认目标温度
-9. 点击 `Start Live Run`
-10. 进入 live test：
+8. 每次重新计算 `A-B` 时，系统都必须重新抓取一帧，并基于这张新帧计算结果
+9. 操作员确认温控设置：
+   - 目标温度
+   - 手动方式
+   - 温度功率
+10. 点击 `Start Live Run`
+11. 进入 live test：
     - 相机恢复实时刷新
     - `A-B` 实时刷新
     - 形变只在该 ROI 内捕捉和更新
@@ -89,10 +93,16 @@ Supersedes (where conflicting): `live_setup_roi_ab_window_requirement_v1.md`
 唯一保留的 preview lifecycle 按钮是：
 
 - `Freeze`
+- `解除冻结`
 
 其正式语义是：
 
-> 停止实时预览并保留最后一帧，供 ROI 编辑和起始点重新计算使用。
+- `Freeze`
+  - 停止实时预览并保留最后一帧，供 ROI 编辑和起始点重新计算使用
+- `解除冻结`
+  - 放弃当前 frozen setup frame
+  - 返回 live preview
+  - 允许操作员重新选择抓帧时机
 
 ---
 
@@ -110,17 +120,29 @@ Supersedes (where conflicting): `live_setup_roi_ab_window_requirement_v1.md`
 
 如果系统内部仍保留对应状态或 API，这些都应视为实现细节，而不是 operator-facing workflow。
 
-### R2. `Stop Live Preview` is renamed to `Freeze`
+### R2. `Freeze` and `解除冻结` are the only operator-facing preview lifecycle actions
 
-用户可见按钮必须保留为：
+用户可见的 preview lifecycle 按钮必须冻结为：
 
 - `Freeze`
+- `解除冻结`
 
-它的冻结语义为：
+这意味着：
 
-- 停止当前 live preview
-- 保留最后一帧
-- 进入可编辑 setup 状态
+- 不再保留旧的 `Stop Live Preview`
+- 不再保留 `Fetch Preview`
+- 不再保留 `Start Live Preview`
+
+其语义分别为：
+
+- `Freeze`
+  - 停止当前 live preview
+  - 保留最后一帧
+  - 进入可编辑 setup 状态
+- `解除冻结`
+  - 清掉当前 frozen setup frame 的“正在编辑”状态
+  - 返回 live preview
+  - 等待用户重新 `Freeze`
 
 ---
 
@@ -172,21 +194,40 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 - ROI 参数面板必须保留中心点和大小字段
 - 同时新增并保留 `angle` 显示与设置功能
 
-### R5. Any ROI change requires recapture + recompute
+### R5. Any A/B recompute requires a newly captured frame
 
-下列任意变化，都必须触发：
+从当前 requirement 起，规则不再只是“某些参数变化时要不要重算”，而是：
 
-- 重新抓取一帧
-- 重新计算起始 `A-B`
+> 只要发生一次新的 `A-B` 计算，就必须先抓一张新帧。
 
-变化包括：
+系统必须：
+
+1. 重新抓取一帧
+2. 用这张新帧替换当前 frozen setup frame
+3. 再重新计算起始 `A-B`
+
+会触发这一流程的事件至少包括：
 
 - ROI 中心点变化
 - ROI 尺寸变化
 - ROI 角度变化
 - 灵敏度变化
+- 操作员主动要求重新计算
+- `解除冻结` 后重新 `Freeze`
 
-这条 requirement 的目的，是避免用户看到的几何定义和当前起始点不一致。
+这条触发规则的粒度冻结为“提交型事件”，至少包括：
+
+- 图上拖拽 / 缩放 / 旋转结束时
+- ROI 数值字段提交或失焦确认时
+- `Sensitivity` 滑块释放或显式确认时
+- 操作员点击 `重新计算` 时
+
+也就是说：
+
+- 系统可以在连续拖动或连续滑动过程中只更新本地预览态
+- 但不得要求在每一个中间采样点都重新抓帧
+
+这条 requirement 的目的，是避免用户看到的 frozen frame、当前几何定义和 `A-B` 结果错位。
 
 ---
 
@@ -236,11 +277,24 @@ Auto detect 的目标不是任意找两个显著点，而是：
 - `A-B` 必须实时刷新
 - 以便操作员直接看到 ROI 内最大形变位置变化
 
+### R9. Manual A/B is removed from the current operator flow
+
+当前 live setup requirement 明确取消下面这些 operator-facing 能力：
+
+- 手动放置 `Point A`
+- 手动放置 `Point B`
+- 手动 `A/B` 校正面板
+- 把手动 `A/B` 作为默认 setup 链路的一环
+
+当前合法语义是：
+
+> setup 阶段的 `A-B` 只允许来自自动检测。
+
 ---
 
 ## Frozen Sensitivity Requirement
 
-### R9. Sensitivity is a first-class setup parameter
+### R10. Sensitivity is a first-class setup parameter
 
 系统必须新增一个 operator-facing 参数：
 
@@ -257,7 +311,20 @@ Auto detect 的目标不是任意找两个显著点，而是：
 
 > 当前 live setup requirement 的正式组成部分。
 
-### R10. Sensitivity participates in point recomputation
+### R11. Sensitivity must have a directional meaning
+
+当前 requirement 明确冻结 sensitivity 的 operator-facing 含义：
+
+- sensitivity 调大：
+  - 更容易把弱对比、细网格、局部孔洞或小断裂视为同一连续目标
+  - 检测结果更宽松、更容易连成一体
+- sensitivity 调小：
+  - 更严格地区分目标与空白
+  - 检测结果更保守、更容易收缩或分裂
+
+UI 或帮助文案至少必须把“大 / 小”的方向意义表达清楚。
+
+### R12. Sensitivity participates in point recomputation
 
 只要 sensitivity 被修改，系统就必须：
 
@@ -268,7 +335,7 @@ Auto detect 的目标不是任意找两个显著点，而是：
 
 ## Frozen Temperature UI Requirement
 
-### R11. Current temperature display is required
+### R13. Current temperature display is required
 
 界面上必须新增并显示：
 
@@ -276,25 +343,52 @@ Auto detect 的目标不是任意找两个显著点，而是：
 
 其数据来源应是当前温控链实时读数。
 
-### R12. Target temperature requires explicit confirmation
+### R14. Temperature settings require explicit bundled confirmation
 
-界面上必须保留目标温度输入框，并新增：
+界面上必须保留并新增下面这些温控设置项：
 
-- `Confirm Target Temperature`
+- `Target Temperature`
+- `Control Mode = Manual`
+- `Temperature Power`
+
+并新增一个显式确认动作，例如：
+
+- `Confirm Temperature Settings`
 
 或语义等价的确认按钮。
 
 当前 requirement 明确要求：
 
 - 修改目标温度输入值
-- 不应等价于已经确认下发
-- 必须有显式确认动作
+- 修改功率值
+- 改变温控方式
+
+都不应等价于已经确认下发。
+
+必须有一次显式确认动作，把：
+
+- 目标温度
+- 手动方式
+- 温度功率
+
+作为一个设置包整体确认。
+
+这 3 个字段的 ownership 当前冻结为：
+
+- 它们属于当前 run 的 operator-confirmed temperature settings bundle
+- profile 可以提供默认值，但不能替代界面当前显示值与本次确认值
+- route / schema / workflow state 必须能携带：
+  - target temperature
+  - control mode = manual
+  - power
+  - confirmed / unconfirmed state
+- 具体寄存器写入时机与设备启停细节，仍由 `temp` adapter 决定
 
 ---
 
 ## Frozen Live Run Behavior
 
-### R13. Live run uses ROI as the deformation capture region
+### R15. Live run uses ROI as the deformation capture region
 
 点击 `Start Live Run` 后，后续形变计算和 tracking 必须只发生在当前 ROI 内。
 
@@ -306,7 +400,7 @@ Auto detect 的目标不是任意找两个显著点，而是：
 
 > ROI = setup search region = live deformation capture region
 
-### R14. Live run preview must remain visually live
+### R16. Live run preview must remain visually live
 
 进入测试后，操作员不能失去图像反馈。
 
@@ -324,10 +418,14 @@ Auto detect 的目标不是任意找两个显著点，而是：
 - 启动项目后仍要求用户点击 `Create Live Run`
 - 仍要求用户点击 `Fetch Preview`
 - 仍要求用户点击 `Start Live Preview`
+- 没有 `解除冻结`，只能单向 `Freeze`
 - 使用 `Draw Window` / `Rotate Window` 作为主设置流程
 - 先定义 window，再由 window 驱动 auto detect
 - 在整张图世界坐标系里固定按水平/垂直找 `A-B`
+- 任何一次 `A-B` 重算仍复用旧 frozen frame
 - ROI 改动后不重新抓帧、不重算点位
+- 保留手动 `A/B` 作为当前 operator 主流程能力
+- 温控确认仍只确认目标温度，而不同时确认手动方式与功率
 - 开始测试后不继续实时刷新 `A-B`
 
 ---

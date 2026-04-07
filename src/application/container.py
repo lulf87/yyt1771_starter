@@ -38,7 +38,8 @@ class ApplicationContainer:
         self._adjustment_store_key: str | None = None
         self._probe_diagnostic_store: ProbeDiagnosticStore | None = None
         self._probe_diagnostic_store_key: str | None = None
-        self._temp_io_lock = threading.Lock()
+        self._temp_io_lock = threading.RLock()
+        self._shared_temp_controller: object | None = None
 
     @property
     def session_repo(self) -> SqliteSessionRepo:
@@ -83,6 +84,7 @@ class ApplicationContainer:
             repo=self.session_repo,
             artifact_store=self.artifact_store,
             preview_service=preview_service or self.live_preview_service,
+            temp_controller_factory=lambda: self.build_temp_controller(),
         )
 
     def build_session_runner(self) -> WorkflowSessionRunner:
@@ -106,17 +108,40 @@ class ApplicationContainer:
         return _runner
 
     def build_temp_controller(self) -> object:
-        return build_temp_controller(self.runtime_config)
+        if not self._should_share_temp_controller():
+            return build_temp_controller(self.runtime_config)
+        with self._temp_io_lock:
+            if self._shared_temp_controller is None:
+                self._shared_temp_controller = build_temp_controller(self.runtime_config)
+            return self._shared_temp_controller
 
     def with_temp_controller(self, handler: Callable[[object], Any]) -> Any:
         with self._temp_io_lock:
             controller = self.build_temp_controller()
+            should_close = not self._is_shared_temp_controller(controller)
             try:
                 return handler(controller)
             finally:
-                close = getattr(controller, "close", None)
-                if callable(close):
-                    close()
+                if should_close:
+                    close = getattr(controller, "close", None)
+                    if callable(close):
+                        close()
+
+    def reset_temp_controller(self) -> None:
+        with self._temp_io_lock:
+            controller = self._shared_temp_controller
+            self._shared_temp_controller = None
+        if controller is not None:
+            close = getattr(controller, "close", None)
+            if callable(close):
+                close()
+
+    def _should_share_temp_controller(self) -> bool:
+        backend = str(self.runtime_config.live.temp.backend or self.runtime_config.adapters.get("temp", "") or "")
+        return backend == "mock"
+
+    def _is_shared_temp_controller(self, controller: object) -> bool:
+        return self._should_share_temp_controller() and controller is self._shared_temp_controller
 
     def _resolve_artifact_path(self) -> Path:
         artifact_dir = self.runtime_config.storage.get("artifact_dir", "var/artifacts")

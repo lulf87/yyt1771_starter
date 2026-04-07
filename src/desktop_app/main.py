@@ -13,7 +13,7 @@ from src.desktop_app.qt_runtime import bootstrap_desktop_runtime
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the YYT1771 desktop workstation.")
-    parser.add_argument("--profile", default="dev_mock", help="Profile name from configs/<profile>.yaml")
+    parser.add_argument("--profile", default="dev_lab", help="Profile name from configs/<profile>.yaml")
     parser.add_argument(
         "--smoke-run",
         action="store_true",

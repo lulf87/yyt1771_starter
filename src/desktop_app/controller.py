@@ -26,7 +26,7 @@ class DesktopAppContext:
     project_root: Path
 
 
-def build_desktop_app_context(profile: str = "dev_mock") -> DesktopAppContext:
+def build_desktop_app_context(profile: str = "dev_lab") -> DesktopAppContext:
     runtime_config = load_runtime_config(profile)
     return DesktopAppContext(
         profile=runtime_config.profile,

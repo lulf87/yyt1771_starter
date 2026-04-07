@@ -22,6 +22,7 @@ from src.core.models import (
 )
 from src.curve.af95 import normalize_sync_points
 from src.curve.afas import AfasAnalysisResult, analyze_afas
+from src.curve.mock_afas_curve_playback import MockAfasCurvePlayback
 from src.curve.afas_postprocessing_dataset import build_afas_postprocessing_dataset
 from src.report.summary import build_live_run_result
 from src.storage.session_artifacts import SessionArtifactStore
@@ -142,6 +143,71 @@ class MockLiveMetricSource:
         )
 
 
+class WorkbookPlaybackMetricSource:
+    """Metric source that replays AFAS workbook values during mock live runs."""
+
+    def __init__(self, definition: MeasurementDefinition, playback: MockAfasCurvePlayback) -> None:
+        self.definition = definition
+        self.playback = playback
+        self._base_a = definition.point_a_px
+        self._base_b = definition.point_b_px
+        delta_x = self._base_b.x - self._base_a.x
+        delta_y = self._base_b.y - self._base_a.y
+        self._baseline_px = math.hypot(delta_x, delta_y)
+        if self._baseline_px <= 0:
+            raise ValueError("measurement definition points must not overlap")
+        self._unit_x = delta_x / self._baseline_px
+        self._unit_y = delta_y / self._baseline_px
+        self._center_x = (self._base_a.x + self._base_b.x) / 2.0
+        self._center_y = (self._base_a.y + self._base_b.y) / 2.0
+
+    def playback_sample_count(self) -> int:
+        return int(self.playback.sample_count)
+
+    def extract(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+    ) -> ShapeMetric:
+        resolved_index = min(max(int(sample_index), 0), self.playback.sample_count - 1)
+        metric_raw = float(self.playback.values[resolved_index])
+        projected_span_px = max(2.0, abs(metric_raw))
+        point_a, point_b = _points_for_projected_span(
+            frame=frame,
+            center_x=self._center_x,
+            center_y=self._center_y,
+            unit_x=self._unit_x,
+            unit_y=self._unit_y,
+            span_px=projected_span_px,
+        )
+        midpoint = (
+            int(round((point_a[0] + point_b[0]) / 2)),
+            int(round((point_a[1] + point_b[1]) / 2)),
+        )
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name="two_point_distance",
+            metric_raw=metric_raw,
+            quality=0.99,
+            feature_point_px=midpoint,
+            point_a_px=point_a,
+            point_b_px=point_b,
+            baseline_px=self._baseline_px,
+            meta={
+                "selection_mode": "mock_afas_curve_playback",
+                "sheet_name": self.playback.sheet_name,
+                "channel_name": self.playback.channel_name,
+                "sample_index": resolved_index,
+                "total_samples": total_samples,
+                "playback_sample_count": self.playback.sample_count,
+                "playback_workbook_path": self.playback.workbook_path,
+            },
+        )
+
+
 class LockedDefinitionMetricSource:
     """Definition-locked extractor used when mock metric generation is unavailable."""
 
@@ -221,7 +287,12 @@ class LiveRunCoordinator:
         telemetry: list[dict[str, Any]] = []
         hub = SyncHub()
         output_started = False
-        sample_interval_ms = resolve_measurement_interval_ms(run_config)
+        playback_sample_count = _resolve_playback_sample_count(metric_source, temp_reader)
+        sample_interval_ms = resolve_measurement_interval_ms(
+            run_config,
+            playback_sample_count=playback_sample_count,
+            stop_on_target_reached=stop_on_target_reached,
+        )
         next_sample_due_ms = started_at_ms
 
         try:
@@ -239,11 +310,12 @@ class LiveRunCoordinator:
             if status_callback is not None:
                 status_callback(RunStatus.RUNNING, {"started_at_ms": started_at_ms})
 
-            max_samples = (
-                _max_samples(target_temperature_celsius)
-                if stop_on_target_reached
-                else max(1, int(run_config.manual_stop_max_samples))
-            )
+            if playback_sample_count is not None and stop_on_target_reached:
+                max_samples = max(1, int(playback_sample_count))
+            else:
+                # Do not hard-stop target-reached runs after a tiny temperature-only heuristic.
+                # Real cooling/heating benches may need many samples even for low target values.
+                max_samples = max(1, int(run_config.manual_stop_max_samples))
             for sample_index in range(max_samples):
                 if stop_requested is not None and stop_requested():
                     stop_detail = "Run stop requested before the next sample."
@@ -319,6 +391,12 @@ class LiveRunCoordinator:
                     )
                 )
 
+                if (
+                    playback_sample_count is not None
+                    and stop_on_target_reached
+                    and len(sync_points) >= playback_sample_count
+                ):
+                    break
                 if stop_on_target_reached and temp.celsius >= target_temperature_celsius and len(sync_points) >= 3:
                     break
                 next_sample_due_ms += sample_interval_ms
@@ -329,6 +407,8 @@ class LiveRunCoordinator:
                         status_callback(RunStatus.STOPPING, {"reason": "user_stop"})
                     raise LiveRunStopRequested("user_stop", "Run stop requested while waiting for the next sample.")
             else:
+                if playback_sample_count is not None and stop_on_target_reached:
+                    raise RuntimeError("mock_playback_not_completed")
                 if stop_on_target_reached:
                     raise RuntimeError("target_temperature_not_reached")
                 raise RuntimeError("manual_stop_timeout")
@@ -454,6 +534,84 @@ class LiveRunCoordinator:
         )
 
 
+def build_partial_live_run_execution(
+    *,
+    session_id: str,
+    started_at_ms: int,
+    terminal_state: str,
+    terminal_reason: str | None,
+    terminal_detail: str,
+    definition: MeasurementDefinition,
+    telemetry: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    camera_config: CameraRuntimeConfig | None,
+    analysis_engine: str,
+    channel_name: str,
+    target_measurement_hz: float | None,
+) -> LiveRunExecution:
+    rate_snapshot = summarize_rate_snapshot(telemetry=telemetry)
+    measurement_profile = summarize_measurement_profile(
+        camera_config if camera_config is not None else CameraRuntimeConfig()
+    )
+    warnings = summarize_rate_warnings(
+        rate_snapshot,
+        target_measurement_hz=target_measurement_hz,
+        is_terminal=True,
+    )
+    rates_payload = _rate_snapshot_payload(rate_snapshot)
+    measurement_profile_payload = _measurement_profile_payload(measurement_profile)
+    detail_points = _detail_points_from_telemetry(telemetry)
+    detail = {
+        "session_id": session_id,
+        "source": "live_run",
+        "af95": None,
+        "as_value": None,
+        "af_value": None,
+        "result_status": "unavailable",
+        "result_reason": terminal_reason,
+        "result_detail": terminal_detail,
+        "point_count": len(detail_points),
+        "capture_mode": CaptureMode.POST_RUN_REVIEW.value,
+        "rates": rates_payload,
+        "measurement_profile": measurement_profile_payload,
+        "warnings": list(warnings),
+        "points": detail_points,
+        "key_frames": [],
+    }
+    result = build_live_run_result(
+        session_id=session_id,
+        state=terminal_state,
+        analysis_engine=analysis_engine,
+        channel_name=channel_name,
+        result_status="unavailable",
+        result_reason=terminal_reason,
+        result_detail=terminal_detail,
+        af95=None,
+        as_value=None,
+        af_value=None,
+        point_count=len(detail_points),
+        keyframe_refs=[],
+        capture_mode=CaptureMode.POST_RUN_REVIEW.value,
+        rates=rates_payload,
+        measurement_profile=measurement_profile_payload,
+        warnings=warnings,
+    )
+    summary = SessionSummary(
+        session_id=session_id,
+        state=terminal_state,
+        point_count=len(detail_points),
+        af95=None,
+        created_at_ms=started_at_ms,
+    )
+    return LiveRunExecution(
+        summary=summary,
+        detail=detail,
+        result=result,
+        telemetry=list(telemetry),
+        events=list(events),
+    )
+
+
 def build_live_detail(
     session_id: str,
     sync_points: list[SyncPoint],
@@ -496,6 +654,23 @@ def build_live_detail(
         "points": detail_points,
         "key_frames": _select_key_frames(sync_points),
     }
+
+
+def _detail_points_from_telemetry(telemetry: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    detail_points: list[dict[str, Any]] = []
+    for row in telemetry:
+        if row.get("timestamp_ms") is None or row.get("temperature_celsius") is None or row.get("space1_px") is None:
+            continue
+        detail_points.append(
+            {
+                "timestamp_ms": int(row["timestamp_ms"]),
+                "celsius": float(row["temperature_celsius"]),
+                "metric_raw": float(row["space1_px"]),
+                "metric_norm": None,
+                "quality": float(row.get("tracking_quality") or 0.0),
+            }
+        )
+    return detail_points
 
 
 def summarize_rate_snapshot(
@@ -637,7 +812,14 @@ def _sample_rate_hz(timestamps_ms: list[int]) -> float | None:
     return ((len(timestamps_ms) - 1) * 1000.0) / span_ms
 
 
-def resolve_measurement_interval_ms(run_config: Any) -> int:
+def resolve_measurement_interval_ms(
+    run_config: Any,
+    *,
+    playback_sample_count: int | None = None,
+    stop_on_target_reached: bool = True,
+) -> int:
+    if playback_sample_count is not None and stop_on_target_reached:
+        return 1
     target_hz = getattr(run_config, "measurement_target_hz", None)
     if target_hz is not None:
         resolved_hz = float(target_hz)
@@ -712,19 +894,51 @@ def _resolved_timestamp_ms(value: int | None, *, fallback_ms: int) -> int:
     return resolved if resolved > 0 else int(fallback_ms)
 
 
+def _resolve_playback_sample_count(*sources: object) -> int | None:
+    for source in sources:
+        accessor = getattr(source, "playback_sample_count", None)
+        if not callable(accessor):
+            continue
+        resolved = int(accessor())
+        if resolved > 0:
+            return resolved
+    return None
+
+
+def _points_for_projected_span(
+    *,
+    frame: FramePacket,
+    center_x: float,
+    center_y: float,
+    unit_x: float,
+    unit_y: float,
+    span_px: float,
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    half_span = max(float(span_px), 2.0) / 2.0
+    point_a_x = center_x - unit_x * half_span
+    point_a_y = center_y - unit_y * half_span
+    point_b_x = center_x + unit_x * half_span
+    point_b_y = center_y + unit_y * half_span
+
+    max_x = (len(frame.image[0]) - 1) if frame.image and frame.image[0] else int(round(center_x))
+    max_y = (len(frame.image) - 1) if frame.image else int(round(center_y))
+    point_a = (
+        int(max(0, min(max_x, round(point_a_x)))),
+        int(max(0, min(max_y, round(point_a_y)))),
+    )
+    point_b = (
+        int(max(0, min(max_x, round(point_b_x)))),
+        int(max(0, min(max_y, round(point_b_y)))),
+    )
+    return point_a, point_b
+
+
 def _event(timestamp_ms: int, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "timestamp_ms": timestamp_ms,
         "type": event_type,
         "payload": payload,
     }
-
-
-def _max_samples(target_temperature_celsius: float) -> int:
-    if target_temperature_celsius <= 25.0:
-        return 3
-    required_steps = math.ceil((target_temperature_celsius - 25.0) / 10.0)
-    return max(3, required_steps + 1)
 
 
 def _select_key_frames(sync_points: list[SyncPoint]) -> list[dict[str, Any]]:

@@ -1,361 +1,418 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ app_title }}</title>
+    <title data-i18n="home.meta.title">实时测试</title>
     <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}" />
   </head>
-  <body data-page="home">
+  <body data-page="home" data-locale="zh">
     <main class="shell shell--home">
-      <header class="panel hero hero--cockpit">
-        <div class="hero-layout">
-          <div class="hero-copy">
-            <p class="eyebrow">YYT1771</p>
-            <h1 id="app-title">{{ app_title }}</h1>
-            <p class="subtitle">
-              YYT1771 live setup now leads the shell. Freeze, define a rotated ROI, confirm detection,
-              and move into Analysis Studio only when a session is worth reading.
-            </p>
+      <header class="home-minimal-topbar">
+        <div class="home-status-strip">
+          <div class="home-status-chip">
+            <span class="home-status-chip__label" data-i18n="home.status.ready_label">设备状态</span>
+            <span id="health-status" class="status-pill status-pending" data-testid="health-status">Loading...</span>
           </div>
-          <dl class="facts hero-status-grid">
-            <div>
-              <dt>System</dt>
-              <dd id="health-status" data-testid="health-status">Loading...</dd>
+          <div class="home-status-chip home-status-chip--temperature">
+            <label class="home-status-chip__label" for="live-current-temperature" data-i18n="home.status.current_temp_compact">当前温度 (°C)</label>
+            <input
+              id="live-current-temperature"
+              data-testid="live-current-temperature"
+              class="status-readout status-readout--compact"
+              type="text"
+              readonly
+              value="--"
+            />
+          </div>
+        </div>
+
+        <div class="hero-utility-row">
+          <div class="language-switch language-switch--compact" role="group" aria-label="界面语言" data-i18n-aria-label="common.language_group">
+            <span class="language-switch-label" data-i18n="common.language_label">界面语言</span>
+            <div class="language-switch-controls">
+              <button type="button" class="language-switch-btn" data-language-toggle="zh">中文</button>
+              <button type="button" class="language-switch-btn" data-language-toggle="en">EN</button>
             </div>
-            <div>
-              <dt>Profile</dt>
-              <dd id="profile-name" data-testid="profile-name">Loading...</dd>
-            </div>
-            <div>
-              <dt>Mode</dt>
-              <dd id="profile-mode">Loading...</dd>
-            </div>
-            <div class="facts-input-card">
-              <dt>Current Temp (°C)</dt>
-              <dd>
-                <input
-                  id="live-current-temperature"
-                  data-testid="live-current-temperature"
-                  class="status-readout"
-                  type="text"
-                  readonly
-                  value="--"
-                />
-              </dd>
-            </div>
-          </dl>
+          </div>
         </div>
       </header>
 
-      <section class="home-section">
-        <div class="home-section-header">
-          <div>
-            <p class="section-tag">Main Stage</p>
-            <h2>Live Preview and Setup Definition</h2>
-            <p class="section-copy">
-              Keep the preview in focus, treat ROI as the main geometry, and only surface A/B when review is needed.
+      <section class="home-operator-shell home-operator-shell--minimal">
+        <article class="panel live-stage-card">
+          <div class="live-stage-head live-stage-head--minimal">
+            <div>
+              <h2 data-i18n="home.main_stage.title">实时预览</h2>
+            </div>
+            <div class="button-row live-toolbar">
+              <button id="stop-live-preview-stream-btn" type="button" disabled data-i18n="home.actions.freeze">冻结画面</button>
+              <button id="start-live-preview-stream-btn" class="button-secondary" type="button" disabled data-i18n="home.actions.unfreeze">解除冻结</button>
+            </div>
+          </div>
+
+          <div class="live-preview-frame">
+            <div id="live-preview-stage" class="live-preview-stage" hidden>
+              <div
+                id="live-point-prompt"
+                data-testid="live-point-prompt"
+                class="live-point-prompt"
+                hidden
+                aria-live="polite"
+              >
+                <div id="live-point-prompt-title" class="live-point-prompt__title">Recomputing A/B</div>
+                <p id="live-point-prompt-body" class="live-point-prompt__body">
+                  Capturing a fresh frame before recomputing ROI-local A/B.
+                </p>
+              </div>
+              <img id="live-preview-img" data-testid="live-preview-img" alt="实时预览画面" data-i18n-alt="home.main_stage.preview_alt" hidden />
+              <svg
+                id="live-preview-overlay"
+                data-testid="live-preview-overlay"
+                class="live-preview-overlay"
+                aria-label="实时预览叠层"
+                data-i18n-aria-label="home.main_stage.overlay_label"
+                hidden
+              ></svg>
+            </div>
+            <p id="live-preview-empty" class="session-item--empty" data-testid="live-preview-empty">
+              正在连接实时预览...
             </p>
           </div>
-        </div>
-        <div class="home-main-grid">
-          <article class="panel live-stage-card">
-            <div class="actions live-stage-head">
-              <div>
-                <h2>Live Preview</h2>
-                <p>Freeze-first preview control with launch, stop, and measurement readiness in one place.</p>
-              </div>
-              <div class="button-row live-toolbar">
-                <select id="live-run-preset-select" data-testid="live-run-preset-select">
-                  <option value="balloon">Balloon</option>
-                  <option value="guidewire">Guidewire</option>
-                </select>
-                <button id="stop-live-preview-stream-btn" type="button" disabled>Freeze</button>
-              </div>
-            </div>
 
-            <div class="stage-meta-grid">
-              <div class="stage-meta-card">
-                <span>Run ID</span>
-                <strong id="live-run-id" data-testid="live-run-id">Not created</strong>
-              </div>
-              <div class="stage-meta-card">
-                <span>Status</span>
-                <strong id="live-run-status" data-testid="live-run-status">Not ready</strong>
-              </div>
-              <div class="stage-meta-card">
-                <span>Preset</span>
-                <strong id="live-run-preset" data-testid="live-run-preset">balloon</strong>
-              </div>
-              <div class="stage-meta-card">
-                <span>Preview FPS</span>
-                <strong id="live-preview-rate" data-testid="live-preview-rate">n/a</strong>
-              </div>
-              <div class="stage-meta-card">
-                <span>Measurement Hz</span>
-                <strong id="live-measurement-rate" data-testid="live-measurement-rate">n/a</strong>
-              </div>
-            </div>
+          <p id="live-run-message" class="live-message live-message--neutral" data-testid="live-run-message">
+            正在准备 live setup 会话...
+          </p>
+        </article>
 
-            <div class="button-row live-toolbar live-stage-actions">
-              <button id="save-live-definition-btn" type="button" disabled>Save Definition</button>
-              <button id="start-live-run-btn" type="button" disabled>Start Live Run</button>
-              <button id="stop-live-run-btn" type="button" disabled>Stop Live Run</button>
-            </div>
-
-            <div class="live-preview-frame">
-              <div id="live-preview-stage" class="live-preview-stage" hidden>
-                <div
-                  id="live-point-prompt"
-                  data-testid="live-point-prompt"
-                  class="live-point-prompt"
-                  hidden
-                  aria-live="polite"
-                >
-                  <div id="live-point-prompt-title" class="live-point-prompt__title">Selecting Point</div>
-                  <p id="live-point-prompt-body" class="live-point-prompt__body">
-                    Click on the preview to place the current measurement point.
-                  </p>
+        <aside class="panel setup-definition-card operator-column-card">
+          <div class="operator-column-stack">
+            <section class="live-form-section operator-block">
+              <div class="live-section-head">
+                <h3 data-i18n="home.sections.roi.title_minimal">ROI 框选</h3>
+                <button id="draw-analysis-roi-btn" type="button" disabled data-i18n="home.actions.draw_roi">绘制 ROI</button>
+              </div>
+              <details class="live-advanced-panel">
+                <summary data-i18n="home.foldouts.roi_parameters">查看ROI参数</summary>
+                <div class="live-form-grid">
+                  <label for="live-analysis-roi-x" data-i18n="home.sections.roi.center_x">中心 X</label>
+                  <input id="live-analysis-roi-x" data-testid="live-analysis-roi-x" type="number" min="0" />
+                  <label for="live-analysis-roi-y" data-i18n="home.sections.roi.center_y">中心 Y</label>
+                  <input id="live-analysis-roi-y" data-testid="live-analysis-roi-y" type="number" min="0" />
+                  <label for="live-analysis-roi-width" data-i18n="home.sections.roi.width">宽度</label>
+                  <input id="live-analysis-roi-width" data-testid="live-analysis-roi-width" type="number" min="1" />
+                  <label for="live-analysis-roi-height" data-i18n="home.sections.roi.height">高度</label>
+                  <input id="live-analysis-roi-height" data-testid="live-analysis-roi-height" type="number" min="1" />
+                  <label for="live-analysis-roi-angle" data-i18n="home.sections.roi.angle">ROI 角度</label>
+                  <input id="live-analysis-roi-angle" data-testid="live-analysis-roi-angle" type="number" step="0.1" />
                 </div>
-                <img id="live-preview-img" data-testid="live-preview-img" alt="Live preview frame" hidden />
-                <svg
-                  id="live-preview-overlay"
-                  data-testid="live-preview-overlay"
-                  class="live-preview-overlay"
-                  aria-label="Live preview overlay"
-                  hidden
-                ></svg>
-              </div>
-              <p id="live-preview-empty" class="session-item--empty" data-testid="live-preview-empty">
-                Connecting to live preview...
-              </p>
-            </div>
-
-            <p id="live-run-message" class="live-message live-message--neutral" data-testid="live-run-message">
-              Preparing the live setup session...
-            </p>
-          </article>
-
-          <article class="panel setup-definition-card">
-            <div class="actions">
-              <div>
-                <h2>Setup Definition</h2>
-                <p>ROI is primary. Detection and temperature settings stay close; A/B review lives one level deeper.</p>
-              </div>
-            </div>
-
-            <section class="live-form-section">
-              <div class="live-section-head">
-                <h3>ROI</h3>
-                <button id="draw-analysis-roi-btn" type="button" disabled>Draw ROI</button>
-              </div>
-              <div class="live-form-grid">
-                <label for="live-analysis-roi-x">Center X</label>
-                <input id="live-analysis-roi-x" data-testid="live-analysis-roi-x" type="number" min="0" />
-                <label for="live-analysis-roi-y">Center Y</label>
-                <input id="live-analysis-roi-y" data-testid="live-analysis-roi-y" type="number" min="0" />
-                <label for="live-analysis-roi-width">Width</label>
-                <input id="live-analysis-roi-width" data-testid="live-analysis-roi-width" type="number" min="1" />
-                <label for="live-analysis-roi-height">Height</label>
-                <input id="live-analysis-roi-height" data-testid="live-analysis-roi-height" type="number" min="1" />
-                <label for="live-analysis-roi-angle">Angle</label>
-                <input id="live-analysis-roi-angle" data-testid="live-analysis-roi-angle" type="number" step="0.1" />
-              </div>
+              </details>
             </section>
 
-            <section class="live-form-section">
+            <section class="live-form-section operator-block">
               <div class="live-section-head">
-                <h3>Detection</h3>
-                <span class="section-microcopy">Tune sensitivity first. Escalate A/B only when review is required.</span>
+                <h3 data-i18n="home.sections.detection.title">检测设置</h3>
               </div>
-              <div class="live-form-grid">
-                <label for="live-foreground-polarity">Foreground</label>
-                <select id="live-foreground-polarity" data-testid="live-foreground-polarity">
-                  <option value="dark_on_light">Dark on Light</option>
-                  <option value="light_on_dark">Light on Dark</option>
-                </select>
-                <label for="live-threshold-mode">Threshold</label>
-                <select id="live-threshold-mode" data-testid="live-threshold-mode">
-                  <option value="adaptive">Adaptive</option>
-                  <option value="binary">Binary</option>
-                  <option value="otsu">Otsu</option>
-                </select>
-                <label for="live-sensitivity">Sensitivity</label>
+              <div class="current-task-row">
+                <label for="live-sensitivity" data-i18n="home.sections.detection.sensitivity">灵敏度</label>
                 <input id="live-sensitivity" data-testid="live-sensitivity" type="number" min="0" max="100" step="1" value="50" />
-                <label for="live-min-target-area">Min Area</label>
-                <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
-                <label for="live-ignore-internal-texture">Ignore Texture</label>
-                <input
-                  id="live-ignore-internal-texture"
-                  data-testid="live-ignore-internal-texture"
-                  type="checkbox"
-                  checked
-                />
               </div>
-            </section>
-
-            <section class="live-form-section">
-              <div class="live-section-head">
-                <h3>Temperature</h3>
-                <span class="section-microcopy">Target confirmation stays in setup, not in the result workspace.</span>
-              </div>
-              <div class="live-form-grid">
-                <label for="live-target-temperature">Target Temp (°C)</label>
-                <input
-                  id="live-target-temperature"
-                  data-testid="live-target-temperature"
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value="75"
-                />
-                <label for="confirm-target-temperature-btn">Controller Confirm</label>
-                <button id="confirm-target-temperature-btn" type="button">Confirm Target</button>
-              </div>
-            </section>
-
-            <details class="live-advanced-panel" open>
-              <summary>A/B Review and Manual Correction</summary>
-              <p id="live-point-picker-status" class="session-meta" data-testid="live-point-picker-status">
-                Preview image not loaded yet.
+              <p class="operator-inline-note" data-i18n="home.sections.detection.sensitivity_note">
+                数值越大越容易把弱连接区域连成一个目标，数值越小越严格地区分目标与空白。
               </p>
+              <details class="live-advanced-panel">
+                <summary data-i18n="home.foldouts.detection">打开检测调优</summary>
+                <div class="live-form-grid">
+                  <label for="live-foreground-polarity" data-i18n="home.sections.detection.foreground">前景极性</label>
+                  <select id="live-foreground-polarity" data-testid="live-foreground-polarity">
+                    <option value="dark_on_light" data-i18n="home.options.dark_on_light">暗前景 / 亮背景</option>
+                    <option value="light_on_dark" data-i18n="home.options.light_on_dark">亮前景 / 暗背景</option>
+                  </select>
+                  <label for="live-threshold-mode" data-i18n="home.sections.detection.threshold">阈值模式</label>
+                  <select id="live-threshold-mode" data-testid="live-threshold-mode">
+                    <option value="adaptive" data-i18n="home.options.threshold_adaptive">自适应</option>
+                    <option value="binary" data-i18n="home.options.threshold_binary">二值</option>
+                    <option value="otsu" data-i18n="home.options.threshold_otsu">大津法</option>
+                  </select>
+                  <label for="live-min-target-area" data-i18n="home.sections.detection.min_area">最小面积</label>
+                  <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
+                  <label for="live-ignore-internal-texture" data-i18n="home.sections.detection.ignore_texture">忽略内部纹理</label>
+                  <input
+                    id="live-ignore-internal-texture"
+                    data-testid="live-ignore-internal-texture"
+                    type="checkbox"
+                    checked
+                  />
+                </div>
+              </details>
+            </section>
+
+            <section class="live-form-section operator-block">
+              <div class="live-section-head">
+                <h3 data-i18n="home.sections.ab.title">A/B 状态</h3>
+                <span id="home-ab-state" class="status-pill status-pending">等待 ROI</span>
+              </div>
+              <p id="live-point-picker-status" class="session-meta" data-testid="live-point-picker-status">
+                预览图像尚未加载。
+              </p>
+              <div class="live-form-grid live-form-grid--summary">
+                <label for="live-point-a-summary" data-i18n="home.sections.ab.point_a_summary">点 A</label>
+                <input id="live-point-a-summary" data-testid="live-point-a-summary" type="text" readonly value="--" />
+                <label for="live-point-b-summary" data-i18n="home.sections.ab.point_b_summary">点 B</label>
+                <input id="live-point-b-summary" data-testid="live-point-b-summary" type="text" readonly value="--" />
+              </div>
               <div class="button-row live-toolbar">
-                <button id="pick-point-a-btn" type="button" disabled>Point A</button>
-                <button id="pick-point-b-btn" type="button" disabled>Point B</button>
+                <button id="recompute-definition-btn" class="button-secondary" type="button" disabled data-i18n="home.actions.recompute_ab">
+                  重新计算 A/B
+                </button>
               </div>
-              <div class="live-form-grid">
-                <label for="live-point-a-x">Point A X</label>
-                <input id="live-point-a-x" data-testid="live-point-a-x" type="number" min="0" />
-                <label for="live-point-a-y">Point A Y</label>
-                <input id="live-point-a-y" data-testid="live-point-a-y" type="number" min="0" />
-                <label for="live-point-b-x">Point B X</label>
-                <input id="live-point-b-x" data-testid="live-point-b-x" type="number" min="0" />
-                <label for="live-point-b-y">Point B Y</label>
-                <input id="live-point-b-y" data-testid="live-point-b-y" type="number" min="0" />
+              <div class="live-hidden-fields" aria-hidden="true" hidden>
+                <input id="live-point-a-x" data-testid="live-point-a-x" type="hidden" />
+                <input id="live-point-a-y" data-testid="live-point-a-y" type="hidden" />
+                <input id="live-point-b-x" data-testid="live-point-b-x" type="hidden" />
+                <input id="live-point-b-y" data-testid="live-point-b-y" type="hidden" />
               </div>
-            </details>
-          </article>
+            </section>
+
+            <section class="live-form-section operator-block">
+              <div class="live-section-head">
+                <h3 data-i18n="home.sections.temperature.title_minimal">温度设置</h3>
+              </div>
+              <div class="current-task-dual-grid">
+                <div class="current-task-row">
+                  <label for="live-target-temperature" data-i18n="home.sections.temperature.target">目标温度 (°C)</label>
+                  <input
+                    id="live-target-temperature"
+                    data-testid="live-target-temperature"
+                    type="number"
+                    min="-50"
+                    max="50"
+                    step="0.1"
+                    value="25"
+                  />
+                </div>
+                <div class="current-task-row">
+                  <label for="live-output-power-percent" data-i18n="home.sections.temperature.power">温度功率 (%)</label>
+                  <input
+                    id="live-output-power-percent"
+                    data-testid="live-output-power-percent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="100"
+                  />
+                </div>
+                <div class="current-task-row current-task-row--full">
+                  <label for="confirm-target-temperature-btn" data-i18n="home.sections.temperature.controller_confirm">温控设置确认</label>
+                  <button id="confirm-target-temperature-btn" type="button" data-i18n="home.actions.confirm_target">确认温控设置</button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="current-task-footer operator-column-footer">
+            <div class="button-row current-task-primary-actions">
+              <button id="start-live-run-btn" type="button" disabled data-i18n="home.actions.start_live_run">开始实时测试</button>
+              <button id="stop-live-run-btn" class="button-secondary button-secondary--danger" type="button" disabled>
+                <span data-i18n="home.actions.stop_live_run">停止实时测试</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section id="home-completion-dock" class="panel home-completion-dock" hidden>
+        <div class="home-completion-layout">
+          <div class="home-completion-meta">
+            <span class="home-completion-chip">
+              <small data-i18n="home.compact_result.session_id">会话 ID</small>
+              <strong id="home-result-session-id">暂无目标</strong>
+            </span>
+            <span class="home-completion-chip">
+              <small data-i18n="home.compact_result.state">状态</small>
+              <strong id="home-result-session-state">空</strong>
+            </span>
+            <p id="home-result-summary" class="home-completion-summary"></p>
+          </div>
+          <div class="button-row home-completion-actions">
+            <button id="save-session-data-btn" class="button-secondary" type="button" disabled data-i18n="home.actions.save_data">保存数据</button>
+            <a id="session-workspace-link" class="workspace-link workspace-link--hidden" href="#" data-i18n="home.actions.enter_analysis">进入分析</a>
+          </div>
         </div>
       </section>
 
-      <section class="home-section">
-        <div class="home-section-header">
-          <div>
-            <p class="section-tag">Ops &amp; Diagnostics</p>
-            <h2>System Checks and Session Launch</h2>
-            <p class="section-copy">
-              Keep readiness checks and launcher actions close, without letting them take over the setup stage.
-            </p>
-          </div>
-        </div>
-        <div class="home-ops-grid">
-          <article class="panel diagnostics-card">
-            <div class="actions">
-              <div>
-                <h2>System Precheck / Probe Camera</h2>
-                <p>Configuration and path readiness only. No live device connections are attempted.</p>
+      <section class="panel diagnostics-card diagnostics-drawer-card">
+        <details class="home-diagnostics-drawer">
+          <summary data-i18n="home.foldouts.more_tools">更多工具与诊断</summary>
+          <div class="home-ops-grid">
+            <article class="home-ops-subcard">
+              <div class="actions">
+                <div>
+                  <p class="section-tag" data-i18n="home.diagnostics.tag_minimal">调试与诊断</p>
+                  <h2 data-i18n="home.diagnostics.title_minimal">设备检查 / 相机探测</h2>
+                </div>
+                <div class="button-row">
+                  <button id="refresh-precheck-btn" type="button" data-i18n="home.actions.refresh_precheck">刷新预检查</button>
+                  <button id="probe-camera-btn" type="button" data-i18n="home.actions.probe_camera">探测相机</button>
+                </div>
               </div>
-              <div class="button-row">
-                <button id="refresh-precheck-btn" type="button">Refresh Precheck</button>
-                <button id="probe-camera-btn" type="button">Probe Camera</button>
-              </div>
-            </div>
-            <div class="facts detail-facts">
-              <div>
-                <label for="probe-mode-select">Probe Mode</label>
-                <select id="probe-mode-select" data-testid="probe-mode-select">
-                  <option value="protocol_any">Protocol Any</option>
-                  <option value="pinned">Pinned Device</option>
-                </select>
-              </div>
-              <div>
-                <label for="probe-allowed-models-input">Allowed Models</label>
-                <input
-                  id="probe-allowed-models-input"
-                  data-testid="probe-allowed-models-input"
-                  type="text"
-                  placeholder="MV-CU060-10GM, OTHER-MODEL"
-                />
-              </div>
-              <div>
-                <label for="probe-serial-number-input">Serial Number</label>
-                <input id="probe-serial-number-input" data-testid="probe-serial-number-input" type="text" placeholder="Optional" />
-              </div>
-              <div>
-                <label for="probe-ip-input">IP</label>
-                <input id="probe-ip-input" data-testid="probe-ip-input" type="text" placeholder="Optional" />
-              </div>
-            </div>
-            <p id="probe-mode-hint" class="session-meta" data-testid="probe-mode-hint">
-              Protocol Any allows first discovered probe when serial and IP are empty.
-            </p>
-            <p id="probe-local-override-hint" class="session-meta" data-testid="probe-local-override-hint">
-              For Mac local bring-up, copy <code>configs/dev_lab.local.example.yaml</code> to
-              <code>configs/dev_lab.local.yaml</code> and use precheck to confirm <code>camera_sdk_runtime</code>
-              before the first real probe.
-            </p>
-            <dl class="facts detail-facts">
-              <div>
-                <dt>Overall</dt>
-                <dd id="precheck-status" data-testid="precheck-status">Loading...</dd>
-              </div>
-            </dl>
-            <ul id="precheck-items" class="session-list" data-testid="precheck-items">
-              <li class="session-item session-item--empty">Loading precheck results...</li>
-            </ul>
-            <pre id="camera-probe-result" data-testid="camera-probe-result">No camera probe has been run yet.</pre>
-          </article>
 
-          <article class="panel sessions-card">
-            <div class="actions">
-              <div>
-                <h2>Session Launcher / Recent Sessions</h2>
-                <p>Trigger one offline session through the existing API pipeline, then scan what is worth opening in studio.</p>
+              <dl class="facts detail-facts detail-facts--compact">
+                <div>
+                  <dt data-i18n="home.status.profile">配置</dt>
+                  <dd id="profile-name" data-testid="profile-name">Loading...</dd>
+                </div>
+                <div>
+                  <dt data-i18n="home.status.mode">模式</dt>
+                  <dd id="profile-mode">Loading...</dd>
+                </div>
+                <div>
+                  <dt data-i18n="home.meta.run_id">运行 ID</dt>
+                  <dd id="live-run-id" data-testid="live-run-id">Not created</dd>
+                </div>
+                <div>
+                  <dt data-i18n="home.meta.status">状态</dt>
+                  <dd id="live-run-status" data-testid="live-run-status">Not ready</dd>
+                </div>
+              </dl>
+
+              <details class="live-advanced-panel home-engineering-panel">
+                <summary data-i18n="home.foldouts.runtime_details">查看运行环境与探测参数</summary>
+                <div class="stage-meta-grid">
+                  <div class="stage-meta-card">
+                    <span data-i18n="home.meta.preset">预设</span>
+                    <strong id="live-run-preset" data-testid="live-run-preset">balloon</strong>
+                  </div>
+                  <div class="stage-meta-card">
+                    <span data-i18n="home.meta.preview_fps">预览帧率</span>
+                    <strong id="live-preview-rate" data-testid="live-preview-rate">n/a</strong>
+                  </div>
+                  <div class="stage-meta-card">
+                    <span data-i18n="home.meta.measurement_hz">测量频率</span>
+                    <strong id="live-measurement-rate" data-testid="live-measurement-rate">n/a</strong>
+                  </div>
+                </div>
+                <div class="current-task-row current-task-row--compact">
+                  <label for="live-run-preset-select" data-i18n="home.meta.setup_type">Live Setup 类型</label>
+                  <select id="live-run-preset-select" data-testid="live-run-preset-select">
+                    <option value="balloon" data-i18n="home.options.balloon">球囊</option>
+                    <option value="guidewire" data-i18n="home.options.guidewire">导丝</option>
+                  </select>
+                </div>
+                <div class="facts detail-facts">
+                  <div>
+                    <dt data-i18n="home.diagnostics.overall">总体状态</dt>
+                    <dd id="precheck-status" data-testid="precheck-status">Loading...</dd>
+                  </div>
+                </div>
+                <div class="facts detail-facts">
+                  <div>
+                    <label for="probe-mode-select" data-i18n="home.diagnostics.probe_mode">探测模式</label>
+                    <select id="probe-mode-select" data-testid="probe-mode-select">
+                      <option value="protocol_any" data-i18n="home.options.protocol_any">协议任意</option>
+                      <option value="pinned" data-i18n="home.options.pinned_device">固定设备</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="probe-allowed-models-input" data-i18n="home.diagnostics.allowed_models">允许型号</label>
+                    <input
+                      id="probe-allowed-models-input"
+                      data-testid="probe-allowed-models-input"
+                      type="text"
+                      placeholder="MV-CU060-10GM, OTHER-MODEL"
+                      data-i18n-placeholder="home.placeholders.allowed_models"
+                    />
+                  </div>
+                  <div>
+                    <label for="probe-serial-number-input" data-i18n="home.diagnostics.serial_number">序列号</label>
+                    <input id="probe-serial-number-input" data-testid="probe-serial-number-input" type="text" placeholder="可选" data-i18n-placeholder="home.placeholders.optional" />
+                  </div>
+                  <div>
+                    <label for="probe-ip-input" data-i18n="home.diagnostics.ip">IP 地址</label>
+                    <input id="probe-ip-input" data-testid="probe-ip-input" type="text" placeholder="可选" data-i18n-placeholder="home.placeholders.optional" />
+                  </div>
+                </div>
+                <p id="probe-mode-hint" class="session-meta" data-testid="probe-mode-hint">
+                  当序列号和 IP 为空时，协议任意模式会接受首个发现的设备。
+                </p>
+                <p id="probe-local-override-hint" class="session-meta" data-testid="probe-local-override-hint" data-i18n-html="home.diagnostics.local_hint">
+                  在 Mac 本地 bring-up 场景下，先把 <code>configs/dev_lab.local.example.yaml</code> 复制为
+                  <code>configs/dev_lab.local.yaml</code>，再用 precheck 确认 <code>camera_sdk_runtime</code>
+                  已就绪，然后再做第一次真实探测。
+                </p>
+                <details class="live-advanced-panel">
+                  <summary data-i18n="home.foldouts.precheck_output">查看预检查条目与探测输出</summary>
+                  <ul id="precheck-items" class="session-list" data-testid="precheck-items">
+                    <li class="session-item session-item--empty">正在加载预检查结果...</li>
+                  </ul>
+                  <pre id="camera-probe-result" data-testid="camera-probe-result">尚未执行相机探测。</pre>
+                </details>
+              </details>
+            </article>
+
+            <article class="home-ops-subcard">
+              <div class="actions">
+                <div>
+                  <p class="section-tag" data-i18n="home.engineering.tag">工程模式</p>
+                  <h2 data-i18n="home.engineering.title">离线会话 / 数据导入</h2>
+                </div>
+                <div class="button-row">
+                  <button id="run-mock-btn" type="button" data-i18n="home.actions.run_mock">运行 Mock 会话</button>
+                  <button id="run-replay-btn" type="button" data-i18n="home.actions.run_replay">运行 Replay 会话</button>
+                </div>
               </div>
-              <div class="button-row">
-                <button id="run-mock-btn" type="button">Run Mock Session</button>
-                <button id="run-replay-btn" type="button">Run Replay Session</button>
+
+              <div class="home-import-panel">
+                <div>
+                  <label for="import-afas-dataset-file" data-i18n="home.import.label">导入 AFAS 数据集</label>
+                  <input
+                    id="import-afas-dataset-file"
+                    data-testid="import-afas-dataset-file"
+                    type="file"
+                    accept=".json,application/json"
+                  />
+                </div>
+                <div class="button-row">
+                  <button id="import-afas-dataset-btn" type="button" data-i18n="home.actions.import_afas_dataset">
+                    导入 AFAS 数据集
+                  </button>
+                </div>
               </div>
-            </div>
-            <ul id="recent-sessions" class="session-list" data-testid="recent-sessions">
-              <li class="session-item session-item--empty">Loading recent sessions...</li>
-            </ul>
-          </article>
-        </div>
-      </section>
+              <p class="session-meta" id="import-afas-dataset-hint" data-testid="import-afas-dataset-hint" data-i18n="home.import.hint">
+                接受当前标准 <code>afas_dataset.json</code>，推荐直接使用系统现有会话产出的同名 artifact。
+              </p>
 
-      <section class="panel compact-result-panel">
-        <div class="actions">
-          <div>
-            <p class="section-tag">Compact Result</p>
-            <h2>Latest Session Snapshot</h2>
-            <p>Keep just enough context to decide whether to open Analysis Studio.</p>
-          </div>
-          <a id="session-workspace-link" class="workspace-link workspace-link--hidden" href="#">Open Workspace</a>
-        </div>
+              <details class="live-advanced-panel">
+                <summary data-i18n="home.foldouts.recent_sessions">查看最近会话与结果载荷</summary>
+                <ul id="recent-sessions" class="session-list" data-testid="recent-sessions">
+                  <li class="session-item session-item--empty">正在加载最近会话...</li>
+                </ul>
 
-        <div class="compact-result-grid">
-          <pre id="session-result" data-testid="session-result">No session has been run yet.</pre>
-          <dl class="facts compact-result-facts">
-            <div>
-              <dt>Af95</dt>
-              <dd id="detail-af95" data-testid="detail-af95">n/a</dd>
-            </div>
-            <div>
-              <dt>Point Count</dt>
-              <dd id="detail-point-count" data-testid="detail-point-count">0</dd>
-            </div>
-          </dl>
-        </div>
-
-        <details class="compact-result-artifact-peek">
-          <summary>Replay Snapshot</summary>
-          <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay curve">
-            <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
-            <polyline id="detail-curve-line" fill="none" points=""></polyline>
-          </svg>
-          <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">
-            <p class="session-item--empty">Run a replay session to load detail artifacts.</p>
+                <details class="live-advanced-panel compact-result-artifact-peek">
+                  <summary data-i18n="home.foldouts.payload_snapshot">查看载荷与 replay 快照</summary>
+                  <div class="compact-result-grid compact-result-grid--diagnostic">
+                    <pre id="session-result" data-testid="session-result">尚未运行任何会话。</pre>
+                    <dl class="facts compact-result-facts">
+                      <div>
+                        <dt data-i18n="home.compact_result.af95">Af95</dt>
+                        <dd id="detail-af95" data-testid="detail-af95">n/a</dd>
+                      </div>
+                      <div>
+                        <dt data-i18n="home.compact_result.point_count">点数</dt>
+                        <dd id="detail-point-count" data-testid="detail-point-count">0</dd>
+                      </div>
+                    </dl>
+                  </div>
+                  <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay 曲线" data-i18n-aria-label="home.compact_result.replay_curve_label">
+                    <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
+                    <polyline id="detail-curve-line" fill="none" points=""></polyline>
+                  </svg>
+                  <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">
+                    <p class="session-item--empty">运行 replay 会话后，这里会显示 detail artifact。</p>
+                  </div>
+                </details>
+              </details>
+            </article>
           </div>
         </details>
       </section>

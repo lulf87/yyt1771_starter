@@ -4,22 +4,25 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 import struct
+import time
 import zlib
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from PIL import Image
 
+from src.application.container import ApplicationContainer
 from src.application.preview_render import PreviewBitmap, build_preview_bitmap, enhance_preview_bitmap
 from src.application.live_preview_service import compute_preview_interval_ms
 from src.core.enums import ObservationAxis, RunStatus
-from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
+from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord, TemperatureSettingsBundle
 from src.storage.session_artifacts import SessionArtifactStore
 from src.application.runtime_config import RuntimeConfig
 from src.webapp.deps import (
     LivePreviewService,
     LiveRunDraftRegistry,
     LiveRunService,
+    get_application_container,
     get_live_preview_service,
     get_live_run_registry,
     get_live_run_service,
@@ -46,6 +49,8 @@ from src.webapp.schemas import (
     RunSummaryResponse,
     RunTelemetryPointResponse,
     RunTelemetryResponse,
+    TemperatureSettingsRequest,
+    TemperatureSettingsResponse,
 )
 from src.vision.metric_two_point_distance import RoiLongestSpanPointDetector
 from src.workflow.live_run import summarize_measurement_profile, summarize_rate_snapshot, summarize_rate_warnings
@@ -57,6 +62,7 @@ _PREVIEW_STREAM_BOUNDARY = "frame"
 @router.post("", response_model=RunSummaryResponse)
 def create_run_draft(
     payload: RunCreateRequest,
+    container: ApplicationContainer = Depends(get_application_container),
     runtime_config: RuntimeConfig = Depends(get_runtime_config),
     registry: LiveRunDraftRegistry = Depends(get_live_run_registry),
 ) -> RunSummaryResponse:
@@ -67,6 +73,7 @@ def create_run_draft(
             detail=f"Run profile must match the loaded runtime profile: {runtime_config.profile}",
         )
 
+    container.reset_temp_controller()
     record = registry.create(profile=requested_profile, preset=payload.preset)
     return _build_run_summary(record)
 
@@ -246,6 +253,49 @@ def stop_preview_stream(
     )
 
 
+@router.put("/{run_id}/temperature-settings", response_model=RunDetailResponse)
+def confirm_temperature_settings(
+    run_id: str,
+    payload: TemperatureSettingsRequest,
+    runtime_config: RuntimeConfig = Depends(get_runtime_config),
+    registry: LiveRunDraftRegistry = Depends(get_live_run_registry),
+    preview_service: LivePreviewService = Depends(get_live_preview_service),
+    live_run_service: LiveRunService = Depends(get_live_run_service),
+    container: ApplicationContainer = Depends(get_application_container),
+) -> RunDetailResponse:
+    if registry.get(run_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
+
+    try:
+        result = container.with_temp_controller(
+            lambda controller: _write_and_confirm_temperature_settings(
+                controller=controller,
+                target_temperature_celsius=payload.target_temperature_celsius,
+                output_power_percent=payload.output_power_percent,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Temperature settings update unavailable: {exc}") from exc
+
+    record = registry.save_temperature_settings(
+        run_id,
+        TemperatureSettingsBundle(
+            target_temperature_celsius=float(payload.target_temperature_celsius),
+            control_mode=str(payload.control_mode),
+            output_power_percent=float(payload.output_power_percent),
+            confirmed_target_temperature_celsius=float(result["confirmed_target_temperature_celsius"]),
+            confirmed_at_ms=int(result["confirmed_at_ms"]),
+            source=str(result["source"]),
+        ),
+    )
+    return _build_run_detail(
+        record,
+        runtime_config=runtime_config,
+        preview_service=preview_service,
+        live_run_service=live_run_service,
+    )
+
+
 @router.post("/{run_id}/definition/auto", response_model=AutoDetectDefinitionResponse)
 def auto_detect_measurement_definition(
     run_id: str,
@@ -301,7 +351,7 @@ def auto_detect_measurement_definition(
         )
     detail = ""
     if metric.quality < runtime_config.live.vision.quality_threshold:
-        detail = "Auto detection succeeded with low confidence. Please verify or adjust points manually."
+        detail = "Auto detection succeeded with low confidence. Please verify the ROI-local result and recompute if needed."
     return AutoDetectDefinitionResponse(
         point_a_px=PixelPointResponse(x=metric.point_a_px[0], y=metric.point_a_px[1]),
         point_b_px=PixelPointResponse(x=metric.point_b_px[0], y=metric.point_b_px[1]),
@@ -327,12 +377,22 @@ def start_live_run(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Run must be in run_ready before start: {run_id}",
         )
+    if record.temperature_settings is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run must have confirmed temperature settings before start: {run_id}",
+        )
+    if abs(float(payload.target_temperature_celsius) - float(record.temperature_settings.target_temperature_celsius)) >= 0.05:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run target temperature must match confirmed temperature settings before start: {run_id}",
+        )
 
     try:
         live_run_service.start_run(
             record=record,
             runtime_config=runtime_config,
-            target_temperature_celsius=payload.target_temperature_celsius,
+            target_temperature_celsius=record.temperature_settings.target_temperature_celsius,
             registry=registry,
         )
     except (RuntimeError, ValueError) as exc:
@@ -506,6 +566,10 @@ def _build_run_detail(
         profile=record.profile,
         preset=record.preset,
         definition=None if definition is None else _build_measurement_definition(definition),
+        temperature_settings=None
+        if record.temperature_settings is None
+        else _build_temperature_settings(record.temperature_settings),
+        temperature_settings_confirmed=record.temperature_settings is not None,
         created_at_ms=record.created_at_ms,
         updated_at_ms=record.updated_at_ms,
         definition_complete=definition_complete,
@@ -564,6 +628,39 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         min_target_area_px=definition.min_target_area_px,
         sensitivity=definition.sensitivity,
     )
+
+
+def _build_temperature_settings(settings: TemperatureSettingsBundle) -> TemperatureSettingsResponse:
+    confirmed_target = (
+        float(settings.confirmed_target_temperature_celsius)
+        if settings.confirmed_target_temperature_celsius is not None
+        else float(settings.target_temperature_celsius)
+    )
+    return TemperatureSettingsResponse(
+        target_temperature_celsius=float(settings.target_temperature_celsius),
+        control_mode=str(settings.control_mode),
+        output_power_percent=float(settings.output_power_percent),
+        confirmed_target_temperature_celsius=confirmed_target,
+        confirmed_at_ms=int(settings.confirmed_at_ms),
+        source=str(settings.source),
+    )
+
+
+def _write_and_confirm_temperature_settings(
+    *,
+    controller: object,
+    target_temperature_celsius: float,
+    output_power_percent: float,
+) -> dict[str, object]:
+    controller.set_target_temperature(target_temperature_celsius)
+    maybe_set_power = getattr(controller, "set_output_power_percent", None)
+    if callable(maybe_set_power):
+        maybe_set_power(output_power_percent)
+    return {
+        "confirmed_target_temperature_celsius": float(controller.read_target_temperature()),
+        "confirmed_at_ms": int(time.time() * 1000),
+        "source": type(controller).__name__,
+    }
 
 
 def _encode_grayscale_jpeg_bitmap(bitmap: PreviewBitmap, *, quality: int = 55) -> bytes:
@@ -628,9 +725,6 @@ def _iter_preview_stream_payload(
         payload = _encode_grayscale_jpeg_bitmap(bitmap)
         yield _encode_preview_stream_part(
             payload=payload,
-            width=bitmap.width,
-            height=bitmap.height,
-            frame_id=int(frame.frame_id or 0),
             content_type="image/jpeg",
         )
 
@@ -646,18 +740,12 @@ def _preview_stream_interval_ms(runtime_config: RuntimeConfig) -> int:
 def _encode_preview_stream_part(
     *,
     payload: bytes,
-    width: int,
-    height: int,
-    frame_id: int,
     content_type: str = "image/jpeg",
 ) -> bytes:
     headers = [
         f"--{_PREVIEW_STREAM_BOUNDARY}".encode("ascii"),
         f"Content-Type: {content_type}".encode("ascii"),
         f"Content-Length: {len(payload)}".encode("ascii"),
-        f"X-Frame-Width: {width}".encode("ascii"),
-        f"X-Frame-Height: {height}".encode("ascii"),
-        f"X-Frame-Id: {frame_id}".encode("ascii"),
         b"",
     ]
     return b"\r\n".join(headers) + b"\r\n" + payload + b"\r\n"

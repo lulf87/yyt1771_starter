@@ -1,4 +1,4 @@
-profile: dev_lab
+profile: dev_lab_camera_mock_temp
 platform: mac
 mode: lab
 webapp:
@@ -56,6 +56,7 @@ run:
   manual_stop_max_samples: 10000
   preview_display_max_width: 816
   preview_display_max_height: 544
+  stop_on_invalid_tracking: false
 storage:
-  sqlite_path: examples/runtime/dev_lab.sqlite3
+  sqlite_path: examples/runtime/dev_lab_camera_mock_temp.sqlite3
   artifact_dir: examples/runtime/artifacts

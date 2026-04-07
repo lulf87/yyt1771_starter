@@ -1,6 +1,6 @@
 # Home / Workspace Shell Requirement v1
 
-Updated on 2026-03-27
+Updated on 2026-04-01
 Status: CANONICAL_REQUIREMENT_ADDENDUM
 Clarifies implementation scope of:
 - `office_hours_requirement_baseline_v1.md`
@@ -14,7 +14,7 @@ Clarifies implementation scope of:
 
 1. 首页 `Compact Result -> Open Workspace` 到底应该打开哪个 session
 2. `observation_window / metric_box` 是否还属于当前首页 cockpit 的 operator-facing UI
-3. `Point A / Point B` 虽然被降级，但在什么状态下必须重新显性并允许人工校正
+3. `Point A / Point B` 虽然被降级，但在什么状态下必须重新显性并进入诊断复核
 4. 首页 / workspace 在第一轮重排时，哪些 DOM / API / test anchor 必须保持稳定
 
 如果这份 requirement 与：
@@ -28,6 +28,31 @@ Clarifies implementation scope of:
 - `live_setup_freeze_roi_tracking_requirement_v1.md`
 
 中的 live setup 几何与 operator flow 冲突，则仍以 `live_setup_freeze_roi_tracking_requirement_v1.md` 为准。
+
+如果讨论的问题是：
+
+- 首页 / workspace 哪些内容必须默认可见
+- 哪些内容只应按需展开
+- 哪些内容应退到 engineering mode
+- cross-surface journey 应如何表达
+- AFAS result card 在第一屏应承担什么语义
+
+则必须继续联读：
+
+- [home_workspace_information_hierarchy_requirement_v1.md](./home_workspace_information_hierarchy_requirement_v1.md)
+
+如果讨论的问题是：
+
+- 首页是否还应显示 shell 标题、journey 文案、`当前任务` 说明
+- 首页是否应隐藏 `系统 / 配置 / 模式` 和其他调试信息
+- 首页完成后是否只保留 `保存数据 / 进入分析`
+- `Save Definition` 是否应退出 operator flow
+- `A/B` 诊断展开层是否应保持锁定展开
+
+则必须继续联读：
+
+- [home_worker_minimal_cockpit_requirement_v1.md](./home_worker_minimal_cockpit_requirement_v1.md)
+- [home_worker_minimal_cockpit_state_handoff_requirement_v1.md](./home_worker_minimal_cockpit_state_handoff_requirement_v1.md)
 
 ---
 
@@ -65,9 +90,9 @@ Clarifies implementation scope of:
 
 - `ROI` 是主几何
 - `A-B` 不能删除
-- `A-B` 必须保留可见和可校正能力
+- `A-B` 必须保留可见和可诊断能力
 
-但如果没有写清“什么时候必须重新显性”，工程实现就容易把它做成永远缩在次级层里，导致低置信检测或重算后仍然不够可操作。
+但如果没有写清“什么时候必须重新显性”，工程实现就容易把它做成永远缩在次级层里，导致低置信检测、最新帧无效或重算后仍然不够可诊断。
 
 ### 4. 第一轮 shell refactor 的实现边界还没有进 repo canonical requirement
 
@@ -188,7 +213,7 @@ Workspace 的职责是：
 
 而不是当前首页 cockpit 的默认 operator path
 
-### R4. `Point A / Point B` stay secondary, but must escalate when review is needed
+### R4. `Point A / Point B` stay secondary, but must escalate for diagnostic review
 
 `Point A / Point B` 在首页中不得再与 `ROI` 抢一级主操作位。
 
@@ -199,19 +224,19 @@ Workspace 的职责是：
 - `A-B` 可以进入次级区域，如：
   - detection result
   - advanced setup
-  - dedicated correction surface
+  - diagnostic reveal
 
-但只要出现下面任一状态，`A-B` 的可见和校正能力就必须被重新显性抬高：
+但只要出现下面任一状态，`A-B` 的可见和诊断能力就必须被重新显性抬高：
 
 1. auto detect 返回 advisory / low-confidence 结果
 2. ROI 或 sensitivity 变化后系统重新计算了 `A-B`
-3. 操作员主动进入 manual correction mode
+3. 最新抓帧上没有得到有效 `A-B`
 
 在这些状态下，首页必须满足：
 
 - `A-B` overlay 可见
-- 用户能够直接进入校正动作
-- 页面上有明确状态提示，说明当前 `A-B` 需要人工确认或已被重算
+- 用户能够直接看到当前自动结果与诊断状态
+- 页面上有明确状态提示，说明当前 `A-B` 需要诊断复核、重新抓帧或重新计算
 
 这条 requirement 不强制具体 widget 必须是：
 
@@ -222,7 +247,7 @@ Workspace 的职责是：
 
 但强制要求：
 
-> 当 `A-B` 需要人工复核时，不能继续把它埋在默认不可见的次级层里。
+> 当 `A-B` 需要 operator diagnosis 时，不能继续把它埋在默认不可见的次级层里；这不等于恢复首页手动摆点流程。
 
 ### R5. First-pass shell refactor must preserve current integration anchors
 
@@ -284,7 +309,7 @@ workspace 中明确属于 future-phase、read-only、coming-soon 的占位信息
 1. 首页默认 UI 不出现 `Draw Window / Rotate Window / metric_box / observation_window` 操作位
 2. `ROI` 仍是首页 setup 主几何
 3. `A-B` 不与 ROI 抢一级主操作位
-4. 低置信 / 重算 / 手动校正模式下，`A-B` 会重新显性并可校正
+4. 低置信 / 重算 / 最新帧无效状态下，`A-B` 会重新显性并进入诊断复核
 
 ### C. Workspace hierarchy checks
 

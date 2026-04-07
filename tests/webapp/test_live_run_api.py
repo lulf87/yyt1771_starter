@@ -1,15 +1,18 @@
+import math
 from pathlib import Path
 import time
 
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
+import pytest
 
 from src.camera.mock_camera import MockCamera
 from src.core.models import FramePacket
-from src.storage.session_artifacts import SessionArtifactStore
-from src.storage.sqlite_repo import SqliteSessionRepo
+from src.curve.afas_postprocessing_analysis import analyze_preprocessed_afas_channel
+from src.curve.afas_preprocessing import preprocess_afas_channel
 from src.temp.mock_temp import MockTempController
 from src.webapp.app import create_app
-from src.webapp.deps import LivePreviewService, LiveRunService, PreviewStateSnapshot
+from src.webapp.deps import LivePreviewService, PreviewStateSnapshot
 
 
 class ReadFailingTempController(MockTempController):
@@ -61,14 +64,30 @@ class NativePreviewImage:
         raise AssertionError("native preview image should not be normalized through the generic path")
 
 
+def _make_rotated_roi_fixture_frame() -> FramePacket:
+    width = 96
+    height = 64
+    image = [[240 for _ in range(width)] for _ in range(height)]
+    center_x = 48
+    center_y = 32
+    angle_deg = 82.0
+    angle_rad = math.radians(angle_deg)
+    for local_x in range(-4, 5):
+        for local_y in range(-18, 19):
+            world_x = int(round(center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 24
+    return FramePacket(timestamp_ms=2_000, source="rotated_roi_fixture", image=image, frame_id=7)
+
+
 def _make_app(tmp_path: Path):
     app = create_app(profile="dev_mock")
     app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
     app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
-    app.state.live_run_service = LiveRunService(
-        repo=SqliteSessionRepo(tmp_path / "sessions.db"),
-        artifact_store=SessionArtifactStore(tmp_path / "artifacts"),
-        preview_service=app.state.live_preview_service,
+    _configure_mock_afas_curve_sample(app, tmp_path)
+    app.state.live_run_service = app.state.application_container.build_live_run_service(
+        preview_service=app.state.live_preview_service
     )
     return app
 
@@ -91,11 +110,101 @@ def _mock_definition_payload() -> dict[str, object]:
     }
 
 
-def _create_ready_run(client: TestClient) -> str:
+def _confirm_temperature_settings(
+    client: TestClient,
+    run_id: str,
+    *,
+    target_temperature_celsius: float = 45.0,
+    output_power_percent: float = 100.0,
+) -> dict[str, object]:
+    response = client.put(
+        f"/api/runs/{run_id}/temperature-settings",
+        json={
+            "target_temperature_celsius": target_temperature_celsius,
+            "control_mode": "manual",
+            "output_power_percent": output_power_percent,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _configure_mock_afas_curve_sample(app, tmp_path: Path, *, rows: list[tuple[float, float]] | None = None) -> Path:
+    workbook_path = tmp_path / "mock_afas_curve.xlsx"
+    _write_mock_afas_curve_workbook(workbook_path, rows=rows)
+    app.state.runtime_config.replay["mock_afas_curve_path"] = str(workbook_path)
+    return workbook_path
+
+
+def _write_mock_afas_curve_workbook(path: Path, *, rows: list[tuple[float, float]] | None = None) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    for temperature_celsius, value in rows or _default_mock_afas_curve_rows():
+        sheet.append((temperature_celsius, value))
+    workbook.save(path)
+
+
+def _default_mock_afas_curve_rows() -> list[tuple[float, float]]:
+    rows: list[tuple[float, float]] = []
+    for index in range(60):
+        progress = index / 59.0
+        temperature_celsius = round(-5.0 + index * 0.5, 2)
+        curve_progress = progress * progress * (3.0 - 2.0 * progress)
+        value = round(38.0 + 35.0 * curve_progress, 3)
+        rows.append((temperature_celsius, value))
+    return rows
+
+
+def _build_expected_afas_dataset(rows: list[tuple[float, float]]) -> dict[str, object]:
+    return {
+        "schema_version": "afas_postprocessing_dataset.v1",
+        "session_id": "expected-mock-afas",
+        "active_channel": "Space1",
+        "channel_map": {
+            "Space1": {
+                "temperature_celsius": [float(temperature_celsius) for temperature_celsius, _ in rows],
+                "values": [float(value) for _, value in rows],
+                "timestamps_ms": [1_000 + index for index in range(len(rows))],
+                "metric_norm": [None] * len(rows),
+                "quality": [0.99] * len(rows),
+                "point_a_px": [None] * len(rows),
+                "point_b_px": [None] * len(rows),
+            }
+        },
+        "preprocessing_defaults": {
+            "group_by_temperature": True,
+            "outlier_window": 11,
+            "outlier_threshold": 5.0,
+            "outlier_max_iterations": 3,
+            "savgol_window_length": 51,
+            "savgol_polyorder": 3,
+        },
+        "analysis_defaults": {
+            "low_range_celsius": None,
+            "high_range_celsius": None,
+            "tangent_offset": 0,
+        },
+    }
+
+
+def _create_ready_run(
+    client: TestClient,
+    *,
+    target_temperature_celsius: float = 45.0,
+    output_power_percent: float = 100.0,
+) -> str:
     run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
     response = client.put(f"/api/runs/{run_id}/definition", json=_mock_definition_payload())
     assert response.status_code == 200
-    assert response.json()["status"] == "run_ready"
+    assert response.json()["status"] == "definition_editing"
+    temp_response = _confirm_temperature_settings(
+        client,
+        run_id,
+        target_temperature_celsius=target_temperature_celsius,
+        output_power_percent=output_power_percent,
+    )
+    assert temp_response["status"] == "run_ready"
     return run_id
 
 
@@ -161,7 +270,7 @@ def test_get_run_returns_404_for_missing_draft(tmp_path: Path) -> None:
     assert response.json() == {"detail": "Run not found: missing-run"}
 
 
-def test_put_definition_saves_measurement_definition_and_advances_status(tmp_path: Path) -> None:
+def test_put_definition_saves_measurement_definition_and_waits_for_temperature_confirmation(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     created = client.post("/api/runs", json={"preset": "balloon"})
     run_id = created.json()["run_id"]
@@ -184,9 +293,11 @@ def test_put_definition_saves_measurement_definition_and_advances_status(tmp_pat
     assert response.status_code == 200
     payload = response.json()
     assert payload["run_id"] == run_id
-    assert payload["status"] == "run_ready"
+    assert payload["status"] == "definition_editing"
     assert payload["definition_complete"] is True
     assert payload["editor"] == {"state": "locked"}
+    assert payload["temperature_settings"] is None
+    assert payload["temperature_settings_confirmed"] is False
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
     assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
@@ -236,7 +347,37 @@ def test_put_definition_accepts_tight_rotated_window_near_roi_boundary(tmp_path:
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "run_ready"
+    assert response.json()["status"] == "definition_editing"
+
+
+def test_put_temperature_settings_confirms_bundle_and_advances_ready_status(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    definition_response = client.put(f"/api/runs/{run_id}/definition", json=_mock_definition_payload())
+
+    assert definition_response.status_code == 200
+    assert definition_response.json()["status"] == "definition_editing"
+
+    response = client.put(
+        f"/api/runs/{run_id}/temperature-settings",
+        json={
+            "target_temperature_celsius": 37.5,
+            "control_mode": "manual",
+            "output_power_percent": 68.0,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "run_ready"
+    assert payload["temperature_settings_confirmed"] is True
+    assert payload["temperature_settings"]["target_temperature_celsius"] == 37.5
+    assert payload["temperature_settings"]["control_mode"] == "manual"
+    assert payload["temperature_settings"]["output_power_percent"] == 68.0
+    assert payload["temperature_settings"]["confirmed_target_temperature_celsius"] == 37.5
+    assert payload["temperature_settings"]["confirmed_at_ms"] > 0
+    assert payload["temperature_settings"]["source"]
 
 
 def test_preview_frame_returns_png_and_marks_definition_editing_with_frozen_frame(tmp_path: Path) -> None:
@@ -373,6 +514,9 @@ def test_preview_stream_returns_multipart_jpeg_and_marks_preview_ready(tmp_path:
 
     assert b"--frame" in chunks
     assert b"Content-Type: image/jpeg" in chunks
+    assert b"X-Frame-Width" not in chunks
+    assert b"X-Frame-Height" not in chunks
+    assert b"X-Frame-Id" not in chunks
     assert b"\xff\xd8\xff" in chunks
     assert detail_response.status_code == 200
     assert detail_response.json()["status"] == "preview_ready"
@@ -439,6 +583,7 @@ def test_preview_stream_prefers_native_downsample_fast_path(tmp_path: Path) -> N
                 break
 
     assert b"\xff\xd8\xff" in chunks
+    assert b"X-Frame-Width" not in chunks
     assert image.bitmap_calls == [(640, 480)]
     assert image.row_calls == []
 
@@ -651,6 +796,37 @@ def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_al
     assert payload["metric_raw"] is not None
 
 
+def test_auto_detect_definition_accepts_tight_rotated_metric_box_near_roi_boundary(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    frame = _make_rotated_roi_fixture_frame()
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        return frame
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 24, "y": 12, "width": 48, "height": 40},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 18, "height": 40, "angle_deg": 82.0},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 20,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["point_a_px"]["x"] != payload["point_b_px"]["x"] or payload["point_a_px"]["y"] != payload["point_b_px"]["y"]
+    assert payload["metric_raw"] is not None
+
+
 def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     run_id = _create_ready_run(client)
@@ -735,10 +911,11 @@ def test_create_app_mounts_live_run_router(tmp_path: Path) -> None:
 def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     run_id = _create_ready_run(client)
+    expected_rows = _default_mock_afas_curve_rows()
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     detail_payload = _wait_for_run_status(client, run_id, "completed")
     telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
@@ -762,7 +939,7 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert telemetry_response.status_code == 200
     telemetry_payload = telemetry_response.json()
     assert telemetry_payload["status"] == "completed"
-    assert len(telemetry_payload["curve"]) >= 3
+    assert len(telemetry_payload["curve"]) == len(expected_rows)
     assert telemetry_payload["latest"]["space1_px"] >= telemetry_payload["curve"][0]["space1_px"]
     assert telemetry_payload["latest"]["sample_index"] is not None
     assert telemetry_payload["latest"]["frame_id"] is not None
@@ -770,6 +947,13 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert telemetry_payload["latest"]["point_a_px"] is not None
     assert telemetry_payload["latest"]["point_b_px"] is not None
     assert telemetry_payload["curve"][1]["sample_interval_ms"] is not None
+    temp_response = client.get("/api/system/temp/current")
+    assert temp_response.status_code == 200
+    assert temp_response.json()["temperature_celsius"] == telemetry_payload["latest"]["temperature_celsius"]
+    assert telemetry_payload["curve"][0]["temperature_celsius"] == expected_rows[0][0]
+    assert telemetry_payload["curve"][0]["space1_px"] == expected_rows[0][1]
+    assert telemetry_payload["latest"]["temperature_celsius"] == expected_rows[-1][0]
+    assert telemetry_payload["latest"]["space1_px"] == expected_rows[-1][1]
 
     assert result_response.status_code == 200
     result_payload = result_response.json()
@@ -805,6 +989,30 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert (session_dir / "keyframes").exists()
 
 
+def test_creating_a_new_mock_run_resets_shared_temperature_state(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    first_run_id = _create_ready_run(client)
+    expected_rows = _default_mock_afas_curve_rows()
+
+    start_response = client.post(
+        f"/api/runs/{first_run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    _wait_for_run_status(client, first_run_id, "completed")
+
+    assert start_response.status_code == 200
+    temp_after_run = client.get("/api/system/temp/current")
+    assert temp_after_run.status_code == 200
+    assert temp_after_run.json()["temperature_celsius"] == expected_rows[-1][0]
+
+    second_run = client.post("/api/runs", json={"preset": "balloon"})
+    assert second_run.status_code == 200
+
+    reset_temp = client.get("/api/system/temp/current")
+    assert reset_temp.status_code == 200
+    assert reset_temp.json()["temperature_celsius"] == expected_rows[0][0]
+
+
 def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     profile_names: list[str] = []
@@ -819,7 +1027,7 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     _wait_for_run_status(client, run_id, "completed")
 
@@ -828,8 +1036,11 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
 
 
 def test_start_live_run_persists_explicit_unavailable_result_when_afas_curve_is_too_short(tmp_path: Path) -> None:
-    client = _make_client(tmp_path)
-    run_id = _create_ready_run(client)
+    app = _make_app(tmp_path)
+    short_rows = [(5.0, 40.0), (7.5, 44.0), (10.0, 55.0)]
+    _configure_mock_afas_curve_sample(app, tmp_path, rows=short_rows)
+    client = TestClient(app)
+    run_id = _create_ready_run(client, target_temperature_celsius=35.0)
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
@@ -850,6 +1061,36 @@ def test_start_live_run_persists_explicit_unavailable_result_when_afas_curve_is_
     assert payload["rates"]["measurement_sample_hz"] is not None
     assert payload["as_value"] is None
     assert payload["af_value"] is None
+
+
+def test_start_live_run_workspace_afas_matches_direct_analysis_for_mock_curve_workbook(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    expected_rows = _default_mock_afas_curve_rows()
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    expected_dataset = _build_expected_afas_dataset(expected_rows)
+    expected_preprocessing = preprocess_afas_channel(expected_dataset, channel_name="Space1")
+    expected_analysis = analyze_preprocessed_afas_channel(expected_preprocessing)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    _wait_for_run_status(client, run_id, "completed")
+    analysis_response = client.post(f"/api/session/{run_id}/afas/analysis", json={})
+    dataset_response = client.get(f"/api/session/{run_id}/detail")
+
+    assert start_response.status_code == 200
+    assert analysis_response.status_code == 200
+    payload = analysis_response.json()
+    assert payload["active_channel"] == "Space1"
+    assert payload["analysis"]["result_status"] == expected_analysis["result_status"]
+    assert payload["analysis"]["result"]["As"] == pytest.approx(expected_analysis["result"]["As"])
+    assert payload["analysis"]["result"]["Af_tan"] == pytest.approx(expected_analysis["result"]["Af_tan"])
+    assert payload["analysis"]["result"]["max_slope_temp"] == pytest.approx(expected_analysis["result"]["max_slope_temp"])
+    assert dataset_response.status_code == 200
+    assert dataset_response.json()["point_count"] == len(expected_rows)
 
 
 def test_start_live_run_exposes_cadence_warning_when_achieved_rate_is_below_target(tmp_path: Path) -> None:
@@ -873,7 +1114,7 @@ def test_start_live_run_exposes_cadence_warning_when_achieved_rate_is_below_targ
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     completed_detail = _wait_for_run_status(client, run_id, "completed")
     result_response = client.get(f"/api/runs/{run_id}/result")
@@ -895,7 +1136,7 @@ def test_start_live_run_rejects_invalid_transition_before_definition(tmp_path: P
 
     response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
 
     assert response.status_code == 409
@@ -930,12 +1171,14 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     stop_response = client.post(f"/api/runs/{run_id}/stop")
     aborted_detail = _wait_for_run_status(client, run_id, "aborted")
     telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
     result_response = client.get(f"/api/runs/{run_id}/result")
+    session_response = client.get(f"/api/session/{run_id}")
+    session_detail_response = client.get(f"/api/session/{run_id}/detail")
 
     assert start_response.status_code == 200
     assert start_response.json()["status"] == "running"
@@ -944,7 +1187,13 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
     assert aborted_detail["status"] == "aborted"
     assert telemetry_response.status_code == 200
     assert telemetry_response.json()["status"] == "aborted"
-    assert result_response.status_code == 404
+    assert result_response.status_code == 200
+    assert result_response.json()["state"] == "aborted"
+    assert result_response.json()["result_status"] == "unavailable"
+    assert session_response.status_code == 200
+    assert session_response.json()["state"] == "aborted"
+    assert session_detail_response.status_code == 200
+    assert session_detail_response.json()["source"] == "live_run"
 
 
 def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path) -> None:
@@ -953,7 +1202,7 @@ def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path)
     app.state.runtime_config.live.temp.control.mock_ramp_step_celsius = 100.0
     app.state.runtime_config.live.run.capture_interval_ms = 50
     client = TestClient(app)
-    run_id = _create_ready_run(client)
+    run_id = _create_ready_run(client, target_temperature_celsius=35.0)
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
@@ -981,7 +1230,7 @@ def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_pa
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     failed_detail = _wait_for_run_status(client, run_id, "failed")
     telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
@@ -993,7 +1242,9 @@ def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_pa
     assert telemetry_response.status_code == 200
     assert telemetry_response.json()["status"] == "failed"
     assert len(telemetry_response.json()["curve"]) == 1
-    assert result_response.status_code == 404
+    assert result_response.status_code == 200
+    assert result_response.json()["state"] == "failed"
+    assert result_response.json()["result_status"] == "unavailable"
 
 
 def test_start_live_run_marks_failed_when_finalize_breaks(tmp_path: Path) -> None:
@@ -1009,7 +1260,7 @@ def test_start_live_run_marks_failed_when_finalize_breaks(tmp_path: Path) -> Non
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
-        json={"target_temperature_celsius": 75.0},
+        json={"target_temperature_celsius": 45.0},
     )
     failed_detail = _wait_for_run_status(client, run_id, "failed")
     telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")

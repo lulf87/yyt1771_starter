@@ -158,12 +158,17 @@ Recommendation:
   不允许在 `workflow` 或 route 层硬编码。
 - `set_target_temperature(celsius)` 的 public semantic 继续保持“目标温度”，
   即使底层设备寄存器在旧系统里更接近“停止温度”命名。
+- `set_output_power_percent(percent)` 的 public semantic 应代表当前 run 已确认的温度功率，
+  而不是 profile-only 的隐藏启动值。
+- `control_mode = manual` 当前属于 run definition / API contract 的一部分；
+  在 LU92XX 真机寄存器尚未确认前，允许先作为已验证的 workflow state，而不是强行伪造底层寄存器语义。
 - `start_output()` 继续保持无参，但如果 LU92XX 最终是通过“写功率寄存器非零”来启动，
-  则所需功率值必须来自 profile 配置，而不是 API 入参。
+  则必须使用当前 run 已确认的功率值，而不是隐藏的 profile-only 默认值。
 
 最小控制语义锁定为：
 
 - `set_target_temperature(celsius: float) -> None`
+- `set_output_power_percent(percent: float) -> None`
 - `start_output() -> None`
 - `stop_output() -> None`
 - `read() -> TempReading`
@@ -548,7 +553,8 @@ temp:
       decode_scale: 0.00390625
   control:
     start_output_mode: power_nonzero
-    startup_power_percent: 100.0
+    default_control_mode: manual
+    default_power_percent: 100.0
 
 vision:
   foreground_polarity: dark_on_light
@@ -574,12 +580,14 @@ run:
 Runtime API carries:
 
 - target temperature
-- operator preset
+- control mode
+- output power percent
 - current measurement definition
 
 Profile YAML does **not** carry:
 
 - per-run target temperature
+- per-run output power percent
 - operator-selected two points
 - session-specific ROI/box
 
@@ -592,7 +600,7 @@ Additional temp lock:
   but may not claim the real controller path is complete
 - `process_value.start_address=264` is the default candidate because it has the strongest in-repo evidence
 - `258` remains a documented conflict candidate and must be supported via profile override, not code fork
-- `startup_power_percent` is mandatory because the current public workflow contract has no power argument
+- `default_power_percent` 只可作为 UI 初始值或 profile 默认值，不能覆盖 operator 已确认的当前 run 功率
 
 ### 5. Artifact and result contract lock
 
@@ -715,7 +723,8 @@ tests/architecture/ import boundaries stay intact
   - register-map override path for `258`
   - `reg 0` encode/decode with `x10`
   - `reg 4` encode/decode with `x256`
-  - `start_output()` uses configured `startup_power_percent`
+  - `set_output_power_percent()` encodes the confirmed runtime power value
+  - `start_output()` uses the already confirmed runtime settings, not a hidden profile-only startup value
   - `stop_output()` writes zero power
   - adapter keeps API semantic as `target_temperature_celsius`
   - start/stop command failure

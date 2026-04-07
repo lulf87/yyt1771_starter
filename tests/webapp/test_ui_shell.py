@@ -18,20 +18,31 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Launch &amp; Control Cockpit" in response.text
-    assert "Analysis Studio" in response.text
+    assert "实时预览" in response.text
+    assert "ROI 框选" in response.text
+    assert "查看ROI参数" in response.text
+    assert "更多工具与诊断" in response.text
+    assert "保存数据" in response.text
+    assert "进入分析" in response.text
+    assert "<title" in response.text
+    assert "实时测试</title>" in response.text
+    assert 'data-language-toggle="zh"' in response.text
+    assert 'data-language-toggle="en"' in response.text
     assert '/static/app.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert 'id="health-status"' in response.text
     assert 'id="profile-name"' in response.text
+    assert 'id="home-completion-dock"' in response.text
+    assert 'id="home-result-session-id"' in response.text
+    assert 'id="home-result-session-state"' in response.text
+    assert 'id="save-session-data-btn"' in response.text
     assert 'id="live-run-id"' in response.text
     assert 'id="live-run-status"' in response.text
     assert 'id="live-run-preset-select"' in response.text
     assert 'id="live-preview-rate"' in response.text
     assert 'id="live-measurement-rate"' in response.text
     assert 'id="stop-live-preview-stream-btn"' in response.text
-    assert ">Freeze<" in response.text
-    assert 'id="save-live-definition-btn"' in response.text
+    assert ">冻结画面<" in response.text
     assert 'id="live-preview-img"' in response.text
     assert 'id="live-preview-stage"' in response.text
     assert 'id="live-point-prompt"' in response.text
@@ -40,11 +51,14 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-preview-overlay"' in response.text
     assert 'id="live-current-temperature"' in response.text
     assert 'id="live-target-temperature"' in response.text
+    assert 'id="live-output-power-percent"' in response.text
     assert 'id="confirm-target-temperature-btn"' in response.text
     assert 'id="stop-live-run-btn"' in response.text
     assert 'id="draw-analysis-roi-btn"' in response.text
-    assert 'id="pick-point-a-btn"' in response.text
-    assert 'id="pick-point-b-btn"' in response.text
+    assert 'id="start-live-preview-stream-btn"' in response.text
+    assert 'id="recompute-definition-btn"' in response.text
+    assert 'id="live-point-a-summary"' in response.text
+    assert 'id="live-point-b-summary"' in response.text
     assert 'id="live-analysis-roi-x"' in response.text
     assert 'id="live-analysis-roi-y"' in response.text
     assert 'id="live-analysis-roi-width"' in response.text
@@ -53,13 +67,22 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-point-a-x"' in response.text
     assert 'id="live-point-b-y"' in response.text
     assert 'id="live-sensitivity"' in response.text
-    assert "Connecting to live preview..." in response.text
+    assert "正在连接实时预览" in response.text
+    assert 'id="app-title"' not in response.text
+    assert 'data-testid="home-journey"' not in response.text
+    assert 'id="home-current-task-title"' not in response.text
+    assert 'id="home-current-task-copy"' not in response.text
+    assert 'id="home-current-task-step"' not in response.text
+    assert "YYT1771" not in response.text
+    assert "启动与控制驾驶舱" not in response.text
     assert 'id="create-live-run-btn"' not in response.text
     assert 'id="fetch-live-preview-btn"' not in response.text
-    assert 'id="start-live-preview-stream-btn"' not in response.text
+    assert 'id="pick-point-a-btn"' not in response.text
+    assert 'id="pick-point-b-btn"' not in response.text
     assert 'id="draw-observation-window-btn"' not in response.text
     assert 'id="rotate-observation-window-btn"' not in response.text
     assert 'id="auto-detect-definition-btn"' not in response.text
+    assert 'id="save-live-definition-btn"' not in response.text
     assert 'id="precheck-status"' in response.text
     assert 'id="precheck-items"' in response.text
     assert 'id="refresh-precheck-btn"' in response.text
@@ -73,6 +96,9 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="camera-probe-result"' in response.text
     assert 'id="run-mock-btn"' in response.text
     assert 'id="run-replay-btn"' in response.text
+    assert 'id="import-afas-dataset-file"' in response.text
+    assert 'id="import-afas-dataset-btn"' in response.text
+    assert 'id="import-afas-dataset-hint"' in response.text
     assert 'id="session-workspace-link"' in response.text
     assert 'id="session-result"' in response.text
     assert 'id="recent-sessions"' in response.text
@@ -92,11 +118,11 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/system/precheck" in response.text
     assert "/api/system/camera/probe" in response.text
     assert "/api/system/temp/current" in response.text
-    assert "/api/system/temp/target" in response.text
     assert "/api/runs" in response.text
     assert "/preview/frame" in response.text
     assert "/preview/stream" in response.text
     assert "/definition/auto" in response.text
+    assert "/temperature-settings" in response.text
     assert "/start" in response.text
     assert "/stop" in response.text
     assert "/telemetry" in response.text
@@ -107,11 +133,23 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "live-measurement-rate" in response.text
     assert "live-current-temperature" in response.text
     assert "live-target-temperature" in response.text
+    assert "live-output-power-percent" in response.text
     assert "confirm-target-temperature-btn" in response.text
     assert "startCurrentTemperaturePolling" in response.text
     assert "confirmTargetTemperature" in response.text
-    assert "Confirming target temperature on the controller" in response.text
-    assert "isTargetTemperatureConfirmed" in response.text
+    assert "Confirming bundled temperature settings on the controller" in response.text
+    assert "confirmedTemperatureSettings" in response.text
+    assert "isTemperatureSettingsConfirmed" in response.text
+    assert "clearTemperatureSettingsConfirmation" in response.text
+    assert "saveSessionData" in response.text
+    assert "save-session-data-btn" in response.text
+    assert "persistLiveDefinition" in response.text
+    assert "hasUnsavedDefinition" not in response.text
+    assert "!roiReady || isRunActive || isTerminal" not in response.text
+    assert 'const LANGUAGE_STORAGE_KEY = "yyt1771-ui-language"' in response.text
+    assert "data-language-toggle" in response.text
+    assert "applyStaticTranslations" in response.text
+    assert "setLocale" in response.text
     assert "startLiveTrackingLoop" in response.text
     assert "refreshTrackingPreviewFrame" in response.text
     assert 'queryParams.set("tracking", "1")' in response.text
@@ -119,34 +157,39 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "live-preview-img" in response.text
     assert "live-point-prompt" in response.text
     assert "renderLiveToolPrompt" in response.text
-    assert "Selecting Point A" in response.text
-    assert "Selecting Point B" in response.text
     assert "Recomputing Locked Points" in response.text
-    assert "Refreshing the frozen frame and recalculating ROI-local A/B" in response.text
+    assert "Capturing a new frame to recalculate ROI-local A/B" in response.text
+    assert "cached: false" in response.text
     assert "Point recompute failed. Adjust ROI or sensitivity and try again." in response.text
     assert "Failed to recompute ROI-local A/B:" in response.text
     assert "setupRecomputeInFlight" in response.text
+    assert "updatePointSummaries" in response.text
     assert "live-preview-overlay" in response.text
     assert "draw-analysis-roi-btn" in response.text
     assert "stop-live-preview-stream-btn" in response.text
+    assert "start-live-preview-stream-btn" in response.text
     assert "async function stopLivePreviewStream({ clearImage = false, silent = false } = {})" in response.text
     assert 'livePreviewImageNode.removeAttribute("src")' in response.text
     assert "scheduleRoiPointRecompute" in response.text
     assert "Auto-detecting locked points from the ROI-local horizontal axis" in response.text
+    assert "Save Definition when the ROI and A/B look correct." not in response.text
+    assert "Definition saved. Live run is ready for the Phase 3 start flow." not in response.text
     assert 'const LIVE_SETUP_RUN_STORAGE_KEY = "yyt1771-live-setup-run-id"' in response.text
     assert "probe-mode-select" in response.text
     assert "create-live-run-btn" not in response.text
     assert "fetch-live-preview-btn" not in response.text
-    assert "start-live-preview-stream-btn" not in response.text
     assert "draw-observation-window-btn" not in response.text
     assert "rotate-observation-window-btn" not in response.text
     assert "auto-detect-definition-btn" not in response.text
     assert "/api/session" in response.text
     assert "/api/session/run-mock" in response.text
     assert "/api/session/run-replay" in response.text
+    assert "/api/session/import-afas-dataset" in response.text
     assert "/api/session/${sessionId}/detail" in response.text
     assert "/workspace/" in response.text
     assert 'workspace-keyframe-card' in response.text
+    assert "import-afas-dataset-file" in response.text
+    assert "importAfasDataset" in response.text
 
 
 def test_favicon_route_returns_no_content(tmp_path: Path) -> None:

@@ -63,7 +63,10 @@ class LivePreviewService:
         cached_frame = self._latest_frame_for_run(run_id) if prefer_cached else None
         if cached_frame is not None:
             return cached_frame
-        frame = self._read_with_close(self.open_camera(runtime_config, profile_name="setup_preview"))
+        frame = self._read_with_close(
+            self.open_camera(runtime_config, profile_name="setup_preview"),
+            warmup_frame_count=_fresh_capture_warmup_frame_count(runtime_config),
+        )
         if run_id:
             self._store_latest_frame(run_id, frame)
         return frame
@@ -74,9 +77,9 @@ class LivePreviewService:
         *,
         run_id: str,
     ) -> tuple[object, FramePacket]:
-        with self._state_lock:
-            if self._active_stream is not None:
-                raise RuntimeError(f"Live preview stream is already active for run: {self._active_stream.run_id}")
+        active_stream = self._handoff_active_stream(run_id=run_id)
+        if active_stream is not None:
+            self._close_stream(active_stream)
 
         camera = self.open_camera(runtime_config, profile_name="setup_preview")
         try:
@@ -114,6 +117,15 @@ class LivePreviewService:
         )
         active_stream.reader_thread.start()
         return active_stream, first_frame
+
+    def _handoff_active_stream(self, *, run_id: str) -> _ActivePreviewStream | None:
+        with self._state_lock:
+            active_stream = self._active_stream
+            if active_stream is None:
+                return None
+            if active_stream.run_id == run_id and active_stream.stop_event.is_set():
+                return None
+            return active_stream
 
     def open_camera(self, runtime_config: RuntimeConfig, *, profile_name: str = "setup_preview") -> object:
         return open_camera(runtime_config, profile_name=profile_name)
@@ -393,9 +405,12 @@ class LivePreviewService:
             raise ValueError("Preview camera does not provide read_frame()")
         return read_frame()
 
-    def _read_with_close(self, camera: object) -> FramePacket:
+    def _read_with_close(self, camera: object, *, warmup_frame_count: int = 0) -> FramePacket:
         try:
-            return self._read_from_camera(camera)
+            frame = self._read_from_camera(camera)
+            for _ in range(max(0, int(warmup_frame_count))):
+                frame = self._read_from_camera(camera)
+            return frame
         finally:
             close = getattr(camera, "close", None)
             if callable(close):
@@ -425,6 +440,14 @@ def compute_preview_interval_ms(
         return max(minimum_interval_ms, int(1000.0 / target_fps))
     fallback = 120 if fallback_ms is None else int(fallback_ms)
     return max(minimum_interval_ms, fallback)
+
+
+def _fresh_capture_warmup_frame_count(runtime_config: RuntimeConfig) -> int:
+    adapters = getattr(runtime_config, "adapters", {}) or {}
+    camera_backend = str(adapters.get("camera", "") or "").strip()
+    if camera_backend == "hik_gige_mvs":
+        return 2
+    return 0
 
 
 def _frame_signature(frame: FramePacket) -> tuple[object, ...]:

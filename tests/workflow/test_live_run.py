@@ -437,6 +437,40 @@ def test_live_run_coordinator_records_cadence_warning_when_below_target(tmp_path
     assert any(event["type"] == "measurement_cadence_assessed" for event in execution.events)
 
 
+def test_live_run_coordinator_does_not_fail_early_for_low_target_before_target_is_reached(tmp_path) -> None:
+    definition = _definition()
+    repo = SqliteSessionRepo(tmp_path / "sessions.db")
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    coordinator = LiveRunCoordinator(repo=repo, artifact_store=artifact_store)
+    camera = SequencedCamera([1_000, 1_100, 1_200, 1_300])
+    temp_controller = SequencedTempController(
+        timestamps_ms=[1_005, 1_105, 1_205, 1_305],
+        celsius_values=[6.0, 9.0, 12.0, 14.0],
+    )
+    run_config = _runtime_run_config()
+    run_config.capture_interval_ms = 50
+    run_config.manual_stop_max_samples = 10
+
+    execution = coordinator.run(
+        session_id="run-low-target-progression",
+        definition=definition,
+        target_temperature_celsius=14.0,
+        run_config=run_config,
+        analysis_engine="afas",
+        channel_name="Space1",
+        as_fit_point_count=5,
+        af_fit_point_count=5,
+        camera=camera,
+        temp_reader=temp_controller,
+        temp_controller=temp_controller,
+        metric_source=MockLiveMetricSource(definition=definition, target_temperature_celsius=14.0),
+    )
+
+    assert execution.summary.state == "completed"
+    assert execution.detail["point_count"] == 4
+    assert execution.telemetry[-1]["temperature_celsius"] == 14.0
+
+
 def test_resolve_measurement_interval_ms_prefers_target_hz_over_legacy_capture_interval() -> None:
     run_config = _runtime_run_config()
     run_config.capture_interval_ms = 500

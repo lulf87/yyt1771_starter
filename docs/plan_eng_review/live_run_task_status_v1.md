@@ -1,6 +1,6 @@
 # Live Run Task Status v1
 
-Updated on 2026-03-26
+Updated on 2026-04-01
 Status: ACTIVE_WORKTREE_SNAPSHOT
 
 ## Purpose
@@ -12,6 +12,19 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 3. 下一步应该从哪个 task 继续，才不会把已做工作推翻或和并行进程冲突
 
 这是一份“当前工作树快照”，不是最终发布状态。
+
+如果它与 2026-04-01 之后更新的 canonical requirement 冲突，则：
+
+- requirement 文档优先
+- 本文件只负责描述“当前代码快照做到哪了”
+- 任何仍写着旧语义的位置，都应被视为 drift 记录，而不是新的产品锁定
+
+当前执行环境补充事实：
+
+- 2026-04-01 用户明确说明当前没有接任何外设
+- 因此本轮继续推进的新需求应默认按无相机、无温控器、无串口链路的环境假设执行
+- 任何依赖真实外设的验证都不应被视为当前可完成项
+- 首页 / setup / run-gating 相关需求允许先以 mock / fake adapter / 本地状态流完成
 
 ---
 
@@ -37,9 +50,11 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 2. [office_hours_requirement_baseline_v1.md](../requirements/office_hours_requirement_baseline_v1.md)
 3. [live_setup_freeze_roi_tracking_requirement_v1.md](../requirements/live_setup_freeze_roi_tracking_requirement_v1.md)
 4. [live_setup_roi_ab_window_requirement_v1.md](../requirements/live_setup_roi_ab_window_requirement_v1.md)
+   - 仅保留历史几何语义上下文，不再是当前首页 operator flow 的权威来源
 5. [afas_full_postprocessing_migration_requirement_v1.md](../requirements/afas_full_postprocessing_migration_requirement_v1.md)
 6. [live_setup_freeze_roi_tracking_plan_lock_v1.md](./live_setup_freeze_roi_tracking_plan_lock_v1.md)
 7. [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
+   - 仅保留旧计划链的历史说明，不应覆盖当前 freeze-first / no-manual-A-B requirement
 8. [afas_full_postprocessing_migration_plan_lock_v1.md](./afas_full_postprocessing_migration_plan_lock_v1.md)
 9. [desktop_workstation_migration_requirement_v1.md](../requirements/desktop_workstation_migration_requirement_v1.md)
 10. [live_capture_temporal_sampling_requirement_v1.md](../requirements/live_capture_temporal_sampling_requirement_v1.md)
@@ -65,12 +80,12 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
   - `Freeze` 是唯一 preview lifecycle action
   - ROI 成为 setup 与 live tracking 的唯一主几何
   - `A-B` 在 ROI 局部横轴上定义
-  - ROI / sensitivity 变化必须触发 recapture + recompute
+  - committed ROI / sensitivity 变化必须触发 recapture + recompute
   - `Draw Window / Rotate Window` 已不再属于当前最高优先级用户流
 - live setup 的最新几何语义已经单独 refreeze：
   - `ROI` 是 auto-detect 主搜索区域
-  - `A-B` 是主几何锚点，可手工点或自动生成
-  - `observation_window` 只能在 `A-B` 之后生成
+  - `A-B` 在当前首页流程中由 auto detect 生成并在 live run 中更新；manual A/B 只保留历史解释价值
+  - `observation_window` 只保留历史 / measurement context，不再是当前 setup 前置条件
   - `observation_axis` 只能是 `long_axis | short_axis`
 - `ROI-first, A-B-before-window` 几何链已在当前 Web baseline 落地：
   - auto-detect 以 `ROI` 为主搜索区域
@@ -88,7 +103,11 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
 - `target_temperature_celsius` 保持 API 语义
 - LU92XX 默认采用 `slave=1`、`19200 / 8N1`
 - 温度寄存器默认候选为 `264`，`258` 只允许作为 profile override
-- `start_output()` 若依赖功率寄存器，启动功率必须来自 `startup_power_percent`
+- 最新 requirement 已把温控设置包锁成：
+  - target temperature
+  - control mode = manual
+  - output power percent
+  当前代码若仍依赖 profile `startup_power_percent`，应视为待同步 drift
 - live setup 的交互语义按 freeze-first 锁定：
   - `Stop Live Preview` 应保留最后一帧
   - preview stop / restart 不应要求页面刷新
@@ -105,6 +124,9 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
   - 以后不得再把当前轻量 `afas.py` 误写成 full AFAS parity
 - 桌面可视预览 `preview_display_fps >= 50` 已被单独锁成 desktop migration gate
 - `analysis_roi` / `metric_box` 不能再被当成 camera-side acquisition ROI 的替代品
+- 当前没有接任何外设，因此：
+  - 新需求实现优先级仍是 home/live-setup 交互与状态语义
+  - 真机相机 / LU92XX / bench 结论都继续保持 blocked
 
 ---
 
@@ -333,6 +355,7 @@ Status: VERIFIED_DONE_FOR_CURRENT_OPERATOR_BASELINE
   - `Start Live Run`
   - `Stop Live Run`
   - `Confirm Target`
+    - 这是当前代码快照中的旧文案；最新 requirement 已升级为 bundled `Confirm Temperature Settings`
 - 旧的：
   - `Create Live Run`
   - `Fetch Preview`
@@ -386,6 +409,7 @@ Status: VERIFIED_DONE_FOR_CURRENT_OPERATOR_BASELINE
   - `Freeze`
   - `Start Live Run`
   - `Confirm Target`
+    - 当前实现文案仍滞后于最新 requirement
 - `dev_mock` 安全启动链已通过 API/QA 验证：
   - `save_status = run_ready`
   - `start_status = running`
@@ -599,7 +623,8 @@ Status: VERIFIED_DONE_WITHOUT_BENCH
 
 - LU92XX adapter 实现
 - `264` 默认 / `258` override 的 profile 化
-- `startup_power_percent` 配置落地
+- legacy `startup_power_percent` 配置已落地
+  - 2026-04-01 之后的最新 requirement 已把功率 ownership 升级为 runtime-confirmed temperature settings bundle
 - LU92XX 单元测试
 
 仍未完成项：

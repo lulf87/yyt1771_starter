@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.application.container import ApplicationContainer
 from src.application.runtime_config import load_runtime_config
+from src.desktop_app.qt_runtime import bootstrap_desktop_runtime
 from src.webapp.routes.health import router as health_router
 from src.webapp.routes.live_run import router as live_run_router
 from src.webapp.routes.profile import router as profile_router
@@ -14,7 +15,10 @@ from src.webapp.routes.session import router as session_router
 from src.webapp.routes.ui import router as ui_router
 
 
-def create_app(profile: str = "dev_mock") -> FastAPI:
+def create_app(profile: str = "dev_lab") -> FastAPI:
+    # Reuse the desktop-side runtime bootstrap so the web shell can discover the
+    # locally staged Hik MVS Python bindings and dylibs in real/lab mode.
+    bootstrap_desktop_runtime()
     runtime_config = load_runtime_config(profile)
     container = ApplicationContainer(runtime_config)
     static_dir = Path(__file__).resolve().parent / "static"

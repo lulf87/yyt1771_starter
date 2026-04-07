@@ -7,7 +7,7 @@ import time
 import uuid
 
 from src.core.enums import CaptureMode, RunStatus
-from src.core.models import MeasurementDefinition, RunDraftRecord
+from src.core.models import MeasurementDefinition, RunDraftRecord, TemperatureSettingsBundle
 
 
 class LiveRunDraftRegistry:
@@ -42,7 +42,21 @@ class LiveRunDraftRegistry:
         updated_record = replace(
             record,
             definition=definition,
-            status=RunStatus.RUN_READY if definition.is_complete() else RunStatus.DEFINITION_EDITING,
+            status=_ready_status(definition=definition, temperature_settings=record.temperature_settings),
+            updated_at_ms=_now_ms(),
+        )
+        self._records[run_id] = updated_record
+        return updated_record
+
+    def save_temperature_settings(self, run_id: str, settings: TemperatureSettingsBundle) -> RunDraftRecord:
+        record = self.get(run_id)
+        if record is None:
+            raise LookupError(f"Run not found: {run_id}")
+
+        updated_record = replace(
+            record,
+            temperature_settings=settings,
+            status=_ready_status(definition=record.definition, temperature_settings=settings),
             updated_at_ms=_now_ms(),
         )
         self._records[run_id] = updated_record
@@ -70,7 +84,7 @@ class LiveRunDraftRegistry:
         if record is None:
             raise LookupError(f"Run not found: {run_id}")
 
-        next_status = RunStatus.RUN_READY if record.definition and record.definition.is_complete() else RunStatus.DEFINITION_EDITING
+        next_status = _ready_status(definition=record.definition, temperature_settings=record.temperature_settings)
         updated_record = replace(
             record,
             status=next_status,
@@ -103,3 +117,13 @@ class LiveRunDraftRegistry:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _ready_status(
+    *,
+    definition: MeasurementDefinition | None,
+    temperature_settings: TemperatureSettingsBundle | None,
+) -> RunStatus:
+    if definition is not None and definition.is_complete() and temperature_settings is not None:
+        return RunStatus.RUN_READY
+    return RunStatus.DEFINITION_EDITING

@@ -36,7 +36,7 @@ class TempCurrentResponse(BaseModel):
 
 
 class TempTargetRequest(BaseModel):
-    target_temperature_celsius: float = Field(gt=0)
+    target_temperature_celsius: float = Field(ge=-50, le=50)
 
 
 class TempTargetResponse(BaseModel):
@@ -44,6 +44,21 @@ class TempTargetResponse(BaseModel):
     target_temperature_celsius: float
     confirmed_target_temperature_celsius: float
     timestamp_ms: int
+    source: str
+
+
+class TemperatureSettingsRequest(BaseModel):
+    target_temperature_celsius: float = Field(ge=-50, le=50)
+    control_mode: Literal["manual"] = "manual"
+    output_power_percent: float = Field(default=100.0, ge=0.0, le=100.0)
+
+
+class TemperatureSettingsResponse(BaseModel):
+    target_temperature_celsius: float
+    control_mode: Literal["manual"]
+    output_power_percent: float
+    confirmed_target_temperature_celsius: float
+    confirmed_at_ms: int
     source: str
 
 
@@ -189,6 +204,8 @@ class MeasurementProfileResponse(BaseModel):
 
 class RunDetailResponse(RunSummaryResponse):
     definition: MeasurementDefinitionResponse | None = None
+    temperature_settings: TemperatureSettingsResponse | None = None
+    temperature_settings_confirmed: bool = False
     created_at_ms: int
     updated_at_ms: int
     definition_complete: bool = False
@@ -201,7 +218,7 @@ class RunDetailResponse(RunSummaryResponse):
 
 
 class RunStartRequest(BaseModel):
-    target_temperature_celsius: float = Field(gt=0)
+    target_temperature_celsius: float = Field(ge=-50, le=50)
 
 
 class RunStartResponse(BaseModel):

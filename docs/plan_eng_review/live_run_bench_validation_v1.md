@@ -1,6 +1,6 @@
 # Live Run Bench Validation v1
 
-Updated on 2026-03-21
+Updated on 2026-04-01
 Status: BLOCKED_ON_PHYSICAL_LU92XX_BENCH
 
 ## Purpose
@@ -12,6 +12,11 @@ Status: BLOCKED_ON_PHYSICAL_LU92XX_BENCH
 3. 哪些结论还**不能**宣称为真机已验证
 
 这不是代码设计文档，而是一份 bench 现场记录。
+
+补充事实：
+
+- 2026-04-01 用户明确说明当前没有接任何外设
+- 因此当前 bench 记录不只意味着“LU92XX 串口 bench 阻塞”，也意味着真实相机 / 温控器 / 外部采集链路均未接入
 
 ---
 
@@ -46,7 +51,7 @@ Status: BLOCKED_ON_PHYSICAL_LU92XX_BENCH
 
 ## Bench environment check
 
-2026-03-21 在这台 Mac 上实际看到的串口设备只有：
+2026-03-21 的本机检查里，实际看到的串口设备只有：
 
 - `/dev/cu.Bluetooth-Incoming-Port`
 - `/dev/cu.debug-console`
@@ -59,6 +64,18 @@ Status: BLOCKED_ON_PHYSICAL_LU92XX_BENCH
 - `/dev/cu.wchusbserial*`
 
 因此当前无法对 LU92XX 做真实串口 bench。
+
+结合 2026-04-01 的用户说明，当前可进一步锁定：
+
+- 没有接入真实相机外设
+- 没有接入真实温控外设
+- 没有接入可用于 Phase 6 的外部硬件链路
+
+因此当前所有与真机相关的结论都必须继续保持：
+
+- blocked on physical hardware
+- mock / fake 验证可继续推进
+- 不宣称任何真实外设 ready
 
 ---
 
@@ -108,3 +125,4 @@ Status: BLOCKED_ON_PHYSICAL_LU92XX_BENCH
 
 - Phase 5 代码与配置层已经 ready
 - Phase 6 bench validation 仍 blocked，需要物理 LU92XX 串口链路出现后继续
+- 当前若继续推进首页 / setup 新需求，应默认在无外设环境下完成 UI、状态流和契约层工作
