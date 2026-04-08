@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 import time
+import json
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -1083,6 +1084,7 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
         json={"target_temperature_celsius": 45.0},
     )
     completed_detail = _wait_for_run_status(client, run_id, "completed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
 
     assert start_response.status_code == 200
     assert captured["measurement_roi"] == {
@@ -1099,6 +1101,88 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
         "y": 342,
         "width": 160,
         "height": 128,
+    }
+    assert result_response.status_code == 200
+    result_payload = result_response.json()
+    assert result_payload["artifacts"]["definition_original"] == "definition_original.json"
+    assert result_payload["artifacts"]["definition_effective_local"] == "definition_effective_local.json"
+    assert result_payload["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
+    session_dir = tmp_path / "artifacts" / run_id
+    assert json.loads((session_dir / "definition_effective_local.json").read_text(encoding="utf-8"))["analysis_roi"] == {
+        "x": 0,
+        "y": 0,
+        "width": 96,
+        "height": 64,
+    }
+
+
+def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_artifacts(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
+    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(
+        x=512,
+        y=342,
+        width=2048,
+        height=1364,
+    )
+    app.state.runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig(
+        x=512,
+        y=342,
+        width=2048,
+        height=1364,
+    )
+    captured: dict[str, object] = {}
+
+    def wrapped_open_camera(runtime_config, profile_name: str):
+        if profile_name == "measurement":
+            roi = runtime_config.live.camera.measurement.device_roi
+            captured["measurement_roi"] = {
+                "x": roi.x,
+                "y": roi.y,
+                "width": roi.width,
+                "height": roi.height,
+            }
+        return MockCamera(profile_name=profile_name)
+
+    def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
+        captured["metric_definition"] = definition
+        return MockLiveMetricSource(
+            definition=definition,
+            target_temperature_celsius=target_temperature_celsius,
+        )
+
+    app.state.live_run_service.preview_service.open_camera = wrapped_open_camera
+    app.state.live_run_service._build_metric_source = wrapped_build_metric_source
+    app.state.live_run_service._temp_controller_factory = lambda: ReadFailingTempController()
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    failed_detail = _wait_for_run_status(client, run_id, "failed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert failed_detail["measurement_profile"]["acquisition_roi"] == {
+        "x": 512,
+        "y": 342,
+        "width": 160,
+        "height": 128,
+    }
+    assert captured["measurement_roi"] == failed_detail["measurement_profile"]["acquisition_roi"]
+    assert result_response.status_code == 200
+    result_payload = result_response.json()
+    assert result_payload["state"] == "failed"
+    assert result_payload["artifacts"]["definition_original"] == "definition_original.json"
+    assert result_payload["artifacts"]["definition_effective_local"] == "definition_effective_local.json"
+    assert result_payload["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
+    session_dir = tmp_path / "artifacts" / run_id
+    assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
+        "effective_acquisition_roi": {"x": 512, "y": 342, "width": 160, "height": 128},
+        "effective_local_origin_in_setup_preview_px": {"x": 0, "y": 0},
+        "setup_to_effective_local_translation_px": {"dx": 0, "dy": 0},
     }
 
 

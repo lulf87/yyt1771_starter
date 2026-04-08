@@ -31,6 +31,13 @@ def test_session_artifact_store_persists_afas_outputs_and_updates_result_refs(tm
     session_dir = store.save_live_bundle(
         "run-afas",
         definition={"point_a_px": {"x": 1, "y": 2}},
+        definition_original={"point_a_px": {"x": 1, "y": 2}},
+        definition_effective_local={"point_a_px": {"x": 11, "y": 12}},
+        measurement_capture_plan={
+            "effective_acquisition_roi": {"x": 10, "y": 20, "width": 160, "height": 128},
+            "effective_local_origin_in_setup_preview_px": {"x": 90, "y": 80},
+            "setup_to_effective_local_translation_px": {"dx": -90, "dy": -80},
+        },
         telemetry=[],
         detail={"session_id": "run-afas", "source": "live_run", "points": [], "key_frames": [], "point_count": 0, "af95": None},
         result={
@@ -80,6 +87,9 @@ def test_session_artifact_store_persists_afas_outputs_and_updates_result_refs(tm
 
     result = store.get_result("run-afas")
     assert result is not None
+    assert result["artifacts"]["definition_original"] == "definition_original.json"
+    assert result["artifacts"]["definition_effective_local"] == "definition_effective_local.json"
+    assert result["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
     assert result["artifacts"]["afas_analysis"] == "afas_analysis.json"
     assert result["artifacts"]["afas_plot"] == "afas_plot.png"
     assert result["artifacts"]["afas_report"] == "afas_report.xlsx"

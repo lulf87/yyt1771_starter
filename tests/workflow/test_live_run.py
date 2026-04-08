@@ -5,7 +5,13 @@ from src.core.models import FramePacket, MeasurementDefinition, MetricBox, Pixel
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.temp.mock_temp import MockTempController
-from src.workflow.live_run import LiveRunCoordinator, LockedDefinitionMetricSource, MockLiveMetricSource, resolve_measurement_interval_ms
+from src.workflow.live_run import (
+    LiveRunCoordinator,
+    LockedDefinitionMetricSource,
+    MockLiveMetricSource,
+    PriorTrackingMetricSource,
+    resolve_measurement_interval_ms,
+)
 
 
 def _definition() -> MeasurementDefinition:
@@ -93,6 +99,15 @@ class LowQualityMetricSource:
                 "total_samples": total_samples,
             },
         )
+
+
+def _fixture_image(*rectangles: tuple[int, int, int, int], width: int = 96, height: int = 64) -> list[list[int]]:
+    image = [[220 for _ in range(width)] for _ in range(height)]
+    for x, y, rect_width, rect_height in rectangles:
+        for row in range(y, min(y + rect_height, height)):
+            for col in range(x, min(x + rect_width, width)):
+                image[row][col] = 40
+    return image
 
 
 def test_live_run_coordinator_completes_and_persists_bundle(tmp_path) -> None:
@@ -333,6 +348,142 @@ def test_locked_definition_metric_source_respects_short_axis_observation_directi
     assert metric.point_a_px == (47, 20)
     assert metric.point_b_px == (47, 43)
     assert metric.meta["measurement_axis_deg"] == 90.0
+
+
+def test_prior_tracking_metric_source_holds_last_good_points_when_observation_jumps() -> None:
+    source = PriorTrackingMetricSource(
+        definition=_definition(),
+        max_endpoint_jump_px=12.0,
+        max_midpoint_drift_px=8.0,
+        max_span_change_ratio=0.20,
+        max_consecutive_misses=2,
+    )
+    stable_metric = source.extract(
+        FramePacket(
+            timestamp_ms=1,
+            source="fixture",
+            image=_fixture_image((24, 20, 48, 24)),
+            frame_id=1,
+        ),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=3,
+    )
+    drifting_metric = source.extract(
+        FramePacket(
+            timestamp_ms=2,
+            source="fixture",
+            image=_fixture_image((2, 20, 30, 24)),
+            frame_id=2,
+        ),
+        TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
+        sample_index=1,
+        total_samples=3,
+    )
+
+    assert stable_metric.meta["tracking_state"] == "bootstrapped"
+    assert drifting_metric.meta["selection_mode"] == "tracking_prior_hold"
+    assert drifting_metric.meta["tracking_state"] == "holding_last_good"
+    assert drifting_metric.point_a_px == stable_metric.point_a_px
+    assert drifting_metric.point_b_px == stable_metric.point_b_px
+    assert drifting_metric.meta["reason"] in {"endpoint_jump_exceeded", "midpoint_drift_exceeded"}
+
+
+def test_prior_tracking_metric_source_reacquires_after_transient_bad_frame() -> None:
+    source = PriorTrackingMetricSource(
+        definition=_definition(),
+        max_endpoint_jump_px=12.0,
+        max_midpoint_drift_px=8.0,
+        max_span_change_ratio=0.20,
+        max_consecutive_misses=2,
+    )
+    first_metric = source.extract(
+        FramePacket(
+            timestamp_ms=1,
+            source="fixture",
+            image=_fixture_image((24, 20, 48, 24)),
+            frame_id=1,
+        ),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=3,
+    )
+    held_metric = source.extract(
+        FramePacket(
+            timestamp_ms=2,
+            source="fixture",
+            image=_fixture_image((2, 20, 30, 24)),
+            frame_id=2,
+        ),
+        TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
+        sample_index=1,
+        total_samples=3,
+    )
+    reacquired_metric = source.extract(
+        FramePacket(
+            timestamp_ms=3,
+            source="fixture",
+            image=_fixture_image((24, 20, 48, 24)),
+            frame_id=3,
+        ),
+        TempReading(timestamp_ms=3, celsius=25.0, source="fixture"),
+        sample_index=2,
+        total_samples=3,
+    )
+
+    assert held_metric.meta["selection_mode"] == "tracking_prior_hold"
+    assert reacquired_metric.meta["tracking_state"] == "reacquired"
+    assert reacquired_metric.meta["selection_mode"] == "roi_local_horizontal_boundary"
+    assert reacquired_metric.point_a_px == first_metric.point_a_px
+    assert reacquired_metric.point_b_px == first_metric.point_b_px
+
+
+def test_prior_tracking_metric_source_invalidates_after_too_many_rejections() -> None:
+    source = PriorTrackingMetricSource(
+        definition=_definition(),
+        max_endpoint_jump_px=12.0,
+        max_midpoint_drift_px=8.0,
+        max_span_change_ratio=0.20,
+        max_consecutive_misses=1,
+    )
+    source.extract(
+        FramePacket(
+            timestamp_ms=1,
+            source="fixture",
+            image=_fixture_image((24, 20, 48, 24)),
+            frame_id=1,
+        ),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=3,
+    )
+    source.extract(
+        FramePacket(
+            timestamp_ms=2,
+            source="fixture",
+            image=_fixture_image((2, 20, 30, 24)),
+            frame_id=2,
+        ),
+        TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
+        sample_index=1,
+        total_samples=3,
+    )
+    invalidated_metric = source.extract(
+        FramePacket(
+            timestamp_ms=3,
+            source="fixture",
+            image=_fixture_image((2, 20, 30, 24)),
+            frame_id=3,
+        ),
+        TempReading(timestamp_ms=3, celsius=25.0, source="fixture"),
+        sample_index=2,
+        total_samples=3,
+    )
+
+    assert invalidated_metric.meta["selection_mode"] == "tracking_prior_hold"
+    assert invalidated_metric.meta["tracking_state"] == "invalidated"
+    assert invalidated_metric.meta["reason"] == "tracking_prior_exhausted"
+    assert invalidated_metric.quality == 0.0
 
 
 def test_live_run_coordinator_raises_when_artifact_finalize_fails(tmp_path) -> None:

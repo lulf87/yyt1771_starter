@@ -52,6 +52,9 @@ def build_live_run_result(
         "warnings": list(warnings),
         "artifacts": {
             "definition": "definition.json",
+            "definition_original": None,
+            "definition_effective_local": None,
+            "measurement_capture_plan": None,
             "telemetry": "telemetry.csv",
             "events": "events.jsonl",
             "detail": "detail.json",

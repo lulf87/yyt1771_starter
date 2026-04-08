@@ -162,6 +162,7 @@ class RunRuntimeConfig:
     measurement_target_hz: float | None = None
     artifact_capture_hz: float | None = None
     stop_on_invalid_tracking: bool = True
+    debug_locked_points_tracking: bool = False
 
 
 @dataclass(slots=True)

@@ -254,6 +254,9 @@ class RunTelemetryResponse(BaseModel):
 
 class RunArtifactRefsResponse(BaseModel):
     definition: str
+    definition_original: str | None = None
+    definition_effective_local: str | None = None
+    measurement_capture_plan: str | None = None
     telemetry: str
     events: str
     detail: str

@@ -130,6 +130,11 @@ class LiveRunService:
             runtime_config=runtime_config,
             definition=record.definition,
         )
+        measurement_capture_plan = _measurement_capture_plan_payload(
+            original_definition=record.definition,
+            effective_definition=measurement_plan.metric_definition,
+            measurement_profile=measurement_plan.measurement_profile,
+        )
         effective_runtime_config = _runtime_config_with_measurement_profile(
             runtime_config,
             measurement_plan.measurement_profile,
@@ -154,6 +159,8 @@ class LiveRunService:
                 as_fit_point_count=runtime_config.live.analysis.as_fit_point_count,
                 af_fit_point_count=runtime_config.live.analysis.af_fit_point_count,
                 camera_config=effective_runtime_config.live.camera,
+                effective_definition=measurement_plan.metric_definition,
+                measurement_capture_plan=measurement_capture_plan,
                 camera=camera,
                 temp_reader=temp_controller,
                 temp_controller=temp_controller,
@@ -185,7 +192,9 @@ class LiveRunService:
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
-                runtime_config=runtime_config,
+                runtime_config=effective_runtime_config,
+                effective_definition=measurement_plan.metric_definition,
+                measurement_capture_plan=measurement_capture_plan,
                 terminal_state=RunStatus.ABORTED,
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
@@ -203,7 +212,9 @@ class LiveRunService:
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
-                runtime_config=runtime_config,
+                runtime_config=effective_runtime_config,
+                effective_definition=measurement_plan.metric_definition,
+                measurement_capture_plan=measurement_capture_plan,
                 terminal_state=RunStatus.ABORTED,
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
@@ -220,7 +231,9 @@ class LiveRunService:
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
-                runtime_config=runtime_config,
+                runtime_config=effective_runtime_config,
+                effective_definition=measurement_plan.metric_definition,
+                measurement_capture_plan=measurement_capture_plan,
                 terminal_state=RunStatus.FAILED,
                 terminal_reason="runtime_error",
                 terminal_detail=str(exc),
@@ -264,6 +277,8 @@ class LiveRunService:
         active_run: _ActiveLiveRun,
         record: RunDraftRecord,
         runtime_config: RuntimeConfig,
+        effective_definition: MeasurementDefinition,
+        measurement_capture_plan: dict[str, Any],
         terminal_state: RunStatus,
         terminal_reason: str | None,
         terminal_detail: str,
@@ -292,6 +307,9 @@ class LiveRunService:
             self.artifact_store.save_live_bundle(
                 record.run_id,
                 definition=_definition_payload(record.definition),
+                definition_original=_definition_payload(record.definition),
+                definition_effective_local=_definition_payload(effective_definition),
+                measurement_capture_plan=measurement_capture_plan,
                 telemetry=execution.telemetry,
                 detail=execution.detail,
                 result=execution.result,
@@ -396,4 +414,31 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "ignore_internal_texture": definition.ignore_internal_texture,
         "min_target_area_px": definition.min_target_area_px,
         "sensitivity": definition.sensitivity,
+    }
+
+
+def _measurement_capture_plan_payload(
+    *,
+    original_definition: MeasurementDefinition,
+    effective_definition: MeasurementDefinition,
+    measurement_profile,
+) -> dict[str, Any]:
+    local_origin_x = original_definition.analysis_roi.x - effective_definition.analysis_roi.x
+    local_origin_y = original_definition.analysis_roi.y - effective_definition.analysis_roi.y
+    roi = measurement_profile.device_roi
+    return {
+        "effective_acquisition_roi": {
+            "x": int(roi.x),
+            "y": int(roi.y),
+            "width": int(roi.width),
+            "height": int(roi.height),
+        },
+        "effective_local_origin_in_setup_preview_px": {
+            "x": int(local_origin_x),
+            "y": int(local_origin_y),
+        },
+        "setup_to_effective_local_translation_px": {
+            "dx": int(effective_definition.analysis_roi.x - original_definition.analysis_roi.x),
+            "dy": int(effective_definition.analysis_roi.y - original_definition.analysis_roi.y),
+        },
     }

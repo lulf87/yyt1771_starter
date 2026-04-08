@@ -7,6 +7,13 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     session_dir = store.save_live_bundle(
         "run-001",
         definition={"point_a_px": {"x": 1, "y": 2}},
+        definition_original={"point_a_px": {"x": 1, "y": 2}},
+        definition_effective_local={"point_a_px": {"x": 11, "y": 22}},
+        measurement_capture_plan={
+            "effective_acquisition_roi": {"x": 12, "y": 24, "width": 160, "height": 128},
+            "effective_local_origin_in_setup_preview_px": {"x": 100, "y": 120},
+            "setup_to_effective_local_translation_px": {"dx": -100, "dy": -120},
+        },
         telemetry=[
             {
                 "timestamp_ms": 1000,
@@ -91,6 +98,9 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
 
     assert session_dir == tmp_path / "artifacts" / "run-001"
     assert (session_dir / "definition.json").exists()
+    assert (session_dir / "definition_original.json").exists()
+    assert (session_dir / "definition_effective_local.json").exists()
+    assert (session_dir / "measurement_capture_plan.json").exists()
     assert (session_dir / "telemetry.csv").exists()
     assert (session_dir / "events.jsonl").exists()
     assert (session_dir / "result.json").exists()
@@ -102,6 +112,9 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     assert store.get_result("run-001")["af95"] == 74.0
     assert store.get_afas_dataset("run-001")["active_channel"] == "Space1"
     assert store.get_result("run-001")["rates"]["measurement_sample_hz"] == 5.0
+    assert store.get_result("run-001")["artifacts"]["definition_original"] == "definition_original.json"
+    assert store.get_result("run-001")["artifacts"]["definition_effective_local"] == "definition_effective_local.json"
+    assert store.get_result("run-001")["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
     telemetry = store.get_telemetry("run-001")
     assert telemetry is not None
     assert telemetry[-1]["space1_px"] == 72.5

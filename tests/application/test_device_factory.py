@@ -1,7 +1,7 @@
-from src.application.device_factory import build_measurement_capture_plan
+from src.application.device_factory import build_measurement_capture_plan, build_metric_source
 from src.application.runtime_config import RuntimeConfig, WebAppConfig
 from src.core.config_models import DeviceRoiConfig
-from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion
+from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
 
 
 def _definition(*, x: int = 900, y: int = 600, width: int = 240, height: int = 120) -> MeasurementDefinition:
@@ -89,3 +89,72 @@ def test_build_measurement_capture_plan_keeps_mock_camera_definition_and_roi_unc
 
     assert plan.measurement_profile.device_roi == runtime_config.live.camera.measurement.device_roi
     assert plan.metric_definition == definition
+
+
+def test_build_metric_source_can_debug_lock_points_for_real_camera() -> None:
+    runtime_config = _lab_runtime_config(camera_backend="hik_gige_mvs")
+    runtime_config.live.run.debug_locked_points_tracking = True
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=200, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+    )
+
+    source = build_metric_source(
+        runtime_config=runtime_config,
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+    metric = source.extract(
+        FramePacket(
+            timestamp_ms=1_000,
+            source="fixture",
+            image=[[255 for _ in range(320)] for _ in range(160)],
+            frame_id=1,
+        ),
+        TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=1,
+    )
+
+    assert metric.point_a_px == (80, 80)
+    assert metric.point_b_px == (240, 80)
+    assert metric.meta["selection_mode"] == "locked_points"
+
+
+def test_build_metric_source_uses_prior_tracker_by_default_for_real_camera() -> None:
+    runtime_config = _lab_runtime_config(camera_backend="hik_gige_mvs")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=200, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+    )
+    image = [[220 for _ in range(320)] for _ in range(160)]
+    for row in range(50, 110):
+        for col in range(100, 220):
+            image[row][col] = 40
+
+    source = build_metric_source(
+        runtime_config=runtime_config,
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+    metric = source.extract(
+        FramePacket(timestamp_ms=1_000, source="fixture", image=image, frame_id=1),
+        TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=1,
+    )
+
+    assert metric.meta["tracking_mode"] == "prior_gated_reacquire"
+    assert metric.meta["tracking_state"] == "bootstrapped"

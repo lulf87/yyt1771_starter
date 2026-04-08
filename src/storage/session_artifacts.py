@@ -19,6 +19,9 @@ _ARTIFACT_KEYFRAME_MAX_HEIGHT = 512
 _AFAS_ANALYSIS_ARTIFACT_NAME = "afas_analysis.json"
 _AFAS_PLOT_ARTIFACT_NAME = "afas_plot.png"
 _AFAS_REPORT_ARTIFACT_NAME = "afas_report.xlsx"
+_DEFINITION_ORIGINAL_ARTIFACT_NAME = "definition_original.json"
+_DEFINITION_EFFECTIVE_LOCAL_ARTIFACT_NAME = "definition_effective_local.json"
+_MEASUREMENT_CAPTURE_PLAN_ARTIFACT_NAME = "measurement_capture_plan.json"
 
 
 @dataclass(slots=True)
@@ -52,6 +55,9 @@ class SessionArtifactStore:
         session_id: str,
         *,
         definition: dict[str, Any],
+        definition_original: dict[str, Any] | None = None,
+        definition_effective_local: dict[str, Any] | None = None,
+        measurement_capture_plan: dict[str, Any] | None = None,
         telemetry: list[dict[str, Any]],
         detail: dict[str, Any],
         result: dict[str, Any],
@@ -66,13 +72,38 @@ class SessionArtifactStore:
             json.dumps(definition, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        if definition_original is not None:
+            (session_dir / _DEFINITION_ORIGINAL_ARTIFACT_NAME).write_text(
+                json.dumps(definition_original, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        if definition_effective_local is not None:
+            (session_dir / _DEFINITION_EFFECTIVE_LOCAL_ARTIFACT_NAME).write_text(
+                json.dumps(definition_effective_local, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        if measurement_capture_plan is not None:
+            (session_dir / _MEASUREMENT_CAPTURE_PLAN_ARTIFACT_NAME).write_text(
+                json.dumps(measurement_capture_plan, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
         serializable_detail = _serialize_live_detail(detail)
         (session_dir / "detail.json").write_text(
             json.dumps(serializable_detail, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        result_payload = _merge_runtime_artifact_refs(
+            result,
+            definition_original=_DEFINITION_ORIGINAL_ARTIFACT_NAME if definition_original is not None else None,
+            definition_effective_local=
+            _DEFINITION_EFFECTIVE_LOCAL_ARTIFACT_NAME if definition_effective_local is not None else None,
+            measurement_capture_plan=
+            _MEASUREMENT_CAPTURE_PLAN_ARTIFACT_NAME if measurement_capture_plan is not None else None,
+        )
+        result.clear()
+        result.update(result_payload)
         (session_dir / "result.json").write_text(
-            json.dumps(result, ensure_ascii=True, indent=2),
+            json.dumps(result_payload, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
         if afas_dataset is not None:
@@ -206,7 +237,15 @@ class SessionArtifactStore:
                 missing.append(name)
         result = self.get_result(session_id)
         artifact_refs = {} if result is None else dict(result.get("artifacts", {}))
-        for key in ("afas_dataset", "afas_analysis", "afas_plot", "afas_report"):
+        for key in (
+            "afas_dataset",
+            "afas_analysis",
+            "afas_plot",
+            "afas_report",
+            "definition_original",
+            "definition_effective_local",
+            "measurement_capture_plan",
+        ):
             artifact_ref = artifact_refs.get(key)
             if artifact_ref and not (session_dir / str(artifact_ref)).exists():
                 missing.append(str(artifact_ref))
@@ -250,6 +289,15 @@ class SessionArtifactStore:
                 artifact_payload[key] = value
         payload["artifacts"] = artifact_payload
         result_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _merge_runtime_artifact_refs(payload: dict[str, Any], **refs: str | None) -> dict[str, Any]:
+    merged_payload = dict(payload)
+    artifact_payload = dict(merged_payload.get("artifacts", {}))
+    for key, value in refs.items():
+        artifact_payload[key] = value
+    merged_payload["artifacts"] = artifact_payload
+    return merged_payload
 
 
 def _encode_grayscale_png_bitmap(bitmap: _PreviewBitmap) -> bytes:

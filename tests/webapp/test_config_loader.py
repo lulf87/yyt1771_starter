@@ -45,6 +45,7 @@ def test_load_runtime_config_reads_known_profile() -> None:
     assert runtime_config.live.run.preview_display_max_height == 480
     assert runtime_config.live.run.measurement_target_hz == 5.0
     assert runtime_config.live.run.artifact_capture_hz == 5.0
+    assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
 def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
@@ -63,6 +64,7 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.measurement_target_hz == 20.0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
+    assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(
@@ -174,6 +176,7 @@ replay:
     assert runtime_config.live.run.capture_interval_ms == 50
     assert runtime_config.live.run.measurement_target_hz == 20.0
     assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
 def test_load_runtime_config_merges_local_override_recursively(
@@ -315,6 +318,7 @@ run:
   measurement_target_hz: 50
   artifact_capture_hz: 25
   stop_on_invalid_tracking: false
+  debug_locked_points_tracking: true
 storage:
   artifact_dir: examples/runtime/local-artifacts
 """,
@@ -366,6 +370,7 @@ storage:
     assert runtime_config.live.run.measurement_target_hz == 50.0
     assert runtime_config.live.run.artifact_capture_hz == 25.0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
+    assert runtime_config.live.run.debug_locked_points_tracking is True
 
 
 def test_load_runtime_config_reads_prod_camera_contract() -> None:
@@ -401,6 +406,7 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
     assert runtime_config.live.run.preview_display_max_height == 480
     assert runtime_config.live.run.measurement_target_hz == 5.0
     assert runtime_config.live.run.artifact_capture_hz == 5.0
+    assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
 def test_load_runtime_config_raises_clear_error_for_missing_profile() -> None:

@@ -12,7 +12,12 @@ from src.core.config_models import CameraAcquisitionProfileConfig, DeviceRoiConf
 from src.core.models import MeasurementDefinition
 from src.curve.mock_afas_curve_playback import resolve_mock_afas_curve_playback
 from src.temp import LU92XXModbusRtuController, MockTempController, WorkbookPlaybackTempController
-from src.workflow.live_run import LockedDefinitionMetricSource, MockLiveMetricSource, WorkbookPlaybackMetricSource
+from src.workflow.live_run import (
+    LockedDefinitionMetricSource,
+    MockLiveMetricSource,
+    PriorTrackingMetricSource,
+    WorkbookPlaybackMetricSource,
+)
 
 _MEASUREMENT_ROI_TARGET_MAX_WIDTH = 512
 _MEASUREMENT_ROI_TARGET_MAX_HEIGHT = 512
@@ -73,7 +78,10 @@ def build_metric_source(
             definition=definition,
             target_temperature_celsius=target_temperature_celsius,
         )
-    return LockedDefinitionMetricSource(definition=definition)
+    return LockedDefinitionMetricSource(
+        definition=definition,
+        debug_locked_points=runtime_config.live.run.debug_locked_points_tracking,
+    ) if runtime_config.live.run.debug_locked_points_tracking else PriorTrackingMetricSource(definition=definition)
 
 
 def build_measurement_capture_plan(
