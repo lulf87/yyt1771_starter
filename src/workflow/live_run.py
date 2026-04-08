@@ -963,6 +963,18 @@ def _telemetry_row(
         "point_b_px": None
         if sync_point.metric.point_b_px is None
         else [int(sync_point.metric.point_b_px[0]), int(sync_point.metric.point_b_px[1])],
+        "tracking_mode": sync_point.metric.meta.get("tracking_mode"),
+        "tracking_state": sync_point.metric.meta.get("tracking_state"),
+        "selection_mode": sync_point.metric.meta.get("selection_mode"),
+        "reason": sync_point.metric.meta.get("reason"),
+        "observation_selection_mode": sync_point.metric.meta.get("observation_selection_mode"),
+        "observation_reason": sync_point.metric.meta.get("observation_reason"),
+        "component_area": sync_point.metric.meta.get("component_area"),
+        "threshold_value": sync_point.metric.meta.get("threshold_value"),
+        "endpoint_jump_px": sync_point.metric.meta.get("endpoint_jump_px"),
+        "midpoint_drift_px": sync_point.metric.meta.get("midpoint_drift_px"),
+        "span_change_ratio": sync_point.metric.meta.get("span_change_ratio"),
+        "consecutive_misses": sync_point.metric.meta.get("consecutive_misses"),
     }
 
 

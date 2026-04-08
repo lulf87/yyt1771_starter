@@ -949,6 +949,9 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert telemetry_payload["latest"]["frame_timestamp_ms"] is not None
     assert telemetry_payload["latest"]["point_a_px"] is not None
     assert telemetry_payload["latest"]["point_b_px"] is not None
+    assert telemetry_payload["latest"]["selection_mode"] in {"mock_tracking", "mock_afas_curve_playback"}
+    assert telemetry_payload["latest"]["tracking_state"] is None
+    assert telemetry_payload["latest"]["reason"] is None
     assert telemetry_payload["curve"][1]["sample_interval_ms"] is not None
     temp_response = client.get("/api/system/temp/current")
     assert temp_response.status_code == 200

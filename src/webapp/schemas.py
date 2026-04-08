@@ -236,6 +236,12 @@ class RunTelemetryPointResponse(BaseModel):
     tracking_quality: float
     point_a_px: list[int] | None = None
     point_b_px: list[int] | None = None
+    tracking_mode: str | None = None
+    tracking_state: str | None = None
+    selection_mode: str | None = None
+    reason: str | None = None
+    observation_selection_mode: str | None = None
+    observation_reason: str | None = None
     sample_index: int | None = None
     sample_interval_ms: int | None = None
     frame_id: int | None = None
@@ -243,6 +249,12 @@ class RunTelemetryPointResponse(BaseModel):
     temp_timestamp_ms: int | None = None
     metric_timestamp_ms: int | None = None
     camera_resulting_fps: float | None = None
+    component_area: int | None = None
+    threshold_value: float | None = None
+    endpoint_jump_px: float | None = None
+    midpoint_drift_px: float | None = None
+    span_change_ratio: float | None = None
+    consecutive_misses: int | None = None
 
 
 class RunTelemetryResponse(BaseModel):

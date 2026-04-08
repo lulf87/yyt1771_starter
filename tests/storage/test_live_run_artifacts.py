@@ -25,6 +25,20 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
                 "temperature_celsius": 25.0,
                 "space1_px": 71.0,
                 "tracking_quality": 0.98,
+                "point_a_px": [12, 24],
+                "point_b_px": [80, 24],
+                "tracking_mode": "prior_gated_reacquire",
+                "tracking_state": "accepted",
+                "selection_mode": "roi_local_horizontal_boundary",
+                "reason": None,
+                "observation_selection_mode": None,
+                "observation_reason": None,
+                "component_area": 3210,
+                "threshold_value": 118.5,
+                "endpoint_jump_px": 3.0,
+                "midpoint_drift_px": 1.5,
+                "span_change_ratio": 0.02,
+                "consecutive_misses": 0,
             },
             {
                 "timestamp_ms": 1200,
@@ -38,6 +52,20 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
                 "temperature_celsius": 35.0,
                 "space1_px": 72.5,
                 "tracking_quality": 0.97,
+                "point_a_px": [13, 24],
+                "point_b_px": [81, 24],
+                "tracking_mode": "prior_gated_reacquire",
+                "tracking_state": "holding_last_good",
+                "selection_mode": "tracking_prior_hold",
+                "reason": "endpoint_jump_exceeded",
+                "observation_selection_mode": "roi_local_horizontal_boundary",
+                "observation_reason": "quality_below_threshold",
+                "component_area": 3200,
+                "threshold_value": 120.0,
+                "endpoint_jump_px": 15.0,
+                "midpoint_drift_px": 9.0,
+                "span_change_ratio": 0.08,
+                "consecutive_misses": 1,
             },
         ],
         detail={"session_id": "run-001", "source": "live_run", "points": [], "key_frames": [], "point_count": 0, "af95": None},
@@ -121,6 +149,20 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     assert telemetry[-1]["sample_interval_ms"] == 200
     assert telemetry[-1]["frame_timestamp_ms"] == 1195
     assert telemetry[-1]["camera_resulting_fps"] == 14.86
+    assert telemetry[-1]["point_a_px"] == [13, 24]
+    assert telemetry[-1]["point_b_px"] == [81, 24]
+    assert telemetry[-1]["tracking_mode"] == "prior_gated_reacquire"
+    assert telemetry[-1]["tracking_state"] == "holding_last_good"
+    assert telemetry[-1]["selection_mode"] == "tracking_prior_hold"
+    assert telemetry[-1]["reason"] == "endpoint_jump_exceeded"
+    assert telemetry[-1]["observation_selection_mode"] == "roi_local_horizontal_boundary"
+    assert telemetry[-1]["observation_reason"] == "quality_below_threshold"
+    assert telemetry[-1]["component_area"] == 3200
+    assert telemetry[-1]["threshold_value"] == 120.0
+    assert telemetry[-1]["endpoint_jump_px"] == 15.0
+    assert telemetry[-1]["midpoint_drift_px"] == 9.0
+    assert telemetry[-1]["span_change_ratio"] == 0.08
+    assert telemetry[-1]["consecutive_misses"] == 1
     assert store.get_result("run-001")["warnings"] == [
         "measurement cadence below target: achieved 5.00 Hz < target 50.00 Hz"
     ]

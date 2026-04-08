@@ -128,6 +128,20 @@ class SessionArtifactStore:
                     "temperature_celsius",
                     "space1_px",
                     "tracking_quality",
+                    "point_a_px",
+                    "point_b_px",
+                    "tracking_mode",
+                    "tracking_state",
+                    "selection_mode",
+                    "reason",
+                    "observation_selection_mode",
+                    "observation_reason",
+                    "component_area",
+                    "threshold_value",
+                    "endpoint_jump_px",
+                    "midpoint_drift_px",
+                    "span_change_ratio",
+                    "consecutive_misses",
                 ],
                 extrasaction="ignore",
             )
@@ -386,6 +400,10 @@ def _decode_telemetry_row(row: dict[str, str]) -> dict[str, Any]:
         "space1_px": float(row["space1_px"]),
         "tracking_quality": float(row["tracking_quality"]),
     }
+    for key in ("point_a_px", "point_b_px"):
+        value = _optional_csv_json_array(row.get(key))
+        if value is not None:
+            payload[key] = value
     for key in (
         "sample_index",
         "sample_interval_ms",
@@ -393,13 +411,33 @@ def _decode_telemetry_row(row: dict[str, str]) -> dict[str, Any]:
         "frame_timestamp_ms",
         "temp_timestamp_ms",
         "metric_timestamp_ms",
+        "component_area",
+        "consecutive_misses",
     ):
         value = _optional_csv_int(row.get(key))
         if value is not None:
             payload[key] = value
-    camera_resulting_fps = _optional_csv_float(row.get("camera_resulting_fps"))
-    if camera_resulting_fps is not None:
-        payload["camera_resulting_fps"] = camera_resulting_fps
+    for key in (
+        "camera_resulting_fps",
+        "threshold_value",
+        "endpoint_jump_px",
+        "midpoint_drift_px",
+        "span_change_ratio",
+    ):
+        value = _optional_csv_float(row.get(key))
+        if value is not None:
+            payload[key] = value
+    for key in (
+        "tracking_mode",
+        "tracking_state",
+        "selection_mode",
+        "reason",
+        "observation_selection_mode",
+        "observation_reason",
+    ):
+        value = _optional_csv_text(row.get(key))
+        if value is not None:
+            payload[key] = value
     return payload
 
 
@@ -419,3 +457,22 @@ def _optional_csv_float(value: str | None) -> float | None:
     if not text:
         return None
     return float(text)
+
+
+def _optional_csv_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text
+
+
+def _optional_csv_json_array(value: str | None) -> list[int] | None:
+    text = _optional_csv_text(value)
+    if text is None:
+        return None
+    parsed = json.loads(text)
+    if not isinstance(parsed, list) or len(parsed) != 2:
+        return None
+    return [int(parsed[0]), int(parsed[1])]

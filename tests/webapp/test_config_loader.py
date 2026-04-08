@@ -63,7 +63,7 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
     assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.5
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.measurement_target_hz == 20.0
-    assert runtime_config.live.run.stop_on_invalid_tracking is False
+    assert runtime_config.live.run.stop_on_invalid_tracking is True
     assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
