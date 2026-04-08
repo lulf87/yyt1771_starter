@@ -27,10 +27,10 @@ camera:
     gain_db: 12.0
     timeout_ms: 1000
     device_roi:
-      x: 512
-      y: 342
-      width: 2048
-      height: 1364
+      x: 0
+      y: 0
+      width: 0
+      height: 0
   measurement:
     trigger_mode: free_run
     pixel_format: mono8

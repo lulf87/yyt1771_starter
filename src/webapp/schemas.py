@@ -236,6 +236,8 @@ class RunTelemetryPointResponse(BaseModel):
     tracking_quality: float
     point_a_px: list[int] | None = None
     point_b_px: list[int] | None = None
+    point_a_preview_px: list[int] | None = None
+    point_b_preview_px: list[int] | None = None
     tracking_mode: str | None = None
     tracking_state: str | None = None
     selection_mode: str | None = None

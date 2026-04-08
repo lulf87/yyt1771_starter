@@ -61,6 +61,10 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
     assert runtime_config.live.temp.backend == "mock"
     assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
     assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.5
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 0
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 0
+    assert runtime_config.live.camera.measurement.device_roi.width == 2048
+    assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.measurement_target_hz == 20.0
     assert runtime_config.live.run.stop_on_invalid_tracking is True
@@ -105,10 +109,10 @@ camera:
     gain_db: 12.0
     timeout_ms: 1000
     device_roi:
-      x: 512
-      y: 342
-      width: 2048
-      height: 1364
+      x: 0
+      y: 0
+      width: 0
+      height: 0
   measurement:
     trigger_mode: free_run
     pixel_format: mono8
@@ -154,8 +158,8 @@ replay:
     assert runtime_config.live.camera.setup_preview.pixel_format == "mono8"
     assert runtime_config.live.camera.setup_preview.exposure_us == 50_000
     assert runtime_config.live.camera.setup_preview.gain_db == 12.0
-    assert runtime_config.live.camera.setup_preview.device_roi.width == 2048
-    assert runtime_config.live.camera.setup_preview.device_roi.height == 1364
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 0
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 0
     assert runtime_config.live.camera.measurement.pixel_format == "mono8"
     assert runtime_config.live.camera.measurement.exposure_us == 50_000
     assert runtime_config.live.camera.measurement.gain_db == 12.0

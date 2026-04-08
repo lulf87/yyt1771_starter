@@ -9,14 +9,17 @@ import threading
 import time
 from typing import Any
 
+import numpy as np
+
 from src.application.device_factory import build_measurement_capture_plan, build_metric_source, build_temp_controller
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.runtime_config import RuntimeConfig
 from src.core.enums import CaptureMode, RunStatus
-from src.core.models import MeasurementDefinition, RunDraftRecord
+from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
+from src.vision.metric_two_point_distance import normalize_frame_image
 from src.workflow.live_run import (
     LiveRunCoordinator,
     LiveRunExecution,
@@ -34,6 +37,7 @@ class _ActiveLiveRun:
     telemetry: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     execution: LiveRunExecution | None = None
+    measurement_capture_plan: dict[str, Any] | None = None
     error_detail: str = ""
     thread: threading.Thread | None = None
 
@@ -135,6 +139,8 @@ class LiveRunService:
             effective_definition=measurement_plan.metric_definition,
             measurement_profile=measurement_plan.measurement_profile,
         )
+        with self._state_lock:
+            active_run.measurement_capture_plan = measurement_capture_plan
         effective_runtime_config = _runtime_config_with_measurement_profile(
             runtime_config,
             measurement_plan.measurement_profile,
@@ -258,6 +264,7 @@ class LiveRunService:
                 close()
 
     def _append_telemetry(self, active_run: _ActiveLiveRun, row: dict[str, Any]) -> None:
+        _augment_telemetry_for_setup_preview(row, active_run.measurement_capture_plan)
         with self._state_lock:
             active_run.telemetry.append(dict(row))
 
@@ -265,7 +272,18 @@ class LiveRunService:
         frame = getattr(sync_point, "frame", None)
         if frame is None:
             return
-        self.preview_service.cache_tracking_frame(run_id=run_id, frame=frame)
+        measurement_capture_plan = None
+        with self._state_lock:
+            active_run = self._active_runs.get(run_id) or self._recent_runs.get(run_id)
+            if active_run is not None:
+                measurement_capture_plan = active_run.measurement_capture_plan
+        composited_frame = _composite_tracking_frame_into_setup_preview(
+            preview_service=self.preview_service,
+            run_id=run_id,
+            measurement_frame=frame,
+            measurement_capture_plan=measurement_capture_plan,
+        )
+        self.preview_service.cache_tracking_frame(run_id=run_id, frame=composited_frame)
 
     def _store_error(self, active_run: _ActiveLiveRun, detail: str) -> None:
         with self._state_lock:
@@ -442,3 +460,89 @@ def _measurement_capture_plan_payload(
             "dy": int(effective_definition.analysis_roi.y - original_definition.analysis_roi.y),
         },
     }
+
+
+def _augment_telemetry_for_setup_preview(
+    row: dict[str, Any],
+    measurement_capture_plan: dict[str, Any] | None,
+) -> None:
+    origin = _effective_local_origin(measurement_capture_plan)
+    if origin is None:
+        return
+    point_a_preview = _translate_point_to_setup_preview(row.get("point_a_px"), origin)
+    point_b_preview = _translate_point_to_setup_preview(row.get("point_b_px"), origin)
+    row["point_a_preview_px"] = point_a_preview
+    row["point_b_preview_px"] = point_b_preview
+
+
+def _translate_point_to_setup_preview(
+    point: Any,
+    origin: tuple[int, int] | None,
+) -> list[int] | None:
+    if origin is None or not isinstance(point, (list, tuple)) or len(point) != 2:
+        return None
+    try:
+        return [int(point[0]) + int(origin[0]), int(point[1]) + int(origin[1])]
+    except (TypeError, ValueError):
+        return None
+
+
+def _effective_local_origin(
+    measurement_capture_plan: dict[str, Any] | None,
+) -> tuple[int, int] | None:
+    if not isinstance(measurement_capture_plan, dict):
+        return None
+    payload = measurement_capture_plan.get("effective_local_origin_in_setup_preview_px")
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return int(payload.get("x", 0) or 0), int(payload.get("y", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _composite_tracking_frame_into_setup_preview(
+    *,
+    preview_service: LivePreviewService,
+    run_id: str,
+    measurement_frame: FramePacket,
+    measurement_capture_plan: dict[str, Any] | None,
+) -> FramePacket:
+    origin = _effective_local_origin(measurement_capture_plan)
+    base_frame = preview_service.get_cached_frame(run_id=run_id)
+    if origin is None or base_frame is None or base_frame.image is None or measurement_frame.image is None:
+        return measurement_frame
+    try:
+        base_image = np.asarray(normalize_frame_image(base_frame.image), dtype=np.uint8).copy()
+        measurement_image = np.asarray(normalize_frame_image(measurement_frame.image), dtype=np.uint8)
+    except Exception:
+        return measurement_frame
+
+    if getattr(base_image, "ndim", 0) != 2 or getattr(measurement_image, "ndim", 0) != 2:
+        return measurement_frame
+
+    origin_x, origin_y = origin
+    base_height, base_width = int(base_image.shape[0]), int(base_image.shape[1])
+    measurement_height, measurement_width = int(measurement_image.shape[0]), int(measurement_image.shape[1])
+    if origin_x >= base_width or origin_y >= base_height:
+        return measurement_frame
+
+    paste_width = min(measurement_width, max(0, base_width - origin_x))
+    paste_height = min(measurement_height, max(0, base_height - origin_y))
+    if paste_width < 1 or paste_height < 1:
+        return measurement_frame
+
+    base_image[origin_y : origin_y + paste_height, origin_x : origin_x + paste_width] = measurement_image[
+        0:paste_height,
+        0:paste_width,
+    ]
+    meta = dict(measurement_frame.meta or {})
+    meta["tracking_composited"] = True
+    meta["tracking_origin_px"] = [origin_x, origin_y]
+    return FramePacket(
+        timestamp_ms=int(measurement_frame.timestamp_ms),
+        source=measurement_frame.source,
+        image=base_image,
+        frame_id=measurement_frame.frame_id,
+        meta=meta,
+    )

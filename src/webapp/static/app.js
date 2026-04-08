@@ -2279,12 +2279,16 @@ function applyTrackedPointInputs(latestTelemetry) {
   if (!latestTelemetry) {
     return;
   }
-  const pointA = Array.isArray(latestTelemetry.point_a_px)
-    ? convertPointToPreview({ x: Number(latestTelemetry.point_a_px[0]), y: Number(latestTelemetry.point_a_px[1]) })
-    : null;
-  const pointB = Array.isArray(latestTelemetry.point_b_px)
-    ? convertPointToPreview({ x: Number(latestTelemetry.point_b_px[0]), y: Number(latestTelemetry.point_b_px[1]) })
-    : null;
+  const pointA = Array.isArray(latestTelemetry.point_a_preview_px)
+    ? { x: Number(latestTelemetry.point_a_preview_px[0]), y: Number(latestTelemetry.point_a_preview_px[1]) }
+    : Array.isArray(latestTelemetry.point_a_px)
+      ? convertPointToPreview({ x: Number(latestTelemetry.point_a_px[0]), y: Number(latestTelemetry.point_a_px[1]) })
+      : null;
+  const pointB = Array.isArray(latestTelemetry.point_b_preview_px)
+    ? { x: Number(latestTelemetry.point_b_preview_px[0]), y: Number(latestTelemetry.point_b_preview_px[1]) }
+    : Array.isArray(latestTelemetry.point_b_px)
+      ? convertPointToPreview({ x: Number(latestTelemetry.point_b_px[0]), y: Number(latestTelemetry.point_b_px[1]) })
+      : null;
   if (pointA) {
     if (livePointAXInput) {
       livePointAXInput.value = String(pointA.x);
