@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from dataclasses import replace
 import threading
 import time
 from typing import Any
 
-from src.application.device_factory import build_metric_source, build_temp_controller
+from src.application.device_factory import build_measurement_capture_plan, build_metric_source, build_temp_controller
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.runtime_config import RuntimeConfig
@@ -125,11 +126,20 @@ class LiveRunService:
         registry: LiveRunDraftRegistry,
     ) -> None:
         assert record.definition is not None
-        camera = self.preview_service.open_camera(runtime_config, profile_name="measurement")
-        temp_controller = self._build_temp_controller(runtime_config)
-        metric_source = self._build_metric_source(
+        measurement_plan = build_measurement_capture_plan(
             runtime_config=runtime_config,
             definition=record.definition,
+        )
+        effective_runtime_config = _runtime_config_with_measurement_profile(
+            runtime_config,
+            measurement_plan.measurement_profile,
+        )
+
+        camera = self.preview_service.open_camera(effective_runtime_config, profile_name="measurement")
+        temp_controller = self._build_temp_controller(runtime_config)
+        metric_source = self._build_metric_source(
+            runtime_config=effective_runtime_config,
+            definition=measurement_plan.metric_definition,
             target_temperature_celsius=target_temperature_celsius,
         )
         coordinator = LiveRunCoordinator(repo=self.repo, artifact_store=self.artifact_store)
@@ -138,12 +148,12 @@ class LiveRunService:
                 session_id=record.run_id,
                 definition=record.definition,
                 target_temperature_celsius=target_temperature_celsius,
-                run_config=runtime_config.live.run,
+                run_config=effective_runtime_config.live.run,
                 analysis_engine=runtime_config.live.analysis.engine,
                 channel_name=runtime_config.live.analysis.channel_name,
                 as_fit_point_count=runtime_config.live.analysis.as_fit_point_count,
                 af_fit_point_count=runtime_config.live.analysis.af_fit_point_count,
-                camera_config=runtime_config.live.camera,
+                camera_config=effective_runtime_config.live.camera,
                 camera=camera,
                 temp_reader=temp_controller,
                 temp_controller=temp_controller,
@@ -334,6 +344,15 @@ class LiveRunService:
             definition=definition,
             target_temperature_celsius=target_temperature_celsius,
         )
+
+
+def _runtime_config_with_measurement_profile(
+    runtime_config: RuntimeConfig,
+    measurement_profile,
+) -> RuntimeConfig:
+    live_camera = replace(runtime_config.live.camera, measurement=measurement_profile)
+    live_config = replace(runtime_config.live, camera=live_camera)
+    return replace(runtime_config, live=live_config)
 
 
 def _now_ms() -> int:

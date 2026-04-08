@@ -528,21 +528,57 @@ def _build_run_detail(
         else None
     )
     snapshot = live_run_service.get_snapshot(record.run_id) if live_run_service is not None else None
-    rate_snapshot = (
-        summarize_rate_snapshot(
-            telemetry=list(snapshot.telemetry),
-            preview_display_fps=None if preview_state is None else preview_state.preview_display_fps,
+    execution_detail = snapshot.execution.detail if snapshot is not None and snapshot.execution is not None else None
+    if execution_detail is not None:
+        rate_payload = dict(execution_detail.get("rates", {}) or {})
+        measurement_profile_payload = dict(execution_detail.get("measurement_profile", {}) or {})
+        warnings = list(execution_detail.get("warnings", []) or [])
+    else:
+        rate_snapshot = (
+            summarize_rate_snapshot(
+                telemetry=list(snapshot.telemetry),
+                preview_display_fps=None if preview_state is None else preview_state.preview_display_fps,
+            )
+            if snapshot is not None and snapshot.telemetry
+            else summarize_rate_snapshot(
+                preview_display_fps=None if preview_state is None else preview_state.preview_display_fps,
+            )
         )
-        if snapshot is not None and snapshot.telemetry
-        else summarize_rate_snapshot(
-            preview_display_fps=None if preview_state is None else preview_state.preview_display_fps,
+        measurement_profile = (
+            summarize_measurement_profile(runtime_config.live.camera)
+            if runtime_config is not None
+            else None
         )
-    )
-    measurement_profile = (
-        summarize_measurement_profile(runtime_config.live.camera)
-        if runtime_config is not None
-        else None
-    )
+        rate_payload = {
+            "camera_resulting_fps": rate_snapshot.camera_resulting_fps,
+            "preview_display_fps": rate_snapshot.preview_display_fps,
+            "measurement_sample_hz": rate_snapshot.measurement_sample_hz,
+            "artifact_capture_hz": rate_snapshot.artifact_capture_hz,
+            "dropped_frame_count": rate_snapshot.dropped_frame_count,
+        }
+        measurement_profile_payload = {
+            "acquisition_roi": None
+            if measurement_profile is None or measurement_profile.acquisition_roi is None
+            else {
+                "x": measurement_profile.acquisition_roi.x,
+                "y": measurement_profile.acquisition_roi.y,
+                "width": measurement_profile.acquisition_roi.width,
+                "height": measurement_profile.acquisition_roi.height,
+            },
+            "decimation": None if measurement_profile is None else measurement_profile.decimation,
+            "binning": None if measurement_profile is None else measurement_profile.binning,
+            "exposure_us": None if measurement_profile is None else measurement_profile.exposure_us,
+        }
+        warnings = summarize_rate_warnings(
+            rate_snapshot,
+            target_measurement_hz=None if runtime_config is None else runtime_config.live.run.measurement_target_hz,
+            is_terminal=record.status in {
+                RunStatus.COMPLETED,
+                RunStatus.FAILED,
+                RunStatus.INVALIDATED,
+                RunStatus.ABORTED,
+            },
+        )
     editor_state = "empty"
     if definition_complete:
         editor_state = "locked"
@@ -550,16 +586,6 @@ def _build_run_detail(
         preview_state is not None and preview_state.frozen_frame_available
     ):
         editor_state = "editing"
-    warnings = summarize_rate_warnings(
-        rate_snapshot,
-        target_measurement_hz=None if runtime_config is None else runtime_config.live.run.measurement_target_hz,
-        is_terminal=record.status in {
-            RunStatus.COMPLETED,
-            RunStatus.FAILED,
-            RunStatus.INVALIDATED,
-            RunStatus.ABORTED,
-        },
-    )
     return RunDetailResponse(
         run_id=record.run_id,
         status=record.status.value,
@@ -575,24 +601,24 @@ def _build_run_detail(
         definition_complete=definition_complete,
         capture_mode=record.capture_mode.value,
         rates=RunRatesResponse(
-            camera_resulting_fps=rate_snapshot.camera_resulting_fps,
-            preview_display_fps=rate_snapshot.preview_display_fps,
-            measurement_sample_hz=rate_snapshot.measurement_sample_hz,
-            artifact_capture_hz=rate_snapshot.artifact_capture_hz,
-            dropped_frame_count=rate_snapshot.dropped_frame_count,
+            camera_resulting_fps=rate_payload.get("camera_resulting_fps"),
+            preview_display_fps=rate_payload.get("preview_display_fps"),
+            measurement_sample_hz=rate_payload.get("measurement_sample_hz"),
+            artifact_capture_hz=rate_payload.get("artifact_capture_hz"),
+            dropped_frame_count=int(rate_payload.get("dropped_frame_count", 0) or 0),
         ),
         measurement_profile=MeasurementProfileResponse(
             acquisition_roi=None
-            if measurement_profile is None or measurement_profile.acquisition_roi is None
+            if measurement_profile_payload.get("acquisition_roi") is None
             else RectRegionResponse(
-                x=measurement_profile.acquisition_roi.x,
-                y=measurement_profile.acquisition_roi.y,
-                width=measurement_profile.acquisition_roi.width,
-                height=measurement_profile.acquisition_roi.height,
+                x=int(measurement_profile_payload["acquisition_roi"]["x"]),
+                y=int(measurement_profile_payload["acquisition_roi"]["y"]),
+                width=int(measurement_profile_payload["acquisition_roi"]["width"]),
+                height=int(measurement_profile_payload["acquisition_roi"]["height"]),
             ),
-            decimation=None if measurement_profile is None else measurement_profile.decimation,
-            binning=None if measurement_profile is None else measurement_profile.binning,
-            exposure_us=None if measurement_profile is None else measurement_profile.exposure_us,
+            decimation=measurement_profile_payload.get("decimation"),
+            binning=measurement_profile_payload.get("binning"),
+            exposure_us=measurement_profile_payload.get("exposure_us"),
         ),
         preview=PreviewStateResponse(
             stream_active=False if preview_state is None else preview_state.stream_active,

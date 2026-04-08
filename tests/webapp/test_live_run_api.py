@@ -7,10 +7,12 @@ from openpyxl import Workbook
 import pytest
 
 from src.camera.mock_camera import MockCamera
+from src.core.config_models import DeviceRoiConfig
 from src.core.models import FramePacket
 from src.curve.afas_postprocessing_analysis import analyze_preprocessed_afas_channel
 from src.curve.afas_preprocessing import preprocess_afas_channel
 from src.temp.mock_temp import MockTempController
+from src.workflow.live_run import MockLiveMetricSource
 from src.webapp.app import create_app
 from src.webapp.deps import LivePreviewService, PreviewStateSnapshot
 
@@ -1033,6 +1035,71 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
 
     assert start_response.status_code == 200
     assert profile_names == ["measurement"]
+
+
+def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
+    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(
+        x=512,
+        y=342,
+        width=2048,
+        height=1364,
+    )
+    app.state.runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig(
+        x=512,
+        y=342,
+        width=2048,
+        height=1364,
+    )
+    captured: dict[str, object] = {}
+
+    def wrapped_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        if profile_name == "measurement":
+            roi = runtime_config.live.camera.measurement.device_roi
+            captured["measurement_roi"] = {
+                "x": roi.x,
+                "y": roi.y,
+                "width": roi.width,
+                "height": roi.height,
+            }
+        return MockCamera(profile_name=profile_name)
+
+    def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
+        captured["metric_definition"] = definition
+        return MockLiveMetricSource(
+            definition=definition,
+            target_temperature_celsius=target_temperature_celsius,
+        )
+
+    app.state.live_run_service.preview_service.open_camera = wrapped_open_camera
+    app.state.live_run_service._build_metric_source = wrapped_build_metric_source
+    app.state.live_run_service._temp_controller_factory = lambda: MockTempController()
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    completed_detail = _wait_for_run_status(client, run_id, "completed")
+
+    assert start_response.status_code == 200
+    assert captured["measurement_roi"] == {
+        "x": 512,
+        "y": 342,
+        "width": 160,
+        "height": 128,
+    }
+    metric_definition = captured["metric_definition"]
+    assert metric_definition.analysis_roi.x == 0
+    assert metric_definition.analysis_roi.y == 0
+    assert completed_detail["measurement_profile"]["acquisition_roi"] == {
+        "x": 512,
+        "y": 342,
+        "width": 160,
+        "height": 128,
+    }
 
 
 def test_start_live_run_persists_explicit_unavailable_result_when_afas_curve_is_too_short(tmp_path: Path) -> None:
