@@ -401,6 +401,14 @@ class _HandleFramePayload:
     meta: dict[str, Any] | None = None
 
 
+@dataclass(slots=True)
+class _IntNodeDescriptor:
+    current: int | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+    increment: int | None = None
+
+
 class _Mono8RowView(Sequence[int]):
     """Lightweight row view over a flat mono8 frame buffer."""
 
@@ -556,6 +564,12 @@ class _OfficialHikMvsHandle:
         self._opened = False
         self._grabbing = False
         self._resulting_frame_rate: float | None = None
+        self._applied_device_roi = DeviceRoiConfig(
+            x=int(self._configured_device_roi.x),
+            y=int(self._configured_device_roi.y),
+            width=int(self._configured_device_roi.width),
+            height=int(self._configured_device_roi.height),
+        )
 
     def open(self) -> None:
         if self._opened:
@@ -800,13 +814,40 @@ class _OfficialHikMvsHandle:
         set_int_value = getattr(self._camera, "MV_CC_SetIntValue", None)
         if not callable(set_int_value):
             return
+        self._sdk_call(set_int_value("OffsetX", 0), "set offsetx")
+        self._sdk_call(set_int_value("OffsetY", 0), "set offsety")
+        legal_width = _legalize_int_node_value(
+            int(self._configured_device_roi.width),
+            descriptor=self._read_optional_int_descriptor("Width"),
+        )
+        legal_height = _legalize_int_node_value(
+            int(self._configured_device_roi.height),
+            descriptor=self._read_optional_int_descriptor("Height"),
+        )
         for key, value in (
-            ("Width", int(self._configured_device_roi.width)),
-            ("Height", int(self._configured_device_roi.height)),
-            ("OffsetX", int(self._configured_device_roi.x)),
-            ("OffsetY", int(self._configured_device_roi.y)),
+            ("Width", legal_width),
+            ("Height", legal_height),
         ):
             self._sdk_call(set_int_value(key, value), f"set {key.lower()}")
+        legal_offset_x = _legalize_int_node_value(
+            int(self._configured_device_roi.x),
+            descriptor=self._read_optional_int_descriptor("OffsetX"),
+        )
+        legal_offset_y = _legalize_int_node_value(
+            int(self._configured_device_roi.y),
+            descriptor=self._read_optional_int_descriptor("OffsetY"),
+        )
+        for key, value in (
+            ("OffsetX", legal_offset_x),
+            ("OffsetY", legal_offset_y),
+        ):
+            self._sdk_call(set_int_value(key, value), f"set {key.lower()}")
+        self._applied_device_roi = DeviceRoiConfig(
+            x=int(self._read_optional_int_value("OffsetX") or legal_offset_x),
+            y=int(self._read_optional_int_value("OffsetY") or legal_offset_y),
+            width=int(self._read_optional_int_value("Width") or legal_width),
+            height=int(self._read_optional_int_value("Height") or legal_height),
+        )
 
     def _reset_device_roi_to_full_frame(self) -> None:
         set_int_value = getattr(self._camera, "MV_CC_SetIntValue", None)
@@ -823,6 +864,7 @@ class _OfficialHikMvsHandle:
             ("Height", height_max),
         ):
             self._sdk_call(set_int_value(key, value), f"reset {key.lower()}")
+        self._applied_device_roi = DeviceRoiConfig(x=0, y=0, width=int(width_max), height=int(height_max))
 
     def _configure_frame_rate(self) -> None:
         if self._configured_target_frame_rate_hz is None:
@@ -850,6 +892,10 @@ class _OfficialHikMvsHandle:
         return payload_size
 
     def _read_optional_int_value(self, key: str) -> int | None:
+        descriptor = self._read_optional_int_descriptor(key)
+        return None if descriptor is None else descriptor.current
+
+    def _read_optional_int_descriptor(self, key: str) -> _IntNodeDescriptor | None:
         get_int_value = getattr(self._camera, "MV_CC_GetIntValue", None)
         int_value_type = getattr(self._sdk, "MVCC_INTVALUE", None)
         if not callable(get_int_value) or int_value_type is None:
@@ -861,10 +907,12 @@ class _OfficialHikMvsHandle:
             return None
         if ret != 0:
             return None
-        try:
-            return int(getattr(int_value, "nCurValue"))
-        except (TypeError, ValueError, AttributeError):
-            return None
+        return _IntNodeDescriptor(
+            current=_coerce_optional_int(getattr(int_value, "nCurValue", None)),
+            minimum=_coerce_optional_int(getattr(int_value, "nMin", None)),
+            maximum=_coerce_optional_int(getattr(int_value, "nMax", None)),
+            increment=_coerce_optional_int(getattr(int_value, "nInc", None)),
+        )
 
     def _read_optional_float_value(self, key: str) -> float | None:
         get_float_value = getattr(self._camera, "MV_CC_GetFloatValue", None)
@@ -920,6 +968,42 @@ class _OfficialHikMvsHandle:
         if ret != 0:
             return [f"Failed to {action} via Hik MVS SDK (ret=0x{ret:x})"]
         return []
+
+    def get_applied_device_roi(self) -> DeviceRoiConfig:
+        return DeviceRoiConfig(
+            x=int(self._applied_device_roi.x),
+            y=int(self._applied_device_roi.y),
+            width=int(self._applied_device_roi.width),
+            height=int(self._applied_device_roi.height),
+        )
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _legalize_int_node_value(value: int, *, descriptor: _IntNodeDescriptor | None) -> int:
+    candidate = int(value)
+    if descriptor is None:
+        return candidate
+    minimum = descriptor.minimum
+    maximum = descriptor.maximum
+    increment = descriptor.increment
+    if minimum is not None:
+        candidate = max(candidate, minimum)
+    if maximum is not None:
+        candidate = min(candidate, maximum)
+    if increment is not None and increment > 1:
+        base = minimum if minimum is not None else 0
+        candidate = base + ((candidate - base) // increment) * increment
+        if minimum is not None and candidate < minimum:
+            candidate = minimum
+        if maximum is not None and candidate > maximum:
+            candidate = base + ((maximum - base) // increment) * increment
+    return int(candidate)
 
 
 def _decode_sdk_char_buffer(value: Any) -> str:
@@ -1042,6 +1126,12 @@ class HikGigeMvsCamera(CameraPort):
         self.camera_factory = camera_factory
         self._camera: Any | None = None
         self._frame_id = 0
+        self.applied_device_roi = DeviceRoiConfig(
+            x=int(self.device_roi.x),
+            y=int(self.device_roi.y),
+            width=int(self.device_roi.width),
+            height=int(self.device_roi.height),
+        )
 
         if auto_open:
             self.open()
@@ -1059,6 +1149,7 @@ class HikGigeMvsCamera(CameraPort):
             self._close_handle(camera)
             raise RuntimeError("Failed to open Hik GigE / MVS camera")
         self._camera = camera
+        self.applied_device_roi = self._applied_device_roi_from_handle(camera)
 
     def is_opened(self) -> bool:
         return self._camera is not None and self._handle_is_opened(self._camera)
@@ -1104,6 +1195,12 @@ class HikGigeMvsCamera(CameraPort):
                 "pixel_format": self.pixel_format,
                 "profile_name": self.profile_name,
                 "device_roi": {
+                    "x": self.applied_device_roi.x,
+                    "y": self.applied_device_roi.y,
+                    "width": self.applied_device_roi.width,
+                    "height": self.applied_device_roi.height,
+                },
+                "requested_device_roi": {
                     "x": self.device_roi.x,
                     "y": self.device_roi.y,
                     "width": self.device_roi.width,
@@ -1150,6 +1247,14 @@ class HikGigeMvsCamera(CameraPort):
             return
         self._close_handle(self._camera)
         self._camera = None
+
+    def get_applied_device_roi(self) -> DeviceRoiConfig:
+        return DeviceRoiConfig(
+            x=int(self.applied_device_roi.x),
+            y=int(self.applied_device_roi.y),
+            width=int(self.applied_device_roi.width),
+            height=int(self.applied_device_roi.height),
+        )
 
     def _default_camera_factory(self) -> Callable[[], Any]:
         hik_mvs = import_hik_mvs_sdk_module()
@@ -1202,6 +1307,28 @@ class HikGigeMvsCamera(CameraPort):
             if callable(method):
                 method()
                 return
+
+    @staticmethod
+    def _applied_device_roi_from_handle(camera: Any) -> DeviceRoiConfig:
+        getter = getattr(camera, "get_applied_device_roi", None)
+        if callable(getter):
+            payload = getter()
+            if isinstance(payload, DeviceRoiConfig):
+                return DeviceRoiConfig(
+                    x=int(payload.x),
+                    y=int(payload.y),
+                    width=int(payload.width),
+                    height=int(payload.height),
+                )
+        requested = getattr(camera, "_configured_device_roi", None)
+        if isinstance(requested, DeviceRoiConfig):
+            return DeviceRoiConfig(
+                x=int(requested.x),
+                y=int(requested.y),
+                width=int(requested.width),
+                height=int(requested.height),
+            )
+        return DeviceRoiConfig()
 
     def _read_from_handle(self, camera: Any) -> Any:
         for method_name in ("read_frame", "get_frame", "read"):

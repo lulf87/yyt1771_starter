@@ -11,10 +11,16 @@ from typing import Any
 
 import numpy as np
 
-from src.application.device_factory import build_measurement_capture_plan, build_metric_source, build_temp_controller
+from src.application.device_factory import (
+    apply_measurement_acquisition_roi,
+    build_measurement_capture_plan,
+    build_metric_source,
+    build_temp_controller,
+)
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.runtime_config import RuntimeConfig
+from src.core.config_models import DeviceRoiConfig
 from src.core.enums import CaptureMode, RunStatus
 from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord
 from src.storage.session_artifacts import SessionArtifactStore
@@ -130,31 +136,54 @@ class LiveRunService:
         registry: LiveRunDraftRegistry,
     ) -> None:
         assert record.definition is not None
-        measurement_plan = build_measurement_capture_plan(
+        requested_measurement_plan = build_measurement_capture_plan(
             runtime_config=runtime_config,
             definition=record.definition,
         )
+        measurement_plan = requested_measurement_plan
         measurement_capture_plan = _measurement_capture_plan_payload(
             original_definition=record.definition,
-            effective_definition=measurement_plan.metric_definition,
-            measurement_profile=measurement_plan.measurement_profile,
+            requested_measurement_plan=requested_measurement_plan,
+            applied_measurement_plan=None,
         )
         with self._state_lock:
             active_run.measurement_capture_plan = measurement_capture_plan
         effective_runtime_config = _runtime_config_with_measurement_profile(
             runtime_config,
-            measurement_plan.measurement_profile,
+            requested_measurement_plan.measurement_profile,
         )
-
-        camera = self.preview_service.open_camera(effective_runtime_config, profile_name="measurement")
-        temp_controller = self._build_temp_controller(runtime_config)
-        metric_source = self._build_metric_source(
-            runtime_config=effective_runtime_config,
-            definition=measurement_plan.metric_definition,
-            target_temperature_celsius=target_temperature_celsius,
-        )
-        coordinator = LiveRunCoordinator(repo=self.repo, artifact_store=self.artifact_store)
+        camera: object | None = None
         try:
+            camera = self.preview_service.open_camera(effective_runtime_config, profile_name="measurement")
+            self._open_camera_if_supported(camera)
+            applied_device_roi = _camera_applied_device_roi(camera)
+            measurement_plan = (
+                apply_measurement_acquisition_roi(
+                    requested_measurement_plan,
+                    definition=record.definition,
+                    applied_device_roi=applied_device_roi,
+                )
+                if applied_device_roi is not None
+                else requested_measurement_plan
+            )
+            measurement_capture_plan = _measurement_capture_plan_payload(
+                original_definition=record.definition,
+                requested_measurement_plan=requested_measurement_plan,
+                applied_measurement_plan=measurement_plan,
+            )
+            with self._state_lock:
+                active_run.measurement_capture_plan = measurement_capture_plan
+            effective_runtime_config = _runtime_config_with_measurement_profile(
+                runtime_config,
+                measurement_plan.measurement_profile,
+            )
+            temp_controller = self._build_temp_controller(runtime_config)
+            metric_source = self._build_metric_source(
+                runtime_config=effective_runtime_config,
+                definition=measurement_plan.metric_definition,
+                target_temperature_celsius=target_temperature_celsius,
+            )
+            coordinator = LiveRunCoordinator(repo=self.repo, artifact_store=self.artifact_store)
             execution = coordinator.run(
                 session_id=record.run_id,
                 definition=record.definition,
@@ -259,9 +288,10 @@ class LiveRunService:
         finally:
             with self._state_lock:
                 self._active_runs.pop(record.run_id, None)
-            close = getattr(camera, "close", None)
-            if callable(close):
-                close()
+            if camera is not None:
+                close = getattr(camera, "close", None)
+                if callable(close):
+                    close()
 
     def _append_telemetry(self, active_run: _ActiveLiveRun, row: dict[str, Any]) -> None:
         _augment_telemetry_for_setup_preview(row, active_run.measurement_capture_plan)
@@ -381,6 +411,12 @@ class LiveRunService:
             target_temperature_celsius=target_temperature_celsius,
         )
 
+    @staticmethod
+    def _open_camera_if_supported(camera: object) -> None:
+        open_method = getattr(camera, "open", None)
+        if callable(open_method):
+            open_method()
+
 
 def _runtime_config_with_measurement_profile(
     runtime_config: RuntimeConfig,
@@ -438,28 +474,76 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
 def _measurement_capture_plan_payload(
     *,
     original_definition: MeasurementDefinition,
-    effective_definition: MeasurementDefinition,
-    measurement_profile,
+    requested_measurement_plan,
+    applied_measurement_plan,
 ) -> dict[str, Any]:
-    local_origin_x = original_definition.analysis_roi.x - effective_definition.analysis_roi.x
-    local_origin_y = original_definition.analysis_roi.y - effective_definition.analysis_roi.y
-    roi = measurement_profile.device_roi
+    setup_preview_roi = requested_measurement_plan.setup_preview_roi
+    requested_roi = requested_measurement_plan.measurement_profile.device_roi
+    applied_roi = (
+        applied_measurement_plan.measurement_profile.device_roi
+        if applied_measurement_plan is not None
+        else None
+    )
+    effective_roi = applied_roi or requested_roi
     return {
         "effective_acquisition_roi": {
-            "x": int(roi.x),
-            "y": int(roi.y),
-            "width": int(roi.width),
-            "height": int(roi.height),
+            "x": int(effective_roi.x),
+            "y": int(effective_roi.y),
+            "width": int(effective_roi.width),
+            "height": int(effective_roi.height),
+        },
+        "requested_effective_acquisition_roi": {
+            "x": int(requested_roi.x),
+            "y": int(requested_roi.y),
+            "width": int(requested_roi.width),
+            "height": int(requested_roi.height),
+        },
+        "applied_effective_acquisition_roi": None
+        if applied_roi is None
+        else {
+            "x": int(applied_roi.x),
+            "y": int(applied_roi.y),
+            "width": int(applied_roi.width),
+            "height": int(applied_roi.height),
+        },
+        "setup_preview_sensor_roi": {
+            "x": int(setup_preview_roi.x),
+            "y": int(setup_preview_roi.y),
+            "width": int(setup_preview_roi.width),
+            "height": int(setup_preview_roi.height),
         },
         "effective_local_origin_in_setup_preview_px": {
-            "x": int(local_origin_x),
-            "y": int(local_origin_y),
+            "x": int(effective_roi.x - setup_preview_roi.x),
+            "y": int(effective_roi.y - setup_preview_roi.y),
+        },
+        "requested_local_origin_in_setup_preview_px": {
+            "x": int(requested_roi.x - setup_preview_roi.x),
+            "y": int(requested_roi.y - setup_preview_roi.y),
         },
         "setup_to_effective_local_translation_px": {
-            "dx": int(effective_definition.analysis_roi.x - original_definition.analysis_roi.x),
-            "dy": int(effective_definition.analysis_roi.y - original_definition.analysis_roi.y),
+            "dx": int(setup_preview_roi.x - effective_roi.x),
+            "dy": int(setup_preview_roi.y - effective_roi.y),
+        },
+        "setup_to_requested_local_translation_px": {
+            "dx": int(setup_preview_roi.x - requested_roi.x),
+            "dy": int(setup_preview_roi.y - requested_roi.y),
         },
     }
+
+
+def _camera_applied_device_roi(camera: object) -> DeviceRoiConfig | None:
+    getter = getattr(camera, "get_applied_device_roi", None)
+    if not callable(getter):
+        return None
+    payload = getter()
+    if isinstance(payload, DeviceRoiConfig):
+        return DeviceRoiConfig(
+            x=int(payload.x),
+            y=int(payload.y),
+            width=int(payload.width),
+            height=int(payload.height),
+        )
+    return None
 
 
 def _augment_telemetry_for_setup_preview(

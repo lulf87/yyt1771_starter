@@ -1,4 +1,8 @@
-from src.application.device_factory import build_measurement_capture_plan, build_metric_source
+from src.application.device_factory import (
+    apply_measurement_acquisition_roi,
+    build_measurement_capture_plan,
+    build_metric_source,
+)
 from src.application.runtime_config import RuntimeConfig, WebAppConfig
 from src.core.config_models import DeviceRoiConfig
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
@@ -31,12 +35,7 @@ def _lab_runtime_config(*, camera_backend: str = "hik_gige_mvs") -> RuntimeConfi
         webapp=WebAppConfig(host="127.0.0.1", port=8000),
         adapters={"camera": camera_backend, "temp": "mock", "plc": "mock"},
     )
-    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(
-        x=512,
-        y=342,
-        width=2048,
-        height=1364,
-    )
+    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig()
     runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig(
         x=512,
         y=342,
@@ -56,8 +55,8 @@ def test_build_measurement_capture_plan_reduces_real_camera_measurement_roi_and_
     )
 
     assert plan.measurement_profile.device_roi == DeviceRoiConfig(
-        x=1352,
-        y=910,
+        x=840,
+        y=568,
         width=360,
         height=184,
     )
@@ -76,6 +75,8 @@ def test_build_measurement_capture_plan_reduces_real_camera_measurement_roi_and_
     )
     assert plan.metric_definition.point_a_px == PixelPoint(x=80, y=92)
     assert plan.metric_definition.point_b_px == PixelPoint(x=280, y=92)
+    assert plan.setup_preview_roi == DeviceRoiConfig()
+    assert plan.measurement_base_roi == DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
 
 
 def test_build_measurement_capture_plan_keeps_mock_camera_definition_and_roi_unchanged() -> None:
@@ -89,6 +90,49 @@ def test_build_measurement_capture_plan_keeps_mock_camera_definition_and_roi_unc
 
     assert plan.measurement_profile.device_roi == runtime_config.live.camera.measurement.device_roi
     assert plan.metric_definition == definition
+
+
+def test_apply_measurement_acquisition_roi_retranslates_definition_against_applied_roi() -> None:
+    runtime_config = _lab_runtime_config(camera_backend="hik_gige_mvs")
+    definition = _definition()
+
+    requested_plan = build_measurement_capture_plan(
+        runtime_config=runtime_config,
+        definition=definition,
+    )
+    applied_plan = apply_measurement_acquisition_roi(
+        requested_plan,
+        definition=definition,
+        applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
+    )
+
+    assert requested_plan.measurement_profile.device_roi == DeviceRoiConfig(
+        x=840,
+        y=568,
+        width=360,
+        height=184,
+    )
+    assert applied_plan.measurement_profile.device_roi == DeviceRoiConfig(
+        x=832,
+        y=560,
+        width=360,
+        height=184,
+    )
+    assert applied_plan.metric_definition.analysis_roi == RectRegion(
+        x=68,
+        y=40,
+        width=240,
+        height=120,
+    )
+    assert applied_plan.metric_definition.metric_box == MetricBox(
+        center_x=188,
+        center_y=100,
+        width=200,
+        height=60,
+        angle_deg=0.0,
+    )
+    assert applied_plan.metric_definition.point_a_px == PixelPoint(x=88, y=100)
+    assert applied_plan.metric_definition.point_b_px == PixelPoint(x=288, y=100)
 
 
 def test_build_metric_source_can_debug_lock_points_for_real_camera() -> None:

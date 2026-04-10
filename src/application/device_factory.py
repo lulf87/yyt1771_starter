@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,8 @@ _MEASUREMENT_ROI_MAX_PADDING_PX = 160
 class MeasurementCapturePlan:
     measurement_profile: CameraAcquisitionProfileConfig
     metric_definition: MeasurementDefinition
+    setup_preview_roi: DeviceRoiConfig = field(default_factory=DeviceRoiConfig)
+    measurement_base_roi: DeviceRoiConfig = field(default_factory=DeviceRoiConfig)
 
 
 def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_preview") -> object:
@@ -91,52 +93,85 @@ def build_measurement_capture_plan(
 ) -> MeasurementCapturePlan:
     measurement_profile = camera_profile_for_mode(runtime_config.live.camera, "measurement")
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
+    setup_preview_roi = _setup_preview_sensor_roi(runtime_config)
+    measurement_base_roi = _measurement_base_device_roi(runtime_config)
     if camera_backend == "mock":
         return MeasurementCapturePlan(
             measurement_profile=measurement_profile,
             metric_definition=definition,
+            setup_preview_roi=setup_preview_roi,
+            measurement_base_roi=measurement_base_roi,
         )
 
-    reference_roi = _reference_preview_device_roi(runtime_config)
-    if reference_roi.width < 1 or reference_roi.height < 1:
+    if measurement_base_roi.width < 1 or measurement_base_roi.height < 1:
+        effective_definition = _translate_definition_for_measurement_roi(
+            definition,
+            setup_preview_roi=setup_preview_roi,
+            effective_acquisition_roi=measurement_profile.device_roi,
+        )
         return MeasurementCapturePlan(
             measurement_profile=measurement_profile,
-            metric_definition=definition,
+            metric_definition=effective_definition,
+            setup_preview_roi=setup_preview_roi,
+            measurement_base_roi=measurement_base_roi,
         )
 
+    analysis_roi_in_measurement_base = type(definition.analysis_roi)(
+        x=int(definition.analysis_roi.x + setup_preview_roi.x - measurement_base_roi.x),
+        y=int(definition.analysis_roi.y + setup_preview_roi.y - measurement_base_roi.y),
+        width=int(definition.analysis_roi.width),
+        height=int(definition.analysis_roi.height),
+    )
     local_capture_roi = _derive_measurement_local_capture_roi(
-        definition.analysis_roi,
-        container_width=reference_roi.width,
-        container_height=reference_roi.height,
+        analysis_roi_in_measurement_base,
+        container_width=measurement_base_roi.width,
+        container_height=measurement_base_roi.height,
     )
-    if (
-        local_capture_roi.x == 0
-        and local_capture_roi.y == 0
-        and local_capture_roi.width == reference_roi.width
-        and local_capture_roi.height == reference_roi.height
-    ):
-        return MeasurementCapturePlan(
-            measurement_profile=measurement_profile,
-            metric_definition=definition,
-        )
-
-    effective_profile = replace(
-        measurement_profile,
-        device_roi=DeviceRoiConfig(
-            x=reference_roi.x + local_capture_roi.x,
-            y=reference_roi.y + local_capture_roi.y,
-            width=local_capture_roi.width,
-            height=local_capture_roi.height,
-        ),
+    effective_device_roi = DeviceRoiConfig(
+        x=measurement_base_roi.x + local_capture_roi.x,
+        y=measurement_base_roi.y + local_capture_roi.y,
+        width=local_capture_roi.width,
+        height=local_capture_roi.height,
     )
-    shifted_definition = _translate_measurement_definition(
+    effective_profile = replace(measurement_profile, device_roi=effective_device_roi)
+    shifted_definition = _translate_definition_for_measurement_roi(
         definition,
-        dx=-local_capture_roi.x,
-        dy=-local_capture_roi.y,
+        setup_preview_roi=setup_preview_roi,
+        effective_acquisition_roi=effective_device_roi,
     )
     return MeasurementCapturePlan(
         measurement_profile=effective_profile,
         metric_definition=shifted_definition,
+        setup_preview_roi=setup_preview_roi,
+        measurement_base_roi=measurement_base_roi,
+    )
+
+
+def apply_measurement_acquisition_roi(
+    plan: MeasurementCapturePlan,
+    *,
+    definition: MeasurementDefinition,
+    applied_device_roi: DeviceRoiConfig,
+) -> MeasurementCapturePlan:
+    effective_profile = replace(
+        plan.measurement_profile,
+        device_roi=DeviceRoiConfig(
+            x=int(applied_device_roi.x),
+            y=int(applied_device_roi.y),
+            width=int(applied_device_roi.width),
+            height=int(applied_device_roi.height),
+        ),
+    )
+    shifted_definition = _translate_definition_for_measurement_roi(
+        definition,
+        setup_preview_roi=plan.setup_preview_roi,
+        effective_acquisition_roi=effective_profile.device_roi,
+    )
+    return MeasurementCapturePlan(
+        measurement_profile=effective_profile,
+        metric_definition=shifted_definition,
+        setup_preview_roi=plan.setup_preview_roi,
+        measurement_base_roi=plan.measurement_base_roi,
     )
 
 
@@ -220,12 +255,25 @@ def _resolve_mock_afas_curve_playback(runtime_config: RuntimeConfig):
         raise FileNotFoundError(f"Configured mock AFAS curve sample is missing: {resolved_path}") from exc
 
 
-def _reference_preview_device_roi(runtime_config: RuntimeConfig) -> DeviceRoiConfig:
+def _setup_preview_sensor_roi(runtime_config: RuntimeConfig) -> DeviceRoiConfig:
+    camera_config = runtime_config.live.camera
+    candidate = camera_config.setup_preview.device_roi
+    if candidate.width > 0 and candidate.height > 0:
+        return DeviceRoiConfig(
+            x=int(candidate.x),
+            y=int(candidate.y),
+            width=int(candidate.width),
+            height=int(candidate.height),
+        )
+    return DeviceRoiConfig()
+
+
+def _measurement_base_device_roi(runtime_config: RuntimeConfig) -> DeviceRoiConfig:
     camera_config = runtime_config.live.camera
     for candidate in (
-        camera_config.setup_preview.device_roi,
         camera_config.measurement.device_roi,
         camera_config.device_roi,
+        camera_config.setup_preview.device_roi,
     ):
         if candidate.width > 0 and candidate.height > 0:
             return DeviceRoiConfig(
@@ -306,3 +354,14 @@ def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: 
         sensitivity=float(definition.sensitivity),
         observation_axis=definition.observation_axis,
     )
+
+
+def _translate_definition_for_measurement_roi(
+    definition: MeasurementDefinition,
+    *,
+    setup_preview_roi: DeviceRoiConfig,
+    effective_acquisition_roi: DeviceRoiConfig,
+) -> MeasurementDefinition:
+    dx = int(setup_preview_roi.x) - int(effective_acquisition_roi.x)
+    dy = int(setup_preview_roi.y) - int(effective_acquisition_roi.y)
+    return _translate_measurement_definition(definition, dx=dx, dy=dy)

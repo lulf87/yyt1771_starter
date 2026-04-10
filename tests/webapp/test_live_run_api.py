@@ -113,6 +113,26 @@ def _mock_definition_payload() -> dict[str, object]:
     }
 
 
+def _offset_definition_payload(*, x: int, y: int, width: int = 96, height: int = 64) -> dict[str, object]:
+    return {
+        "analysis_roi": {"x": x, "y": y, "width": width, "height": height},
+        "metric_box": {
+            "center_x": x + width // 2,
+            "center_y": y + height // 2,
+            "width": 80,
+            "height": 24,
+            "angle_deg": 0.0,
+        },
+        "point_a_px": {"x": x + 12, "y": y + height // 2},
+        "point_b_px": {"x": x + width - 13, "y": y + height // 2},
+        "observation_axis": "long_axis",
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "ignore_internal_texture": True,
+        "min_target_area_px": 150,
+    }
+
+
 def _confirm_temperature_settings(
     client: TestClient,
     run_id: str,
@@ -196,9 +216,10 @@ def _create_ready_run(
     *,
     target_temperature_celsius: float = 45.0,
     output_power_percent: float = 100.0,
+    definition_payload: dict[str, object] | None = None,
 ) -> str:
     run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
-    response = client.put(f"/api/runs/{run_id}/definition", json=_mock_definition_payload())
+    response = client.put(f"/api/runs/{run_id}/definition", json=definition_payload or _mock_definition_payload())
     assert response.status_code == 200
     assert response.json()["status"] == "definition_editing"
     temp_response = _confirm_temperature_settings(
@@ -1044,12 +1065,7 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
 def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
-    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(
-        x=512,
-        y=342,
-        width=2048,
-        height=1364,
-    )
+    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig()
     app.state.runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig(
         x=512,
         y=342,
@@ -1067,6 +1083,14 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
                 "width": roi.width,
                 "height": roi.height,
             }
+            class AppliedRoiMockCamera(MockCamera):
+                def get_applied_device_roi(self_nonlocal):
+                    return DeviceRoiConfig(x=864, y=568, width=160, height=128)
+
+            return AppliedRoiMockCamera(
+                profile_name=profile_name,
+                device_roi=DeviceRoiConfig(x=864, y=568, width=160, height=128),
+            )
         return MockCamera(profile_name=profile_name)
 
     def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
@@ -1080,7 +1104,7 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
     app.state.live_run_service._build_metric_source = wrapped_build_metric_source
     app.state.live_run_service._temp_controller_factory = lambda: MockTempController()
     client = TestClient(app)
-    run_id = _create_ready_run(client)
+    run_id = _create_ready_run(client, definition_payload=_offset_definition_payload(x=900, y=600))
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
@@ -1091,17 +1115,17 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
 
     assert start_response.status_code == 200
     assert captured["measurement_roi"] == {
-        "x": 512,
-        "y": 342,
+        "x": 868,
+        "y": 568,
         "width": 160,
         "height": 128,
     }
     metric_definition = captured["metric_definition"]
-    assert metric_definition.analysis_roi.x == 0
-    assert metric_definition.analysis_roi.y == 0
+    assert metric_definition.analysis_roi.x == 36
+    assert metric_definition.analysis_roi.y == 32
     assert completed_detail["measurement_profile"]["acquisition_roi"] == {
-        "x": 512,
-        "y": 342,
+        "x": 864,
+        "y": 568,
         "width": 160,
         "height": 128,
     }
@@ -1112,22 +1136,27 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
     assert result_payload["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
     session_dir = tmp_path / "artifacts" / run_id
     assert json.loads((session_dir / "definition_effective_local.json").read_text(encoding="utf-8"))["analysis_roi"] == {
-        "x": 0,
-        "y": 0,
+        "x": 36,
+        "y": 32,
         "width": 96,
         "height": 64,
+    }
+    assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
+        "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
+        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
+        "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
+        "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
+        "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
+        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
+        "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
+        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
 
 
 def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_artifacts(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
-    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(
-        x=512,
-        y=342,
-        width=2048,
-        height=1364,
-    )
+    app.state.runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig()
     app.state.runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig(
         x=512,
         y=342,
@@ -1145,6 +1174,14 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
                 "width": roi.width,
                 "height": roi.height,
             }
+            class AppliedRoiMockCamera(MockCamera):
+                def get_applied_device_roi(self_nonlocal):
+                    return DeviceRoiConfig(x=864, y=568, width=160, height=128)
+
+            return AppliedRoiMockCamera(
+                profile_name=profile_name,
+                device_roi=DeviceRoiConfig(x=864, y=568, width=160, height=128),
+            )
         return MockCamera(profile_name=profile_name)
 
     def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
@@ -1158,7 +1195,7 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
     app.state.live_run_service._build_metric_source = wrapped_build_metric_source
     app.state.live_run_service._temp_controller_factory = lambda: ReadFailingTempController()
     client = TestClient(app)
-    run_id = _create_ready_run(client)
+    run_id = _create_ready_run(client, definition_payload=_offset_definition_payload(x=900, y=600))
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
@@ -1169,12 +1206,17 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
 
     assert start_response.status_code == 200
     assert failed_detail["measurement_profile"]["acquisition_roi"] == {
-        "x": 512,
-        "y": 342,
+        "x": 864,
+        "y": 568,
         "width": 160,
         "height": 128,
     }
-    assert captured["measurement_roi"] == failed_detail["measurement_profile"]["acquisition_roi"]
+    assert captured["measurement_roi"] == {
+        "x": 868,
+        "y": 568,
+        "width": 160,
+        "height": 128,
+    }
     assert result_response.status_code == 200
     result_payload = result_response.json()
     assert result_payload["state"] == "failed"
@@ -1183,9 +1225,14 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
     assert result_payload["artifacts"]["measurement_capture_plan"] == "measurement_capture_plan.json"
     session_dir = tmp_path / "artifacts" / run_id
     assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
-        "effective_acquisition_roi": {"x": 512, "y": 342, "width": 160, "height": 128},
-        "effective_local_origin_in_setup_preview_px": {"x": 0, "y": 0},
-        "setup_to_effective_local_translation_px": {"dx": 0, "dy": 0},
+        "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
+        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
+        "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
+        "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
+        "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
+        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
+        "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
+        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
 
 

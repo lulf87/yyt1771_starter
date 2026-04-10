@@ -89,6 +89,9 @@ class _FakeOfficialDeviceList:
 class _FakeOfficialIntValue:
     def __init__(self) -> None:
         self.nCurValue = 0
+        self.nMin = 0
+        self.nMax = 0
+        self.nInc = 1
 
 
 class _FakeOfficialFloatValue:
@@ -190,8 +193,13 @@ class _FakeOfficialMvCamera:
     def MV_CC_GetIntValue(self, strKey, stIntValue) -> int:
         if strKey == "PayloadSize" and strKey not in self.module.int_values:
             stIntValue.nCurValue = len(self.module.frame_rows) * len(self.module.frame_rows[0])
+            stIntValue.nMax = stIntValue.nCurValue
             return 0
         stIntValue.nCurValue = int(self.module.int_values.get(strKey, 0))
+        descriptor = self.module.int_descriptors.get(strKey, {})
+        stIntValue.nMin = int(descriptor.get("min", 0))
+        stIntValue.nMax = int(descriptor.get("max", stIntValue.nCurValue))
+        stIntValue.nInc = int(descriptor.get("inc", 1))
         return 0
 
     def MV_CC_StartGrabbing(self) -> int:
@@ -239,6 +247,7 @@ class _FakeOfficialSdkModule:
         enum_ret_code: int = 0,
         frame_ret_code: int = 0,
         int_values: dict[str, int] | None = None,
+        int_descriptors: dict[str, dict[str, int]] | None = None,
         float_values: dict[str, float] | None = None,
         frame_number: int = 1,
         frame_counter: int = 1,
@@ -250,6 +259,7 @@ class _FakeOfficialSdkModule:
         self.enum_ret_code = enum_ret_code
         self.frame_ret_code = frame_ret_code
         self.int_values = dict(int_values or {})
+        self.int_descriptors = dict(int_descriptors or {})
         self.float_values = dict(float_values or {})
         self.frame_number = frame_number
         self.frame_counter = frame_counter
@@ -580,6 +590,18 @@ def test_default_factory_supports_official_hik_sdk_module(monkeypatch: pytest.Mo
             )
         ],
         frame_rows=[[1, 2, 3], [4, 5, 6]],
+        int_values={
+            "Width": 3072,
+            "Height": 2048,
+            "OffsetX": 0,
+            "OffsetY": 0,
+        },
+        int_descriptors={
+            "Width": {"min": 64, "max": 3072, "inc": 8},
+            "Height": {"min": 64, "max": 2048, "inc": 4},
+            "OffsetX": {"min": 0, "max": 2752, "inc": 8},
+            "OffsetY": {"min": 0, "max": 1920, "inc": 4},
+        },
     )
     monkeypatch.setattr(hik_gige_mvs_module, "import_hik_mvs_sdk_module", lambda: sdk_module)
 
@@ -706,6 +728,18 @@ def test_default_factory_applies_measurement_roi_to_official_hik_sdk_module(
             )
         ],
         frame_rows=[[1, 2, 3], [4, 5, 6]],
+        int_values={
+            "Width": 3072,
+            "Height": 2048,
+            "OffsetX": 0,
+            "OffsetY": 0,
+        },
+        int_descriptors={
+            "Width": {"min": 64, "max": 3072, "inc": 8},
+            "Height": {"min": 64, "max": 2048, "inc": 4},
+            "OffsetX": {"min": 0, "max": 2752, "inc": 8},
+            "OffsetY": {"min": 0, "max": 1920, "inc": 4},
+        },
     )
     monkeypatch.setattr(hik_gige_mvs_module, "import_hik_mvs_sdk_module", lambda: sdk_module)
 
@@ -728,10 +762,63 @@ def test_default_factory_applies_measurement_roi_to_official_hik_sdk_module(
     fake_camera = sdk_module.created_cameras[0]
     assert packet.meta["profile_name"] == "measurement"
     assert packet.meta["device_roi"] == {"x": 8, "y": 12, "width": 320, "height": 128}
+    assert packet.meta["requested_device_roi"] == {"x": 8, "y": 12, "width": 320, "height": 128}
     assert fake_camera.configured_values["Width"] == 320
     assert fake_camera.configured_values["Height"] == 128
     assert fake_camera.configured_values["OffsetX"] == 8
     assert fake_camera.configured_values["OffsetY"] == 12
+
+
+def test_default_factory_legalizes_measurement_roi_and_reports_applied_device_roi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk_module = _FakeOfficialSdkModule(
+        device_infos=[
+            _FakeOfficialDeviceInfo(
+                model="MV-CA060-11GM",
+                serial_number="MV-SERIAL-001",
+                ip="192.168.1.11",
+                transport_code=_FakeOfficialSdkModule.MV_GIGE_DEVICE,
+            )
+        ],
+        frame_rows=[[1, 2, 3], [4, 5, 6]],
+        int_values={
+            "Width": 3072,
+            "Height": 2048,
+            "OffsetX": 0,
+            "OffsetY": 0,
+        },
+        int_descriptors={
+            "Width": {"min": 64, "max": 3072, "inc": 8},
+            "Height": {"min": 64, "max": 2048, "inc": 4},
+            "OffsetX": {"min": 0, "max": 2752, "inc": 8},
+            "OffsetY": {"min": 0, "max": 1920, "inc": 4},
+        },
+    )
+    monkeypatch.setattr(hik_gige_mvs_module, "import_hik_mvs_sdk_module", lambda: sdk_module)
+
+    camera = HikGigeMvsCamera(
+        model="MV-CA060-11GM",
+        transport="gige_vision",
+        sdk_name="hik_mvs",
+        serial_number="MV-SERIAL-001",
+        pixel_format="mono8",
+        timeout_ms=750,
+        device_roi=DeviceRoiConfig(x=13, y=9, width=321, height=129),
+        profile_name="measurement",
+    )
+
+    packet = camera.read_frame()
+    camera.close()
+
+    fake_camera = sdk_module.created_cameras[0]
+    assert fake_camera.configured_values["Width"] == 320
+    assert fake_camera.configured_values["Height"] == 128
+    assert fake_camera.configured_values["OffsetX"] == 8
+    assert fake_camera.configured_values["OffsetY"] == 8
+    assert packet.meta["requested_device_roi"] == {"x": 13, "y": 9, "width": 321, "height": 129}
+    assert packet.meta["device_roi"] == {"x": 8, "y": 8, "width": 320, "height": 128}
+    assert camera.get_applied_device_roi() == DeviceRoiConfig(x=8, y=8, width=320, height=128)
 
 
 def test_default_factory_resets_stale_device_roi_to_full_frame_when_measurement_roi_is_unset(
