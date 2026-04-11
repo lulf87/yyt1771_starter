@@ -153,6 +153,27 @@ def test_adaptive_threshold_path_detects_mid_contrast_target() -> None:
     assert metric.quality >= 0.75
 
 
+def test_roi_local_boundary_quality_accepts_reasonable_span_inside_metric_box() -> None:
+    image = _draw_rect(_blank(width=24, height=16, value=220), x=6, y=5, width=12, height=4, value=40)
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=0, y=0, width=24, height=16),
+        metric_box=MetricBox(center_x=12, center_y=7, width=20, height=6, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=8,
+        quality_threshold=0.75,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.metric_raw >= 11.0
+    assert metric.quality >= 0.75
+    assert "reason" not in metric.meta
+
+
 def test_extractor_accepts_numpy_grayscale_images_on_fast_path() -> None:
     image = np.full((8, 14), 240, dtype=np.uint8)
     image[2:5, 3:10] = 24
@@ -170,6 +191,35 @@ def test_extractor_accepts_numpy_grayscale_images_on_fast_path() -> None:
     assert metric.metric_raw is not None
     assert metric.point_a_px == (3, 3)
     assert metric.point_b_px == (9, 3)
+
+
+def test_extractor_can_downsample_large_working_box_and_remap_points_to_source_space() -> None:
+    image = np.full((600, 800), 220, dtype=np.uint8)
+    image[250:310, 260:540] = 30
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=0, y=0, width=800, height=600),
+        metric_box=MetricBox(center_x=400, center_y=280, width=320, height=100, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=100,
+        selection_strategy="roi_local_horizontal_boundary",
+        working_max_width=160,
+        working_max_height=80,
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert abs(metric.point_a_px[0] - 260) <= 3
+    assert abs(metric.point_b_px[0] - 539) <= 3
+    assert abs(metric.point_a_px[1] - 280) <= 3
+    assert abs(metric.point_b_px[1] - 280) <= 3
+    assert abs(metric.metric_raw - 279.0) <= 6.0
+    assert metric.meta["working_scale_x"] > 1.0
+    assert metric.meta["working_scale_y"] > 1.0
 
 
 def test_measurement_axis_can_follow_short_axis_without_rotating_metric_box_geometry() -> None:

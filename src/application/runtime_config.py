@@ -269,6 +269,7 @@ def _load_live_run_config(raw_config: dict[str, Any]) -> LiveRunConfig:
                 ),
             ),
             stop_on_invalid_tracking=bool(run.get("stop_on_invalid_tracking", True)),
+            invalid_tracking_grace_samples=_int_with_default(run.get("invalid_tracking_grace_samples"), 0),
             debug_locked_points_tracking=bool(run.get("debug_locked_points_tracking", False)),
         ),
     )

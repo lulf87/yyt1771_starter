@@ -162,6 +162,7 @@ class RunRuntimeConfig:
     measurement_target_hz: float | None = None
     artifact_capture_hz: float | None = None
     stop_on_invalid_tracking: bool = True
+    invalid_tracking_grace_samples: int = 0
     debug_locked_points_tracking: bool = False
 
 

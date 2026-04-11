@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import math
 from pathlib import Path
 from typing import Any
 
 from src.application.runtime_config import RuntimeConfig
 from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, build_hik_rtsp_url
 from src.core.config_models import CameraAcquisitionProfileConfig, DeviceRoiConfig
-from src.core.models import MeasurementDefinition
+from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, _metric_box_within_region
 from src.curve.mock_afas_curve_playback import resolve_mock_afas_curve_playback
 from src.temp import LU92XXModbusRtuController, MockTempController, WorkbookPlaybackTempController
 from src.workflow.live_run import (
@@ -122,8 +123,17 @@ def build_measurement_capture_plan(
         width=int(definition.analysis_roi.width),
         height=int(definition.analysis_roi.height),
     )
+    measurement_focus_region = _metric_box_bounding_region(
+        type(definition.analysis_roi)(
+            x=int(definition.metric_box.center_x - definition.metric_box.width / 2 + setup_preview_roi.x - measurement_base_roi.x),
+            y=int(definition.metric_box.center_y - definition.metric_box.height / 2 + setup_preview_roi.y - measurement_base_roi.y),
+            width=int(definition.metric_box.width),
+            height=int(definition.metric_box.height),
+        ),
+        angle_deg=float(definition.metric_box.angle_deg),
+    )
     local_capture_roi = _derive_measurement_local_capture_roi(
-        analysis_roi_in_measurement_base,
+        measurement_focus_region,
         container_width=measurement_base_roi.width,
         container_height=measurement_base_roi.height,
     )
@@ -324,6 +334,39 @@ def _measurement_padding_px(span_px: int) -> int:
     return max(_MEASUREMENT_ROI_MIN_PADDING_PX, min(_MEASUREMENT_ROI_MAX_PADDING_PX, proportional))
 
 
+def _metric_box_bounding_region(region, *, angle_deg: float):
+    center_x = float(region.x) + float(region.width) / 2.0
+    center_y = float(region.y) + float(region.height) / 2.0
+    half_width = float(region.width) / 2.0
+    half_height = float(region.height) / 2.0
+    radians = math.radians(float(angle_deg))
+    cos_theta = math.cos(radians)
+    sin_theta = math.sin(radians)
+    corners = []
+    for local_x, local_y in (
+        (-half_width, -half_height),
+        (half_width, -half_height),
+        (half_width, half_height),
+        (-half_width, half_height),
+    ):
+        corners.append(
+            (
+                center_x + local_x * cos_theta - local_y * sin_theta,
+                center_y + local_x * sin_theta + local_y * cos_theta,
+            )
+        )
+    min_x = int(math.floor(min(x for x, _ in corners)))
+    max_x = int(math.ceil(max(x for x, _ in corners)))
+    min_y = int(math.floor(min(y for _, y in corners)))
+    max_y = int(math.ceil(max(y for _, y in corners)))
+    return type(region)(
+        x=min_x,
+        y=min_y,
+        width=max(1, max_x - min_x),
+        height=max(1, max_y - min_y),
+    )
+
+
 def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: int, dy: int) -> MeasurementDefinition:
     return MeasurementDefinition(
         analysis_roi=type(definition.analysis_roi)(
@@ -364,4 +407,129 @@ def _translate_definition_for_measurement_roi(
 ) -> MeasurementDefinition:
     dx = int(setup_preview_roi.x) - int(effective_acquisition_roi.x)
     dy = int(setup_preview_roi.y) - int(effective_acquisition_roi.y)
-    return _translate_measurement_definition(definition, dx=dx, dy=dy)
+    translated = _translate_measurement_definition(definition, dx=dx, dy=dy)
+    return _normalize_definition_to_local_frame(
+        translated,
+        frame_width=int(effective_acquisition_roi.width),
+        frame_height=int(effective_acquisition_roi.height),
+    )
+
+
+def _normalize_definition_to_local_frame(
+    definition: MeasurementDefinition,
+    *,
+    frame_width: int,
+    frame_height: int,
+) -> MeasurementDefinition:
+    local_frame = RectRegion(x=0, y=0, width=max(1, int(frame_width)), height=max(1, int(frame_height)))
+    translated = definition
+    if (
+        translated.analysis_roi.x >= 0
+        and translated.analysis_roi.y >= 0
+        and translated.analysis_roi.x + translated.analysis_roi.width <= local_frame.width
+        and translated.analysis_roi.y + translated.analysis_roi.height <= local_frame.height
+        and _metric_box_within_region(local_frame, translated.metric_box)
+        and 0 <= translated.point_a_px.x < local_frame.width
+        and 0 <= translated.point_a_px.y < local_frame.height
+        and 0 <= translated.point_b_px.x < local_frame.width
+        and 0 <= translated.point_b_px.y < local_frame.height
+    ):
+        return translated
+
+    normalized_box = _fit_metric_box_within_region(translated.metric_box, local_frame)
+    normalized_point_a = _clamp_point_into_metric_box_region(translated.point_a_px, normalized_box, local_frame)
+    normalized_point_b = _clamp_point_into_metric_box_region(translated.point_b_px, normalized_box, local_frame)
+    if (normalized_point_a.x, normalized_point_a.y) == (normalized_point_b.x, normalized_point_b.y):
+        normalized_point_a, normalized_point_b = _default_edge_points(normalized_box, local_frame)
+    return MeasurementDefinition(
+        analysis_roi=local_frame,
+        metric_box=normalized_box,
+        point_a_px=normalized_point_a,
+        point_b_px=normalized_point_b,
+        foreground_polarity=translated.foreground_polarity,
+        threshold_mode=translated.threshold_mode,
+        ignore_internal_texture=translated.ignore_internal_texture,
+        min_target_area_px=translated.min_target_area_px,
+        sensitivity=translated.sensitivity,
+        observation_axis=translated.observation_axis,
+    )
+
+
+def _fit_metric_box_within_region(box: MetricBox, region: RectRegion) -> MetricBox:
+    width = max(1.0, min(float(box.width), float(region.width)))
+    height = max(1.0, min(float(box.height), float(region.height)))
+    angle_deg = float(box.angle_deg)
+    center_x = float(box.center_x)
+    center_y = float(box.center_y)
+    candidate = MetricBox(center_x=int(round(center_x)), center_y=int(round(center_y)), width=int(round(width)), height=int(round(height)), angle_deg=angle_deg)
+    for _ in range(12):
+        half_width = width / 2.0
+        half_height = height / 2.0
+        angle_rad = math.radians(angle_deg)
+        span_x = abs(half_width * math.cos(angle_rad)) + abs(half_height * math.sin(angle_rad))
+        span_y = abs(half_width * math.sin(angle_rad)) + abs(half_height * math.cos(angle_rad))
+        if span_x > region.width / 2.0 or span_y > region.height / 2.0:
+            scale = min(
+                float(region.width) / max(2.0 * span_x, 1.0),
+                float(region.height) / max(2.0 * span_y, 1.0),
+                1.0,
+            )
+            width = max(1.0, math.floor(width * scale))
+            height = max(1.0, math.floor(height * scale))
+            candidate = MetricBox(
+                center_x=int(round(center_x)),
+                center_y=int(round(center_y)),
+                width=max(1, int(round(width))),
+                height=max(1, int(round(height))),
+                angle_deg=angle_deg,
+            )
+            continue
+        min_center_x = region.x + span_x
+        max_center_x = region.x + region.width - span_x
+        min_center_y = region.y + span_y
+        max_center_y = region.y + region.height - span_y
+        center_x = min(max(center_x, min_center_x), max_center_x)
+        center_y = min(max(center_y, min_center_y), max_center_y)
+        candidate = MetricBox(
+            center_x=int(round(center_x)),
+            center_y=int(round(center_y)),
+            width=max(1, int(round(width))),
+            height=max(1, int(round(height))),
+            angle_deg=angle_deg,
+        )
+        if _metric_box_within_region(region, candidate):
+            return candidate
+        width = max(1.0, width - 1.0)
+        height = max(1.0, height - 1.0)
+    return candidate
+
+
+def _clamp_point_into_metric_box_region(point: PixelPoint, box: MetricBox, region: RectRegion) -> PixelPoint:
+    angle_rad = math.radians(float(box.angle_deg))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = float(point.x) - float(box.center_x)
+    translated_y = float(point.y) - float(box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    local_x = min(max(local_x, -float(box.width) / 2.0), float(box.width) / 2.0)
+    local_y = min(max(local_y, -float(box.height) / 2.0), float(box.height) / 2.0)
+    world_x = float(box.center_x) + local_x * cos_theta - local_y * sin_theta
+    world_y = float(box.center_y) + local_x * sin_theta + local_y * cos_theta
+    clamped_x = max(region.x, min(region.x + region.width - 1, int(round(world_x))))
+    clamped_y = max(region.y, min(region.y + region.height - 1, int(round(world_y))))
+    return PixelPoint(x=clamped_x, y=clamped_y)
+
+
+def _default_edge_points(box: MetricBox, region: RectRegion) -> tuple[PixelPoint, PixelPoint]:
+    point_a = _clamp_point_into_metric_box_region(
+        PixelPoint(x=int(round(box.center_x - box.width / 2.0)), y=int(round(box.center_y))),
+        box,
+        region,
+    )
+    point_b = _clamp_point_into_metric_box_region(
+        PixelPoint(x=int(round(box.center_x + box.width / 2.0)), y=int(round(box.center_y))),
+        box,
+        region,
+    )
+    return point_a, point_b

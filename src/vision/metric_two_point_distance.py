@@ -36,6 +36,17 @@ class _Component:
         return self._pixels_cache
 
 
+@dataclass(slots=True)
+class _WorkingScaleTransform:
+    image: np.ndarray
+    analysis_roi: RectRegion
+    metric_box: MetricBox
+    source_crop_roi: RectRegion
+    scale_x: float
+    scale_y: float
+    locked_points: tuple[PixelPoint, PixelPoint] | None = None
+
+
 class RoiLongestSpanPointDetector:
     """ROI-bounded point detector used during live setup before an observation window exists.
 
@@ -293,6 +304,8 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
         locked_points: tuple[PixelPoint, PixelPoint] | None = None,
         sensitivity: float = 50.0,
         selection_strategy: str = "auto_extremes",
+        working_max_width: int | None = None,
+        working_max_height: int | None = None,
     ) -> None:
         self.analysis_roi = analysis_roi
         self.metric_box = metric_box
@@ -306,6 +319,8 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
         self.locked_points = locked_points
         self.sensitivity = sensitivity
         self.selection_strategy = selection_strategy
+        self.working_max_width = None if working_max_width is None else max(1, int(working_max_width))
+        self.working_max_height = None if working_max_height is None else max(1, int(working_max_height))
 
     def extract(self, frame: FramePacket) -> ShapeMetric:
         if frame.image is None:
@@ -324,6 +339,47 @@ class TwoPointDistanceMetricExtractor(VisionMetricExtractor):
         effective_box = self.metric_box or _default_metric_box(effective_roi)
         if not _metric_box_within_region(effective_roi, effective_box):
             return self._failure_metric(frame, reason="metric_box_outside_roi", roi=effective_roi, metric_box=effective_box)
+
+        working_transform = _build_working_scale_transform(
+            image=image,
+            effective_box=effective_box,
+            locked_points=self.locked_points,
+            max_width=self.working_max_width,
+            max_height=self.working_max_height,
+        )
+        if working_transform is not None:
+            working_metric = TwoPointDistanceMetricExtractor(
+                analysis_roi=working_transform.analysis_roi,
+                metric_box=working_transform.metric_box,
+                measurement_axis_deg=self.measurement_axis_deg,
+                foreground_polarity=self.foreground_polarity,
+                threshold_mode=self.threshold_mode,
+                threshold_margin=self.threshold_margin,
+                ignore_internal_texture=self.ignore_internal_texture,
+                min_target_area_px=self.min_target_area_px,
+                quality_threshold=self.quality_threshold,
+                locked_points=working_transform.locked_points,
+                sensitivity=self.sensitivity,
+                selection_strategy=self.selection_strategy,
+            ).extract(
+                FramePacket(
+                    timestamp_ms=frame.timestamp_ms,
+                    source=frame.source,
+                    image=working_transform.image,
+                    frame_id=frame.frame_id,
+                    meta=dict(frame.meta),
+                )
+            )
+            return _remap_working_metric_to_source(
+                metric=working_metric,
+                source_frame=frame,
+                source_roi=effective_roi,
+                source_metric_box=effective_box,
+                working_transform=working_transform,
+                min_target_area_px=self.min_target_area_px,
+                quality_threshold=self.quality_threshold,
+                selection_strategy=self.selection_strategy,
+            )
 
         if self.locked_points is not None:
             point_a, point_b = self.locked_points
@@ -615,6 +671,26 @@ def downsample_grayscale_image(
     return downsampled
 
 
+def _downsample_grayscale_array(
+    image: np.ndarray,
+    *,
+    max_width: int,
+    max_height: int,
+) -> tuple[np.ndarray, float, float]:
+    height, width = image.shape[:2]
+    if width < 1 or height < 1:
+        return np.zeros((1, 1), dtype=np.uint8), 1.0, 1.0
+    scale = max(width / max_width, height / max_height, 1.0)
+    if scale <= 1.0:
+        return image, 1.0, 1.0
+    output_width = max(1, int(round(width / scale)))
+    output_height = max(1, int(round(height / scale)))
+    src_x = np.minimum(width - 1, np.floor(np.arange(output_width, dtype=np.float64) * (width / output_width)).astype(np.int32))
+    src_y = np.minimum(height - 1, np.floor(np.arange(output_height, dtype=np.float64) * (height / output_height)).astype(np.int32))
+    reduced = image[np.ix_(src_y, src_x)]
+    return reduced.astype(np.uint8, copy=False), float(width / output_width), float(height / output_height)
+
+
 def _pixel_to_gray(pixel: Any) -> int:
     if isinstance(pixel, bool):
         return 255 if pixel else 0
@@ -842,6 +918,176 @@ def _as_grayscale_ndarray(image: Any) -> np.ndarray | None:
         except Exception:
             return None
     return None
+
+
+def _build_working_scale_transform(
+    *,
+    image: Any,
+    effective_box: MetricBox,
+    locked_points: tuple[PixelPoint, PixelPoint] | None,
+    max_width: int | None,
+    max_height: int | None,
+) -> _WorkingScaleTransform | None:
+    if max_width is None or max_height is None:
+        return None
+    array_view = _as_grayscale_ndarray(image)
+    if array_view is None:
+        try:
+            array_view = np.asarray(image, dtype=np.uint8)
+        except Exception:
+            return None
+    if array_view.ndim != 2:
+        return None
+    min_x, max_x, min_y, max_y = _metric_box_bounds(
+        effective_box,
+        width=int(array_view.shape[1]),
+        height=int(array_view.shape[0]),
+    )
+    crop = array_view[min_y : max_y + 1, min_x : max_x + 1]
+    if crop.size == 0:
+        return None
+    reduced, scale_x, scale_y = _downsample_grayscale_array(
+        crop,
+        max_width=max_width,
+        max_height=max_height,
+    )
+    if scale_x <= 1.0 and scale_y <= 1.0:
+        return None
+    local_metric_box = MetricBox(
+        center_x=_map_source_index_to_working(int(effective_box.center_x - min_x), scale_x, int(reduced.shape[1])),
+        center_y=_map_source_index_to_working(int(effective_box.center_y - min_y), scale_y, int(reduced.shape[0])),
+        width=max(1, int(round(float(effective_box.width) / scale_x))),
+        height=max(1, int(round(float(effective_box.height) / scale_y))),
+        angle_deg=float(effective_box.angle_deg),
+    )
+    local_locked_points = None
+    if locked_points is not None:
+        local_locked_points = (
+            PixelPoint(
+                x=_map_source_index_to_working(int(locked_points[0].x - min_x), scale_x, int(reduced.shape[1])),
+                y=_map_source_index_to_working(int(locked_points[0].y - min_y), scale_y, int(reduced.shape[0])),
+            ),
+            PixelPoint(
+                x=_map_source_index_to_working(int(locked_points[1].x - min_x), scale_x, int(reduced.shape[1])),
+                y=_map_source_index_to_working(int(locked_points[1].y - min_y), scale_y, int(reduced.shape[0])),
+            ),
+        )
+    return _WorkingScaleTransform(
+        image=reduced,
+        analysis_roi=RectRegion(x=0, y=0, width=int(reduced.shape[1]), height=int(reduced.shape[0])),
+        metric_box=local_metric_box,
+        source_crop_roi=RectRegion(
+            x=int(min_x),
+            y=int(min_y),
+            width=int(max_x - min_x + 1),
+            height=int(max_y - min_y + 1),
+        ),
+        scale_x=scale_x,
+        scale_y=scale_y,
+        locked_points=local_locked_points,
+    )
+
+
+def _map_source_index_to_working(value: int, scale: float, output_size: int) -> int:
+    mapped = int(round((float(value) + 0.5) / max(scale, 1e-6) - 0.5))
+    return max(0, min(max(0, output_size - 1), mapped))
+
+
+def _map_working_index_to_source(value: int, scale: float, output_size: int) -> int:
+    mapped = int(round((float(value) + 0.5) * scale - 0.5))
+    return max(0, min(max(0, output_size - 1), mapped))
+
+
+def _remap_working_metric_to_source(
+    *,
+    metric: ShapeMetric,
+    source_frame: FramePacket,
+    source_roi: RectRegion,
+    source_metric_box: MetricBox,
+    working_transform: _WorkingScaleTransform,
+    min_target_area_px: int,
+    quality_threshold: float,
+    selection_strategy: str,
+) -> ShapeMetric:
+    if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return ShapeMetric(
+            timestamp_ms=metric.timestamp_ms,
+            metric_name=metric.metric_name,
+            metric_raw=metric.metric_raw,
+            metric_norm=metric.metric_norm,
+            quality=metric.quality,
+            roi=(source_roi.x, source_roi.y, source_roi.width, source_roi.height),
+            feature_point_px=metric.feature_point_px,
+            point_a_px=metric.point_a_px,
+            point_b_px=metric.point_b_px,
+            baseline_px=metric.baseline_px,
+            meta={
+                **metric.meta,
+                "working_scale_x": working_transform.scale_x,
+                "working_scale_y": working_transform.scale_y,
+            },
+        )
+
+    local_a = PixelPoint(x=int(metric.point_a_px[0]), y=int(metric.point_a_px[1]))
+    local_b = PixelPoint(x=int(metric.point_b_px[0]), y=int(metric.point_b_px[1]))
+    source_a = PixelPoint(
+        x=int(working_transform.source_crop_roi.x + _map_working_index_to_source(local_a.x, working_transform.scale_x, working_transform.source_crop_roi.width)),
+        y=int(working_transform.source_crop_roi.y + _map_working_index_to_source(local_a.y, working_transform.scale_y, working_transform.source_crop_roi.height)),
+    )
+    source_b = PixelPoint(
+        x=int(working_transform.source_crop_roi.x + _map_working_index_to_source(local_b.x, working_transform.scale_x, working_transform.source_crop_roi.width)),
+        y=int(working_transform.source_crop_roi.y + _map_working_index_to_source(local_b.y, working_transform.scale_y, working_transform.source_crop_roi.height)),
+    )
+    source_metric_raw = _distance_between(source_a, source_b)
+    measurement_axis_deg = metric.meta.get("measurement_axis_deg")
+    axis_span_px = (
+        float(max(source_metric_box.width, 1))
+        if selection_strategy == "roi_local_horizontal_boundary"
+        else _metric_box_axis_span_px(
+            source_metric_box,
+            float(measurement_axis_deg if measurement_axis_deg is not None else source_metric_box.angle_deg),
+        )
+    )
+    source_component_area = int(round(float(metric.meta.get("component_area") or 0) * working_transform.scale_x * working_transform.scale_y))
+    source_quality = _score_quality(
+        component_area=source_component_area,
+        min_target_area_px=min_target_area_px,
+        metric_box=source_metric_box,
+        metric_raw=source_metric_raw,
+        axis_span_px=axis_span_px,
+    )
+    meta = dict(metric.meta)
+    meta["component_area"] = source_component_area
+    meta["working_scale_x"] = working_transform.scale_x
+    meta["working_scale_y"] = working_transform.scale_y
+    meta["working_crop_source_roi"] = {
+        "x": int(working_transform.source_crop_roi.x),
+        "y": int(working_transform.source_crop_roi.y),
+        "width": int(working_transform.source_crop_roi.width),
+        "height": int(working_transform.source_crop_roi.height),
+    }
+    meta["point_a_px_local"] = [int(source_a.x - source_roi.x), int(source_a.y - source_roi.y)]
+    meta["point_b_px_local"] = [int(source_b.x - source_roi.x), int(source_b.y - source_roi.y)]
+    if source_quality < quality_threshold:
+        meta["reason"] = "quality_below_threshold"
+    elif meta.get("reason") == "quality_below_threshold":
+        meta.pop("reason", None)
+    return ShapeMetric(
+        timestamp_ms=metric.timestamp_ms,
+        metric_name=metric.metric_name,
+        metric_raw=source_metric_raw,
+        metric_norm=metric.metric_norm,
+        quality=source_quality,
+        roi=(source_roi.x, source_roi.y, source_roi.width, source_roi.height),
+        feature_point_px=(
+            int(round((source_a.x + source_b.x) / 2)),
+            int(round((source_a.y + source_b.y) / 2)),
+        ),
+        point_a_px=(source_a.x, source_a.y),
+        point_b_px=(source_b.x, source_b.y),
+        baseline_px=metric.baseline_px,
+        meta=meta,
+    )
 
 
 def _metric_box_bounds(metric_box: MetricBox, *, width: int, height: int) -> tuple[int, int, int, int]:
@@ -1239,7 +1485,7 @@ def _score_quality(
     area_ratio = min(1.0, component_area / max(min_target_area_px, 1))
     span_reference = axis_span_px if axis_span_px is not None else max(metric_box.width, metric_box.height, 1)
     span_ratio = min(1.0, metric_raw / max(span_reference, 1))
-    return min(1.0, max(0.05, 0.4 * area_ratio + 0.6 * span_ratio))
+    return min(1.0, max(0.05, 0.5 * area_ratio + 0.5 * span_ratio))
 
 
 def _metric_box_axis_span_px(metric_box: MetricBox, measurement_axis_deg: float) -> float:

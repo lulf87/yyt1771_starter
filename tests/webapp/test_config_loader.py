@@ -67,7 +67,8 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
     assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.measurement_target_hz == 20.0
-    assert runtime_config.live.run.stop_on_invalid_tracking is True
+    assert runtime_config.live.run.stop_on_invalid_tracking is False
+    assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
 
 
@@ -138,6 +139,7 @@ run:
   manual_stop_max_samples: 10000
   preview_display_max_width: 816
   preview_display_max_height: 544
+  invalid_tracking_grace_samples: 5
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
   artifact_dir: examples/runtime/artifacts
@@ -180,6 +182,7 @@ replay:
     assert runtime_config.live.run.capture_interval_ms == 50
     assert runtime_config.live.run.measurement_target_hz == 20.0
     assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
 
 

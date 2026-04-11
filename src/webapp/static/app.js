@@ -2677,6 +2677,9 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     if (livePointBYInput) {
       livePointBYInput.value = String(previewPoints.point_b_px.y);
     }
+    if (liveThresholdModeSelect && payload.threshold_mode_used) {
+      liveThresholdModeSelect.value = String(payload.threshold_mode_used);
+    }
     liveRunState.definitionDirty = true;
     syncLiveDefinitionDirtyState();
     renderLivePreviewOverlay();

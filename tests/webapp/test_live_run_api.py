@@ -9,7 +9,7 @@ import pytest
 
 from src.camera.mock_camera import MockCamera
 from src.core.config_models import DeviceRoiConfig
-from src.core.models import FramePacket
+from src.core.models import FramePacket, ShapeMetric
 from src.curve.afas_postprocessing_analysis import analyze_preprocessed_afas_channel
 from src.curve.afas_preprocessing import preprocess_afas_channel
 from src.temp.mock_temp import MockTempController
@@ -794,6 +794,7 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
     assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
     assert payload["quality"] > 0.75
     assert payload["metric_raw"] is not None
+    assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
 
 
 def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_aligned_roi(tmp_path: Path) -> None:
@@ -818,6 +819,7 @@ def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_al
     payload = response.json()
     assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
     assert payload["metric_raw"] is not None
+    assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
 
 
 def test_auto_detect_definition_accepts_tight_rotated_metric_box_near_roi_boundary(tmp_path: Path) -> None:
@@ -849,6 +851,68 @@ def test_auto_detect_definition_accepts_tight_rotated_metric_box_near_roi_bounda
     payload = response.json()
     assert payload["point_a_px"]["x"] != payload["point_b_px"]["x"] or payload["point_a_px"]["y"] != payload["point_b_px"]["y"]
     assert payload["metric_raw"] is not None
+    assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
+
+
+def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self.threshold_mode = kwargs["threshold_mode"]
+
+        def extract(self, frame):
+            if self.threshold_mode == "adaptive":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=80.0,
+                    quality=0.61,
+                    point_a_px=(10, 20),
+                    point_b_px=(90, 20),
+                    meta={"selection_mode": "roi_local_horizontal_boundary"},
+                )
+            if self.threshold_mode == "otsu":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=120.0,
+                    quality=0.91,
+                    point_a_px=(8, 20),
+                    point_b_px=(128, 20),
+                    meta={"selection_mode": "roi_local_horizontal_boundary"},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=None,
+                quality=0.0,
+                meta={"reason": "no_valid_component"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["threshold_mode_used"] == "otsu"
+    assert payload["quality"] == pytest.approx(0.91)
+    assert "selected otsu thresholding" in payload["detail"]
 
 
 def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path: Path) -> None:
@@ -1059,7 +1123,7 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
     _wait_for_run_status(client, run_id, "completed")
 
     assert start_response.status_code == 200
-    assert profile_names == ["measurement"]
+    assert profile_names == ["setup_preview", "measurement"]
 
 
 def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(tmp_path: Path) -> None:
@@ -1115,10 +1179,10 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
 
     assert start_response.status_code == 200
     assert captured["measurement_roi"] == {
-        "x": 868,
-        "y": 568,
-        "width": 160,
-        "height": 128,
+        "x": 876,
+        "y": 588,
+        "width": 144,
+        "height": 88,
     }
     metric_definition = captured["metric_definition"]
     assert metric_definition.analysis_roi.x == 36
@@ -1143,13 +1207,13 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
     }
     assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
         "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
-        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
+        "requested_effective_acquisition_roi": {"x": 876, "y": 588, "width": 144, "height": 88},
         "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
         "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
         "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
-        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
+        "requested_local_origin_in_setup_preview_px": {"x": 876, "y": 588},
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
-        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
+        "setup_to_requested_local_translation_px": {"dx": -876, "dy": -588},
     }
 
 
@@ -1212,10 +1276,10 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
         "height": 128,
     }
     assert captured["measurement_roi"] == {
-        "x": 868,
-        "y": 568,
-        "width": 160,
-        "height": 128,
+        "x": 876,
+        "y": 588,
+        "width": 144,
+        "height": 88,
     }
     assert result_response.status_code == 200
     result_payload = result_response.json()
@@ -1226,13 +1290,13 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
     session_dir = tmp_path / "artifacts" / run_id
     assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
         "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
-        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
+        "requested_effective_acquisition_roi": {"x": 876, "y": 588, "width": 144, "height": 88},
         "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
         "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
         "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
-        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
+        "requested_local_origin_in_setup_preview_px": {"x": 876, "y": 588},
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
-        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
+        "setup_to_requested_local_translation_px": {"dx": -876, "dy": -588},
     }
 
 
@@ -1366,6 +1430,7 @@ def test_stop_live_run_rejects_when_run_is_not_running(tmp_path: Path) -> None:
 
 def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
+    app.state.runtime_config.live.temp.control.completion_mode = "manual_stop_only"
     app.state.runtime_config.live.run.capture_interval_ms = 500
     client = TestClient(app)
     run_id = _create_ready_run(client)
@@ -1374,6 +1439,7 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
         f"/api/runs/{run_id}/start",
         json={"target_temperature_celsius": 45.0},
     )
+    _wait_for_run_status(client, run_id, "running")
     stop_response = client.post(f"/api/runs/{run_id}/stop")
     aborted_detail = _wait_for_run_status(client, run_id, "aborted")
     telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")

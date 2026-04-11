@@ -316,34 +316,11 @@ def auto_detect_measurement_definition(
         ) from exc
 
     registry.mark_preview_frozen(run_id)
-    detector = RoiLongestSpanPointDetector(
-        analysis_roi=RectRegion(
-            x=payload.analysis_roi.x,
-            y=payload.analysis_roi.y,
-            width=payload.analysis_roi.width,
-            height=payload.analysis_roi.height,
-        ),
-        roi_box=None
-        if payload.metric_box is None
-        else MetricBox(
-            center_x=payload.metric_box.center_x,
-            center_y=payload.metric_box.center_y,
-            width=payload.metric_box.width,
-            height=payload.metric_box.height,
-            angle_deg=payload.metric_box.angle_deg,
-        ),
-        foreground_polarity=payload.foreground_polarity,
-        threshold_mode=payload.threshold_mode,
-        threshold_margin=runtime_config.live.vision.edge_threshold,
-        ignore_internal_texture=payload.ignore_internal_texture,
-        min_target_area_px=payload.min_target_area_px,
-        quality_threshold=runtime_config.live.vision.quality_threshold,
-        sensitivity=payload.sensitivity,
-        selection_strategy="roi_local_horizontal_boundary"
-        if payload.metric_box is not None
-        else "axis_aligned_span",
+    metric, threshold_mode_used = _best_auto_detect_metric(
+        frame=frame,
+        payload=payload,
+        runtime_config=runtime_config,
     )
-    metric = detector.extract(frame)
     if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -352,11 +329,16 @@ def auto_detect_measurement_definition(
     detail = ""
     if metric.quality < runtime_config.live.vision.quality_threshold:
         detail = "Auto detection succeeded with low confidence. Please verify the ROI-local result and recompute if needed."
+    elif threshold_mode_used != payload.threshold_mode:
+        detail = (
+            f"Auto detection selected {threshold_mode_used} thresholding because it produced a higher-confidence ROI-local A/B result."
+        )
     return AutoDetectDefinitionResponse(
         point_a_px=PixelPointResponse(x=metric.point_a_px[0], y=metric.point_a_px[1]),
         point_b_px=PixelPointResponse(x=metric.point_b_px[0], y=metric.point_b_px[1]),
         quality=metric.quality,
         metric_raw=metric.metric_raw,
+        threshold_mode_used=threshold_mode_used,
         detail=detail,
     )
 
@@ -407,6 +389,65 @@ def start_live_run(
         point_count=None,
         af95=None,
     )
+
+
+def _best_auto_detect_metric(
+    *,
+    frame,
+    payload: AutoDetectDefinitionRequest,
+    runtime_config: RuntimeConfig,
+):
+    analysis_roi = RectRegion(
+        x=payload.analysis_roi.x,
+        y=payload.analysis_roi.y,
+        width=payload.analysis_roi.width,
+        height=payload.analysis_roi.height,
+    )
+    metric_box = None if payload.metric_box is None else MetricBox(
+        center_x=payload.metric_box.center_x,
+        center_y=payload.metric_box.center_y,
+        width=payload.metric_box.width,
+        height=payload.metric_box.height,
+        angle_deg=payload.metric_box.angle_deg,
+    )
+    selection_strategy = "roi_local_horizontal_boundary" if payload.metric_box is not None else "axis_aligned_span"
+    threshold_modes = _candidate_threshold_modes(payload.threshold_mode)
+    best_metric = None
+    best_threshold_mode = payload.threshold_mode
+    for threshold_mode in threshold_modes:
+        detector = RoiLongestSpanPointDetector(
+            analysis_roi=analysis_roi,
+            roi_box=metric_box,
+            foreground_polarity=payload.foreground_polarity,
+            threshold_mode=threshold_mode,
+            threshold_margin=runtime_config.live.vision.edge_threshold,
+            ignore_internal_texture=payload.ignore_internal_texture,
+            min_target_area_px=payload.min_target_area_px,
+            quality_threshold=runtime_config.live.vision.quality_threshold,
+            sensitivity=payload.sensitivity,
+            selection_strategy=selection_strategy,
+        )
+        candidate_metric = detector.extract(frame)
+        if best_metric is None or _auto_detect_metric_rank(candidate_metric) > _auto_detect_metric_rank(best_metric):
+            best_metric = candidate_metric
+            best_threshold_mode = threshold_mode
+    return best_metric, best_threshold_mode
+
+
+def _candidate_threshold_modes(requested_threshold_mode: str) -> list[str]:
+    ordered = [requested_threshold_mode, "otsu", "adaptive", "binary"]
+    candidates: list[str] = []
+    for threshold_mode in ordered:
+        if threshold_mode not in candidates:
+            candidates.append(threshold_mode)
+    return candidates
+
+
+def _auto_detect_metric_rank(metric) -> tuple[float, float, int]:
+    point_score = 1 if metric.metric_raw is not None and metric.point_a_px is not None and metric.point_b_px is not None else 0
+    quality = float(metric.quality or 0.0)
+    span = float(metric.metric_raw or 0.0)
+    return (point_score, quality, int(round(span)))
 
 
 @router.post("/{run_id}/stop", response_model=RunDetailResponse)

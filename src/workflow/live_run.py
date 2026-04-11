@@ -212,7 +212,14 @@ class WorkbookPlaybackMetricSource:
 class LockedDefinitionMetricSource:
     """Definition-locked extractor used when mock metric generation is unavailable."""
 
-    def __init__(self, definition: MeasurementDefinition, *, debug_locked_points: bool = False) -> None:
+    def __init__(
+        self,
+        definition: MeasurementDefinition,
+        *,
+        debug_locked_points: bool = False,
+        working_max_width: int | None = None,
+        working_max_height: int | None = None,
+    ) -> None:
         measurement_axis_deg = float(definition.metric_box.angle_deg)
         selection_strategy = "roi_local_horizontal_boundary"
         if definition.observation_axis == ObservationAxis.SHORT_AXIS:
@@ -229,6 +236,8 @@ class LockedDefinitionMetricSource:
             sensitivity=definition.sensitivity,
             selection_strategy=selection_strategy,
             locked_points=(definition.point_a_px, definition.point_b_px) if debug_locked_points else None,
+            working_max_width=working_max_width,
+            working_max_height=working_max_height,
         )
 
     def extract(
@@ -259,7 +268,11 @@ class PriorTrackingMetricSource:
         max_consecutive_misses: int = 3,
         hold_quality: float = 0.8,
     ) -> None:
-        self._observation_source = LockedDefinitionMetricSource(definition=definition)
+        self._observation_source = LockedDefinitionMetricSource(
+            definition=definition,
+            working_max_width=256,
+            working_max_height=160,
+        )
         self._tracking_mode = "prior_gated_reacquire"
         self._last_good_point_a = definition.point_a_px
         self._last_good_point_b = definition.point_b_px
@@ -295,8 +308,19 @@ class PriorTrackingMetricSource:
             sample_index=sample_index,
             total_samples=total_samples,
         )
+        diagnostics = self._tracking_diagnostics(observation)
         if observation.metric_raw is not None and observation.point_a_px is not None and observation.point_b_px is not None and not self._has_runtime_lock:
-            diagnostics = self._tracking_diagnostics(observation)
+            if not self._bootstrap_candidate_within_prior(diagnostics):
+                rejection_reason = self._rejection_reason(observation, diagnostics)
+                return self._hold_last_good_metric(
+                    frame,
+                    temp,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                    observation=observation,
+                    diagnostics=diagnostics,
+                    rejection_reason=rejection_reason,
+                )
             self._remember(observation)
             self._consecutive_misses = 0
             self._has_runtime_lock = True
@@ -304,7 +328,6 @@ class PriorTrackingMetricSource:
             observation.meta["tracking_state"] = "bootstrapped"
             observation.meta.update(diagnostics)
             return observation
-        diagnostics = self._tracking_diagnostics(observation)
         if observation.metric_raw is not None and self._candidate_within_prior(diagnostics):
             tracking_state = "reacquired" if self._consecutive_misses > 0 else "accepted"
             self._remember(observation)
@@ -356,6 +379,16 @@ class PriorTrackingMetricSource:
             float(endpoint_jump_px) <= self._max_endpoint_jump_px
             and float(midpoint_drift_px) <= self._max_midpoint_drift_px
             and float(span_change_ratio) <= self._max_span_change_ratio
+        )
+
+    def _bootstrap_candidate_within_prior(self, diagnostics: dict[str, Any]) -> bool:
+        endpoint_jump_px = diagnostics.get("endpoint_jump_px")
+        midpoint_drift_px = diagnostics.get("midpoint_drift_px")
+        if endpoint_jump_px is None or midpoint_drift_px is None:
+            return False
+        return (
+            float(endpoint_jump_px) <= self._max_endpoint_jump_px
+            and float(midpoint_drift_px) <= self._max_midpoint_drift_px
         )
 
     def _rejection_reason(self, observation: ShapeMetric, diagnostics: dict[str, Any]) -> str:
@@ -510,59 +543,92 @@ class LiveRunCoordinator:
                     raise LiveRunStopRequested("user_stop", stop_detail)
 
                 sample_started_ms = _now_ms()
+                sample_started_perf = time.perf_counter()
                 frame = camera.read_frame()
+                frame_read_ms = (time.perf_counter() - sample_started_perf) * 1000.0
                 frame.timestamp_ms = _resolved_timestamp_ms(frame.timestamp_ms, fallback_ms=sample_started_ms)
                 if frame.frame_id is None:
                     frame.frame_id = sample_index + 1
 
+                temp_started_perf = time.perf_counter()
                 temp = temp_reader.read()
+                temp_read_ms = (time.perf_counter() - temp_started_perf) * 1000.0
                 temp.timestamp_ms = _resolved_timestamp_ms(
                     temp.timestamp_ms,
                     fallback_ms=max(sample_started_ms, frame.timestamp_ms),
                 )
                 sample_timestamp_ms = max(frame.timestamp_ms, temp.timestamp_ms)
 
+                extract_started_perf = time.perf_counter()
                 metric = metric_source.extract(
                     frame,
                     temp,
                     sample_index=sample_index,
                     total_samples=max_samples,
                 )
+                metric_extract_ms = (time.perf_counter() - extract_started_perf) * 1000.0
+                metric.meta["frame_read_ms"] = frame_read_ms
+                metric.meta["temp_read_ms"] = temp_read_ms
+                metric.meta["metric_extract_ms"] = metric_extract_ms
+                metric.meta["sample_loop_ms"] = (time.perf_counter() - sample_started_perf) * 1000.0
                 metric.timestamp_ms = sample_timestamp_ms
                 if metric.metric_raw is None:
                     raise RuntimeError(f"tracking_metric_unavailable:{metric.meta.get('reason', 'unknown')}")
+                quality_grace_active = (
+                    bool(run_config.stop_on_invalid_tracking)
+                    and int(sample_index) < max(0, int(getattr(run_config, "invalid_tracking_grace_samples", 0) or 0))
+                )
                 if metric.quality < quality_threshold:
                     invalidation_payload = {
                         "reason": "tracking_quality_below_threshold",
                         "tracking_quality": metric.quality,
                         "quality_threshold": quality_threshold,
                     }
-                    events.append(_event(sample_timestamp_ms, "tracking_invalidated", invalidation_payload))
-                    if status_callback is not None:
-                        status_callback(RunStatus.INVALIDATED, invalidation_payload)
-                    if run_config.stop_on_invalid_tracking:
-                        if status_callback is not None:
-                            status_callback(RunStatus.STOPPING, {"reason": "invalid_tracking"})
-                        raise LiveRunTrackingInvalidated(
-                            "invalid_tracking",
-                            f"Tracking quality dropped below threshold: {metric.quality:.3f} < {quality_threshold:.3f}",
+                    metric.meta["quality_threshold_grace_active"] = quality_grace_active
+                    metric.meta["quality_threshold_grace_samples"] = int(
+                        max(0, int(getattr(run_config, "invalid_tracking_grace_samples", 0) or 0))
+                    )
+                    if quality_grace_active:
+                        invalidation_payload["grace_active"] = True
+                        invalidation_payload["sample_index"] = int(sample_index)
+                        invalidation_payload["grace_samples"] = int(
+                            max(0, int(getattr(run_config, "invalid_tracking_grace_samples", 0) or 0))
                         )
+                        events.append(_event(sample_timestamp_ms, "tracking_quality_grace", invalidation_payload))
+                    else:
+                        events.append(_event(sample_timestamp_ms, "tracking_invalidated", invalidation_payload))
+                        if status_callback is not None and run_config.stop_on_invalid_tracking:
+                            status_callback(RunStatus.INVALIDATED, invalidation_payload)
+                        if run_config.stop_on_invalid_tracking:
+                            if status_callback is not None:
+                                status_callback(RunStatus.STOPPING, {"reason": "invalid_tracking"})
+                            raise LiveRunTrackingInvalidated(
+                                "invalid_tracking",
+                                f"Tracking quality dropped below threshold: {metric.quality:.3f} < {quality_threshold:.3f}",
+                            )
 
                 hub.update_frame(frame)
                 hub.update_temp(temp)
                 hub.update_metric(metric)
                 sync_point = hub.snapshot()
                 sync_points.append(sync_point)
+                telemetry_started_perf = time.perf_counter()
                 telemetry_row = _telemetry_row(
                     sync_point,
                     sample_index=sample_index,
                     previous_timestamp_ms=None if len(sync_points) < 2 else sync_points[-2].timestamp_ms,
                 )
+                telemetry_row_ms = (time.perf_counter() - telemetry_started_perf) * 1000.0
+                telemetry_row["telemetry_row_ms"] = telemetry_row_ms
+                callback_started_perf = time.perf_counter()
+                if sample_callback is not None:
+                    sample_callback(sync_point, telemetry_row)
+                sample_callbacks_ms = (time.perf_counter() - callback_started_perf) * 1000.0
+                telemetry_row["sample_callbacks_ms"] = sample_callbacks_ms
+                telemetry_row["post_sample_ms"] = telemetry_row_ms + sample_callbacks_ms
                 telemetry.append(telemetry_row)
                 if telemetry_callback is not None:
                     telemetry_callback(telemetry_row)
-                if sample_callback is not None:
-                    sample_callback(sync_point, telemetry_row)
                 events.append(
                     _event(
                         sync_point.timestamp_ms,
@@ -975,6 +1041,13 @@ def _telemetry_row(
         "midpoint_drift_px": sync_point.metric.meta.get("midpoint_drift_px"),
         "span_change_ratio": sync_point.metric.meta.get("span_change_ratio"),
         "consecutive_misses": sync_point.metric.meta.get("consecutive_misses"),
+        "frame_read_ms": sync_point.metric.meta.get("frame_read_ms"),
+        "temp_read_ms": sync_point.metric.meta.get("temp_read_ms"),
+        "metric_extract_ms": sync_point.metric.meta.get("metric_extract_ms"),
+        "sample_loop_ms": sync_point.metric.meta.get("sample_loop_ms"),
+        "telemetry_row_ms": sync_point.metric.meta.get("telemetry_row_ms"),
+        "sample_callbacks_ms": sync_point.metric.meta.get("sample_callbacks_ms"),
+        "post_sample_ms": sync_point.metric.meta.get("post_sample_ms"),
     }
 
 

@@ -162,6 +162,7 @@ class AutoDetectDefinitionResponse(BaseModel):
     point_b_px: PixelPointResponse
     quality: float
     metric_raw: float | None
+    threshold_mode_used: Literal["adaptive", "binary", "otsu"]
     detail: str = ""
 
 

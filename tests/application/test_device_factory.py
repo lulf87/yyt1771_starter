@@ -55,26 +55,26 @@ def test_build_measurement_capture_plan_reduces_real_camera_measurement_roi_and_
     )
 
     assert plan.measurement_profile.device_roi == DeviceRoiConfig(
-        x=840,
-        y=568,
-        width=360,
-        height=184,
+        x=870,
+        y=598,
+        width=300,
+        height=124,
     )
     assert plan.metric_definition.analysis_roi == RectRegion(
-        x=60,
-        y=32,
+        x=30,
+        y=2,
         width=240,
         height=120,
     )
     assert plan.metric_definition.metric_box == MetricBox(
-        center_x=180,
-        center_y=92,
+        center_x=150,
+        center_y=62,
         width=200,
         height=60,
         angle_deg=0.0,
     )
-    assert plan.metric_definition.point_a_px == PixelPoint(x=80, y=92)
-    assert plan.metric_definition.point_b_px == PixelPoint(x=280, y=92)
+    assert plan.metric_definition.point_a_px == PixelPoint(x=50, y=62)
+    assert plan.metric_definition.point_b_px == PixelPoint(x=250, y=62)
     assert plan.setup_preview_roi == DeviceRoiConfig()
     assert plan.measurement_base_roi == DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
 
@@ -107,10 +107,10 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
 
     assert requested_plan.measurement_profile.device_roi == DeviceRoiConfig(
-        x=840,
-        y=568,
-        width=360,
-        height=184,
+        x=870,
+        y=598,
+        width=300,
+        height=124,
     )
     assert applied_plan.measurement_profile.device_roi == DeviceRoiConfig(
         x=832,
@@ -133,6 +133,19 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
     assert applied_plan.metric_definition.point_a_px == PixelPoint(x=88, y=100)
     assert applied_plan.metric_definition.point_b_px == PixelPoint(x=288, y=100)
+
+
+def test_build_measurement_capture_plan_prioritizes_metric_box_over_tall_analysis_roi() -> None:
+    runtime_config = _lab_runtime_config(camera_backend="hik_gige_mvs")
+    definition = _definition(y=300, height=900)
+
+    plan = build_measurement_capture_plan(
+        runtime_config=runtime_config,
+        definition=definition,
+    )
+
+    assert plan.measurement_profile.device_roi.width <= 300
+    assert plan.measurement_profile.device_roi.height <= 124
 
 
 def test_build_metric_source_can_debug_lock_points_for_real_camera() -> None:

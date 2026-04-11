@@ -142,6 +142,13 @@ class SessionArtifactStore:
                     "midpoint_drift_px",
                     "span_change_ratio",
                     "consecutive_misses",
+                    "frame_read_ms",
+                    "temp_read_ms",
+                    "metric_extract_ms",
+                    "sample_loop_ms",
+                    "telemetry_row_ms",
+                    "sample_callbacks_ms",
+                    "post_sample_ms",
                 ],
                 extrasaction="ignore",
             )
@@ -423,6 +430,13 @@ def _decode_telemetry_row(row: dict[str, str]) -> dict[str, Any]:
         "endpoint_jump_px",
         "midpoint_drift_px",
         "span_change_ratio",
+        "frame_read_ms",
+        "temp_read_ms",
+        "metric_extract_ms",
+        "sample_loop_ms",
+        "telemetry_row_ms",
+        "sample_callbacks_ms",
+        "post_sample_ms",
     ):
         value = _optional_csv_float(row.get(key))
         if value is not None:

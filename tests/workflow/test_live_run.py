@@ -305,6 +305,7 @@ def test_live_run_coordinator_keeps_running_when_invalid_tracking_does_not_abort
     temp_controller = MockTempController()
     run_config = _runtime_run_config()
     run_config.stop_on_invalid_tracking = False
+    statuses: list[str] = []
 
     execution = coordinator.run(
         session_id="run-low-quality-allowed",
@@ -319,12 +320,85 @@ def test_live_run_coordinator_keeps_running_when_invalid_tracking_does_not_abort
         temp_reader=temp_controller,
         temp_controller=temp_controller,
         metric_source=LowQualityMetricSource(),
+        status_callback=lambda status, payload: statuses.append(status.value),
     )
 
     assert execution.summary.state == "completed"
     assert execution.telemetry
     assert all(row["tracking_quality"] == 0.2 for row in execution.telemetry)
     assert any(event["type"] == "tracking_invalidated" for event in execution.events)
+    assert "invalidated" not in statuses
+
+
+def test_live_run_coordinator_allows_low_quality_during_startup_grace_window(tmp_path) -> None:
+    definition = _definition()
+    repo = SqliteSessionRepo(tmp_path / "sessions.db")
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    coordinator = LiveRunCoordinator(repo=repo, artifact_store=artifact_store)
+    temp_controller = MockTempController(ramp_step_celsius=0.5)
+    run_config = _runtime_run_config()
+    run_config.invalid_tracking_grace_samples = 5
+    statuses: list[str] = []
+
+    def _stop_after_first_wait(seconds: float) -> bool:
+        return True
+
+    try:
+        coordinator.run(
+            session_id="run-low-quality-grace",
+            definition=definition,
+            target_temperature_celsius=35.0,
+            run_config=run_config,
+            analysis_engine="afas",
+            channel_name="Space1",
+            as_fit_point_count=5,
+            af_fit_point_count=5,
+            camera=MockCamera(),
+            temp_reader=temp_controller,
+            temp_controller=temp_controller,
+            metric_source=LowQualityMetricSource(),
+            stop_on_target_reached=False,
+            wait_for_next_sample=_stop_after_first_wait,
+            status_callback=lambda status, payload: statuses.append(status.value),
+        )
+    except Exception as exc:
+        assert exc.__class__.__name__ == "LiveRunStopRequested"
+        assert getattr(exc, "reason", None) == "user_stop"
+    else:
+        raise AssertionError("expected grace-window run to continue until an explicit stop request")
+    assert "invalidated" not in statuses
+
+
+def test_live_run_coordinator_invalidates_after_startup_grace_window_is_exhausted(tmp_path) -> None:
+    definition = _definition()
+    repo = SqliteSessionRepo(tmp_path / "sessions.db")
+    artifact_store = SessionArtifactStore(tmp_path / "artifacts")
+    coordinator = LiveRunCoordinator(repo=repo, artifact_store=artifact_store)
+    temp_controller = MockTempController(ramp_step_celsius=0.5)
+    run_config = _runtime_run_config()
+    run_config.invalid_tracking_grace_samples = 2
+
+    try:
+        coordinator.run(
+            session_id="run-low-quality-grace-expired",
+            definition=definition,
+            target_temperature_celsius=35.0,
+            run_config=run_config,
+            analysis_engine="afas",
+            channel_name="Space1",
+            as_fit_point_count=5,
+            af_fit_point_count=5,
+            camera=MockCamera(),
+            temp_reader=temp_controller,
+            temp_controller=temp_controller,
+            metric_source=LowQualityMetricSource(),
+            stop_on_target_reached=False,
+        )
+    except Exception as exc:
+        assert exc.__class__.__name__ == "LiveRunTrackingInvalidated"
+        assert getattr(exc, "reason", None) == "invalid_tracking"
+    else:
+        raise AssertionError("expected low-quality run to invalidate after startup grace is exhausted")
 
 
 def test_locked_definition_metric_source_respects_short_axis_observation_direction() -> None:
@@ -436,6 +510,46 @@ def test_prior_tracking_metric_source_reacquires_after_transient_bad_frame() -> 
     assert reacquired_metric.meta["selection_mode"] == "roi_local_horizontal_boundary"
     assert reacquired_metric.point_a_px == first_metric.point_a_px
     assert reacquired_metric.point_b_px == first_metric.point_b_px
+
+
+def test_prior_tracking_metric_source_rejects_bad_bootstrap_observation() -> None:
+    source = PriorTrackingMetricSource(
+        definition=_definition(),
+        max_endpoint_jump_px=12.0,
+        max_midpoint_drift_px=8.0,
+        max_span_change_ratio=0.20,
+        max_consecutive_misses=2,
+    )
+    rejected_bootstrap = source.extract(
+        FramePacket(
+            timestamp_ms=1,
+            source="fixture",
+            image=_fixture_image((2, 20, 30, 24)),
+            frame_id=1,
+        ),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=3,
+    )
+    recovered_bootstrap = source.extract(
+        FramePacket(
+            timestamp_ms=2,
+            source="fixture",
+            image=_fixture_image((24, 20, 48, 24)),
+            frame_id=2,
+        ),
+        TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
+        sample_index=1,
+        total_samples=3,
+    )
+
+    assert rejected_bootstrap.meta["selection_mode"] == "tracking_prior_hold"
+    assert rejected_bootstrap.meta["tracking_state"] == "holding_last_good"
+    assert rejected_bootstrap.meta["reason"] in {"endpoint_jump_exceeded", "midpoint_drift_exceeded"}
+    assert rejected_bootstrap.point_a_px == (_definition().point_a_px.x, _definition().point_a_px.y)
+    assert rejected_bootstrap.point_b_px == (_definition().point_b_px.x, _definition().point_b_px.y)
+    assert recovered_bootstrap.meta["tracking_state"] == "bootstrapped"
+    assert recovered_bootstrap.meta["selection_mode"] == "roi_local_horizontal_boundary"
 
 
 def test_prior_tracking_metric_source_invalidates_after_too_many_rejections() -> None:
