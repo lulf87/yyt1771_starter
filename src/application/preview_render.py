@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PIL import Image, ImageEnhance, ImageOps
+import numpy as np
+from PIL import Image
 
 from src.vision.metric_two_point_distance import downsample_grayscale_image, normalize_frame_image
 
@@ -67,25 +68,25 @@ def enhance_preview_bitmap(
 ) -> PreviewBitmap:
     if not bitmap.pixels:
         return bitmap
-    pixel_min = min(bitmap.pixels)
-    pixel_max = max(bitmap.pixels)
-    pixel_mean = sum(bitmap.pixels) / len(bitmap.pixels)
+    array = np.frombuffer(bitmap.pixels, dtype=np.uint8)
+    if array.size == 0:
+        return bitmap
+    pixel_min = int(array.min())
+    pixel_max = int(array.max())
     if pixel_max <= pixel_min:
         return bitmap
+    pixel_mean = float(array.mean())
     if (pixel_max - pixel_min) >= contrast_floor and pixel_mean >= mean_floor:
         return bitmap
 
-    image = Image.frombytes("L", (bitmap.width, bitmap.height), bitmap.pixels)
-    adjusted = ImageOps.autocontrast(image, cutoff=0)
+    adjusted = array.astype(np.float32)
+    adjusted = (adjusted - pixel_min) * (255.0 / max(1, pixel_max - pixel_min))
+    adjusted = np.clip(adjusted, 0.0, 255.0)
     if gamma != 1.0:
-        lut = [
-            max(0, min(255, int(round(((index / 255.0) ** gamma) * 255.0))))
-            for index in range(256)
-        ]
-        adjusted = adjusted.point(lut)
-    adjusted_pixels = adjusted.tobytes()
-    adjusted_mean = sum(adjusted_pixels) / len(adjusted_pixels) if adjusted_pixels else 0.0
+        adjusted = np.power(adjusted / 255.0, gamma) * 255.0
+    adjusted_mean = float(adjusted.mean()) if adjusted.size else 0.0
     if adjusted_mean < target_mean and max_brightness_boost > 1.0:
         brightness_boost = min(max_brightness_boost, max(1.0, target_mean / max(adjusted_mean, 1.0)))
-        adjusted = ImageEnhance.Brightness(adjusted).enhance(brightness_boost)
+        adjusted *= brightness_boost
+    adjusted = np.clip(adjusted, 0.0, 255.0).astype(np.uint8, copy=False)
     return PreviewBitmap(width=bitmap.width, height=bitmap.height, pixels=adjusted.tobytes())

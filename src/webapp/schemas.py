@@ -258,6 +258,13 @@ class RunTelemetryPointResponse(BaseModel):
     midpoint_drift_px: float | None = None
     span_change_ratio: float | None = None
     consecutive_misses: int | None = None
+    frame_read_ms: float | None = None
+    temp_read_ms: float | None = None
+    metric_extract_ms: float | None = None
+    sample_loop_ms: float | None = None
+    telemetry_row_ms: float | None = None
+    sample_callbacks_ms: float | None = None
+    post_sample_ms: float | None = None
 
 
 class RunTelemetryResponse(BaseModel):

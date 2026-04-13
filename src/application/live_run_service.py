@@ -27,7 +27,6 @@ from src.core.enums import CaptureMode, RunStatus
 from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
-from src.vision.metric_two_point_distance import normalize_frame_image
 from src.workflow.live_run import (
     LiveRunCoordinator,
     LiveRunExecution,
@@ -776,15 +775,8 @@ def _composite_tracking_frame_into_setup_preview(
             base_preview=base_preview,
             measurement_frame=measurement_frame,
         ), _TrackingPreviewPoints()
-    try:
-        measurement_image = np.asarray(normalize_frame_image(measurement_frame.image), dtype=np.uint8)
-    except Exception:
-        return _tracking_preview_fallback_frame(
-            base_preview=base_preview,
-            measurement_frame=measurement_frame,
-        ), _TrackingPreviewPoints()
-
-    if getattr(measurement_image, "ndim", 0) != 2:
+    measurement_width, measurement_height = _frame_image_dimensions(measurement_frame)
+    if measurement_width < 1 or measurement_height < 1:
         return _tracking_preview_fallback_frame(
             base_preview=base_preview,
             measurement_frame=measurement_frame,
@@ -801,7 +793,6 @@ def _composite_tracking_frame_into_setup_preview(
         source_size=base_preview.source_size,
         preview_size=(base_width, base_height),
     )
-    measurement_height, measurement_width = int(measurement_image.shape[0]), int(measurement_image.shape[1])
     if origin_x >= base_width or origin_y >= base_height:
         return _tracking_preview_fallback_frame(
             base_preview=base_preview,
@@ -810,12 +801,17 @@ def _composite_tracking_frame_into_setup_preview(
 
     target_width = max(1, int(round(measurement_width * preview_scale_x)))
     target_height = max(1, int(round(measurement_height * preview_scale_y)))
-    if target_width != measurement_width or target_height != measurement_height:
-        measurement_image = np.asarray(
-            Image.fromarray(measurement_image, mode="L").resize((target_width, target_height), resample=Image.BILINEAR),
-            dtype=np.uint8,
-        )
-        measurement_height, measurement_width = int(measurement_image.shape[0]), int(measurement_image.shape[1])
+    measurement_image = _preview_scaled_grayscale_image(
+        measurement_frame.image,
+        target_width=target_width,
+        target_height=target_height,
+    )
+    if measurement_image is None:
+        return _tracking_preview_fallback_frame(
+            base_preview=base_preview,
+            measurement_frame=measurement_frame,
+        ), _TrackingPreviewPoints()
+    measurement_height, measurement_width = int(measurement_image.shape[0]), int(measurement_image.shape[1])
 
     paste_width = min(measurement_width, max(0, base_width - origin_x))
     paste_height = min(measurement_height, max(0, base_height - origin_y))
@@ -931,6 +927,48 @@ def _frame_image_dimensions(frame: FramePacket) -> tuple[int, int]:
             return (len(first_row), height)
         return (height, 1)
     return (0, 0)
+
+
+def _preview_scaled_grayscale_image(
+    image: Any,
+    *,
+    target_width: int,
+    target_height: int,
+) -> np.ndarray | None:
+    target_width = max(1, int(target_width))
+    target_height = max(1, int(target_height))
+    native_bitmap_payload = getattr(image, "downsample_bitmap_payload", None)
+    if callable(native_bitmap_payload):
+        try:
+            width, height, pixels = native_bitmap_payload(max_width=target_width, max_height=target_height)
+            if int(width) == target_width and int(height) == target_height and pixels:
+                return np.frombuffer(pixels, dtype=np.uint8).reshape((int(height), int(width)))
+        except Exception:
+            pass
+
+    if isinstance(image, np.ndarray):
+        array_view = image
+    elif all(hasattr(image, attr) for attr in ("_buffer", "width", "height")):
+        try:
+            width = int(getattr(image, "width"))
+            height = int(getattr(image, "height"))
+            buffer_bytes = getattr(image, "_buffer")
+            array_view = np.frombuffer(buffer_bytes, dtype=np.uint8, count=width * height).reshape(height, width)
+        except Exception:
+            return None
+    else:
+        try:
+            array_view = np.asarray(image, dtype=np.uint8)
+        except Exception:
+            return None
+    if getattr(array_view, "ndim", 0) != 2:
+        return None
+    if int(array_view.shape[1]) == target_width and int(array_view.shape[0]) == target_height:
+        return array_view
+    return np.asarray(
+        Image.fromarray(array_view, mode="L").resize((target_width, target_height), resample=Image.BILINEAR),
+        dtype=np.uint8,
+    )
 
 
 def _scale_point_to_preview(
