@@ -45,6 +45,7 @@ class LivePreviewService:
 
     def __init__(self) -> None:
         self._state_lock = threading.Lock()
+        self._stream_transition_lock = threading.Lock()
         self._active_stream: _ActivePreviewStream | None = None
         self._latest_frame: FramePacket | None = None
         self._latest_frame_run_id = ""
@@ -77,46 +78,58 @@ class LivePreviewService:
         *,
         run_id: str,
     ) -> tuple[object, FramePacket]:
-        active_stream = self._handoff_active_stream(run_id=run_id)
-        if active_stream is not None:
-            self._close_stream(active_stream)
+        with self._stream_transition_lock:
+            active_stream = self._handoff_active_stream(run_id=run_id)
+            if active_stream is not None:
+                self._retire_stream(active_stream, join_timeout_s=1.0)
+                time.sleep(0.08)
 
-        camera = self.open_camera(runtime_config, profile_name="setup_preview")
-        try:
-            first_frame = self._read_from_camera(camera)
-        except Exception:
-            close = getattr(camera, "close", None)
-            if callable(close):
-                close()
-            raise
+            last_error: Exception | None = None
+            for attempt_index in range(3):
+                camera = None
+                try:
+                    camera = self.open_camera(runtime_config, profile_name="setup_preview")
+                    first_frame = self._read_from_camera(camera)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    close = getattr(camera, "close", None) if camera is not None else None
+                    if callable(close):
+                        try:
+                            close()
+                        except Exception:
+                            pass
+                    if attempt_index >= 2 or not _is_retryable_preview_open_error(exc):
+                        raise
+                    time.sleep(0.12 * (attempt_index + 1))
+            else:  # pragma: no cover
+                raise RuntimeError(f"Preview stream start failed: {last_error}")
 
-        active_stream = _ActivePreviewStream(
-            run_id=run_id,
-            camera=camera,
-            stop_event=threading.Event(),
-            started_at_monotonic=time.monotonic(),
-            latest_frame=first_frame,
-            latest_sequence=1,
-        )
-        with self._state_lock:
-            if self._active_stream is not None:
-                close = getattr(camera, "close", None)
-                if callable(close):
-                    close()
-                raise RuntimeError(f"Live preview stream is already active for run: {self._active_stream.run_id}")
-            self._active_stream = active_stream
-            self._latest_frame = first_frame
-            self._latest_frame_run_id = run_id
-            self._last_preview_display_fps = None
-            self._last_preview_display_fps_run_id = run_id
-        active_stream.reader_thread = threading.Thread(
-            target=self._preview_reader_worker,
-            args=(active_stream,),
-            name=f"preview-reader-{run_id}",
-            daemon=True,
-        )
-        active_stream.reader_thread.start()
-        return active_stream, first_frame
+            active_stream = _ActivePreviewStream(
+                run_id=run_id,
+                camera=camera,
+                stop_event=threading.Event(),
+                started_at_monotonic=time.monotonic(),
+                latest_frame=first_frame,
+                latest_sequence=1,
+            )
+            lingering_stream = self._handoff_active_stream(run_id=run_id)
+            if lingering_stream is not None:
+                self._retire_stream(lingering_stream, join_timeout_s=0.5)
+            with self._state_lock:
+                self._active_stream = active_stream
+                self._latest_frame = first_frame
+                self._latest_frame_run_id = run_id
+                self._last_preview_display_fps = None
+                self._last_preview_display_fps_run_id = run_id
+            active_stream.reader_thread = threading.Thread(
+                target=self._preview_reader_worker,
+                args=(active_stream,),
+                name=f"preview-reader-{run_id}",
+                daemon=True,
+            )
+            active_stream.reader_thread.start()
+            return active_stream, first_frame
 
     def _handoff_active_stream(self, *, run_id: str) -> _ActivePreviewStream | None:
         with self._state_lock:
@@ -201,20 +214,7 @@ class LivePreviewService:
             active_stream = self._active_stream
             if active_stream is None or active_stream.run_id != run_id:
                 return False
-            self._active_stream = None
-            self._last_preview_display_fps = _preview_display_fps(active_stream)
-            self._last_preview_display_fps_run_id = active_stream.run_id
-        active_stream.stop_event.set()
-        active_stream.frame_event.set()
-        close = getattr(active_stream.camera, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
-        reader_thread = active_stream.reader_thread
-        if reader_thread is not None and reader_thread.is_alive():
-            reader_thread.join(timeout=0.25)
+        self._retire_stream(active_stream, join_timeout_s=0.5)
         return True
 
     def get_preview_state(self, *, run_id: str) -> PreviewStateSnapshot:
@@ -312,17 +312,7 @@ class LivePreviewService:
             self._last_preview_display_fps_run_id = ""
         if active_stream is None:
             return
-        active_stream.stop_event.set()
-        active_stream.frame_event.set()
-        close = getattr(active_stream.camera, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
-        reader_thread = active_stream.reader_thread
-        if reader_thread is not None and reader_thread.is_alive():
-            reader_thread.join(timeout=0.25)
+        self._retire_stream(active_stream, join_timeout_s=0.5)
 
     def _latest_frame_for_run(self, run_id: str) -> FramePacket | None:
         if not run_id:
@@ -338,6 +328,9 @@ class LivePreviewService:
             self._latest_frame_run_id = run_id
 
     def _close_stream(self, active_stream: _ActivePreviewStream) -> None:
+        self._retire_stream(active_stream, join_timeout_s=0.25)
+
+    def _retire_stream(self, active_stream: _ActivePreviewStream, *, join_timeout_s: float) -> None:
         with active_stream.close_lock:
             if active_stream.closed:
                 return
@@ -361,7 +354,7 @@ class LivePreviewService:
             and reader_thread.is_alive()
             and reader_thread is not threading.current_thread()
         ):
-            reader_thread.join(timeout=0.25)
+            reader_thread.join(timeout=max(0.05, float(join_timeout_s)))
 
     def _mark_stream_frame(self, active_stream: _ActivePreviewStream, frame: FramePacket) -> None:
         with self._state_lock:
@@ -428,6 +421,11 @@ def _preview_display_fps(active_stream: _ActivePreviewStream) -> float | None:
     if elapsed_s <= 0:
         return None
     return (active_stream.frames_presented - 1) / elapsed_s
+
+
+def _is_retryable_preview_open_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in ("0x80000203", "resource", "access denied", "already active"))
 
 
 def compute_preview_interval_ms(
