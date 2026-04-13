@@ -29,6 +29,12 @@ HIK_MVS_PYTHON_PATH_ENV = "HIK_MVS_PYTHON_PATH"
 HIK_MVS_LIBRARY_PATH_ENV = "HIK_MVS_LIBRARY_PATH"
 MONO8_PIXEL_FORMAT = "mono8"
 _HIK_MVS_SOURCE_CACHE: dict[tuple[str, str], Any] = {}
+_HIK_MVS_SIDE_CAR_STAGING_DIR = Path("/tmp/mvs")
+_HIK_MVS_SIDE_CAR_LIBRARIES = (
+    "libMVGigEVisionSDK.dylib",
+    "libMVU3VisionSDK.dylib",
+    "libMediaProcess.dylib",
+)
 _GVCP_DISCOVERY_COMMAND = 0x0002
 _GVCP_DISCOVERY_ACK = 0x0003
 _GVCP_KEY = 0x4201
@@ -306,31 +312,118 @@ def _prepend_hik_mvs_python_paths() -> None:
 
 
 def _configured_hik_mvs_python_paths() -> list[Path]:
-    raw_value = os.environ.get(HIK_MVS_PYTHON_PATH_ENV, "")
-    if not raw_value.strip():
-        return []
     paths: list[Path] = []
+    seen: set[Path] = set()
+
+    raw_value = os.environ.get(HIK_MVS_PYTHON_PATH_ENV, "")
     for raw_part in raw_value.split(os.pathsep):
+        raw_part = raw_part.strip()
+        if not raw_part:
+            continue
         candidate = Path(raw_part).expanduser()
-        if candidate.exists():
-            paths.append(candidate)
+        if not candidate.exists():
+            continue
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        paths.append(candidate)
+
+    for candidate in _auto_detect_hik_mvs_python_paths():
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        paths.append(candidate)
     return paths
 
 
 def _configured_hik_mvs_library_path() -> Path | None:
     raw_value = os.environ.get(HIK_MVS_LIBRARY_PATH_ENV, "").strip()
-    if not raw_value:
+    if raw_value:
+        candidate = Path(raw_value).expanduser()
+        if candidate.exists():
+            return candidate
+    return _auto_detect_hik_mvs_library_path()
+
+
+def _auto_detect_hik_mvs_python_paths() -> list[Path]:
+    candidates = sorted(
+        {
+            path.parent.resolve()
+            for root in _candidate_hik_mvs_roots()
+            if root.exists()
+            for path in root.glob("**/Samples/Python/MvImport/MvCameraControl_class.py")
+            if path.is_file()
+        },
+        key=lambda item: str(item),
+    )
+    return candidates
+
+
+def _auto_detect_hik_mvs_library_path() -> Path | None:
+    preferred_patterns = (
+        "patched_runtime_dlopen_*/lib/libMvCameraControl.dylib",
+        "patched_runtime_loader/lib/libMvCameraControl.dylib",
+        "patched_runtime/lib/libMvCameraControl.dylib",
+        "**/lib/libMvCameraControl.dylib",
+    )
+    candidates: list[Path] = []
+    for root in _candidate_hik_mvs_roots():
+        if not root.exists():
+            continue
+        for pattern in preferred_patterns:
+            candidates.extend(path.resolve() for path in root.glob(pattern) if path.is_file())
+    if not candidates:
         return None
-    candidate = Path(raw_value).expanduser()
-    if candidate.exists():
-        return candidate
-    return None
+    return sorted(
+        set(candidates),
+        key=lambda item: (item.stat().st_mtime if item.exists() else 0.0, str(item)),
+        reverse=True,
+    )[0]
+
+
+def _candidate_hik_mvs_roots() -> list[Path]:
+    project_root = Path(__file__).resolve().parents[2]
+    project_parent = project_root.parent
+    return [
+        project_parent / ".tmp_hik",
+        project_parent / "_local" / "tmp_hik",
+        project_root / ".tmp_hik",
+        project_root / "_local" / "tmp_hik",
+    ]
+
+
+def _ensure_hik_runtime_sidecar_symlinks(runtime_lib_dir: Path) -> None:
+    if not runtime_lib_dir.is_dir():
+        return
+    sources = {
+        library_name: runtime_lib_dir / library_name
+        for library_name in _HIK_MVS_SIDE_CAR_LIBRARIES
+    }
+    if not all(path.is_file() for path in sources.values()):
+        return
+    _HIK_MVS_SIDE_CAR_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    for library_name, source in sources.items():
+        target = _HIK_MVS_SIDE_CAR_STAGING_DIR / library_name
+        source_resolved = source.resolve()
+        if target.is_symlink():
+            try:
+                if target.resolve() == source_resolved:
+                    continue
+            except OSError:
+                pass
+            target.unlink()
+        elif target.exists():
+            target.unlink()
+        target.symlink_to(source_resolved)
 
 
 def _import_hik_mvs_sdk_module_with_library_override() -> Any | None:
     library_path = _configured_hik_mvs_library_path()
     if library_path is None:
         return None
+    _ensure_hik_runtime_sidecar_symlinks(library_path.parent)
     module_source = _find_hik_mvs_python_module_source()
     if module_source is None:
         return None
