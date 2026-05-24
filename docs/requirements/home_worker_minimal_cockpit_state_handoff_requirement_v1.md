@@ -137,6 +137,19 @@ Clarifies implementation scope of:
 
 如果后续要把 `保存数据` 扩展成新的持久化协议，那必须是另一轮 requirement，而不是在当前 minimal cockpit refactor 中顺手扩大 scope。
 
+### R3a. Completed home state persists until the operator explicitly starts a new test
+
+实时测试结束后，无论是自动到目标温度停止、手动停止，还是失败但已有可分析数据，首页都必须把这个 run 作为当前 completion target 保持住。
+
+状态保持规则如下：
+
+1. 从首页进入数据分析页，再返回首页时，仍显示同一个完成 run 的过程曲线、completion dock 和 `进入分析` target
+2. 首页刷新或重新 bootstrap 时，如果 session storage 中的当前 live run 已经是 terminal 状态，不得自动创建新的 live setup run
+3. 只有用户二次确认 `新测试` 后，首页才允许清空当前完成结果、创建新的 live setup run，并重新启动预览 setup 流程
+4. `新测试` 是显式重置动作，不替代 `保存数据`，也不改变 `进入分析` 的 deterministic session target 规则
+
+这条要求的目的，是避免完成结果在 home / workspace 往返时丢失，让 operator 在决定保存、分析或开始下一次测试之前始终面对同一个当前结果。
+
 ### R4. Post-confirm temperature-setting state must be explicit and event-driven
 
 温控设置确认之后，首页不能只靠“当前看起来字段都填了”来判断是否还能开始测试，而必须遵守显式状态机。

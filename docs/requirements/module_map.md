@@ -17,9 +17,11 @@
 | `src.sync` | 多源时间对齐为 `SyncPoint` | `src.core` | 视觉算法、设备控制 |
 | `src.curve` | 曲线缓存、归一化、结果计算 | `src.core` | 相机/PLC/温控直接访问 |
 | `src.workflow` | 会话、状态机、预检查、调度 | `src.core`、`src.camera`、`src.temp`、`src.plc`、`src.vision`、`src.sync`、`src.curve`、`src.storage`、`src.report` | 具体视觉实现细节 |
-| `src.storage` | 落盘、索引、回放 | `src.core` | 工作流反向控制 |
+| `src.storage` | 落盘、索引、回放、artifact keyframe 序列化 | `src.core`、`src.vision` | 工作流反向控制、新视觉识别 |
 | `src.report` | 结果摘要、图表导出 | `src.core` | 设备访问、流程控制 |
-| `src.webapp` | HTTP 路由、请求响应模型、依赖注入 | `src.core`、`src.workflow`、`src.storage`、`src.report` | 设备适配器直连、视觉算法直调 |
+| `src.application` | 共享运行时配置、设备工厂、预览服务、live run 服务、应用容器 | `src.core`、`src.camera`、`src.temp`、`src.plc`、`src.vision`、`src.curve`、`src.workflow`、`src.storage`、`src.report` | GUI 布局、HTTP 路由、桌面控件 |
+| `src.webapp` | HTTP 路由、请求响应模型、Web 依赖注入 | `src.application`、`src.core`、`src.desktop_app`、`src.workflow`、`src.storage`、`src.report`、`src.curve`、`src.vision` | 设备适配器直连、继续扩大共享业务逻辑 |
+| `src.desktop_app` | 桌面壳、Qt runtime bootstrap、桌面 controller、原生预览控件 | `src.application`、`src.core`、`src.camera`、`src.workflow` | 设备/算法/存储结构反向决策 |
 
 ## 2. 公共数据契约归属
 
@@ -81,6 +83,17 @@
 
 - `buffer.py`：曲线缓存
 - `af95.py`：Af95 或其他点位估计
+- `mock_afas_curve_playback.py`：workbook-backed mock AFAS 曲线回放；只消费 runtime-config-like duck type，不反向依赖 `application`
+
+### `src/application/`
+
+- `runtime_config.py`：共享运行时 profile/config 解析
+- `container.py`：共享应用容器，集中持有 repo/store/service
+- `device_factory.py`：按 runtime profile 构建设备与 mock adapter
+- `live_preview_service.py`：共享预览采集服务
+- `live_run_registry.py`：live run draft registry
+- `live_run_service.py`：live run 应用服务
+- `preview_render.py`：共享 preview bitmap/render helper
 
 ### `src/workflow/`
 
@@ -107,14 +120,23 @@
 ### `src/webapp/`
 
 - `app.py`：FastAPI app factory
-- `config.py`：运行时 profile 配置加载与装配
-- `deps.py`：Web 层依赖注入
+- `config.py`：兼容层，委托 `src.application.runtime_config`
+- `deps.py`：Web 层依赖注入，委托共享 `ApplicationContainer`
 - `schemas.py`：请求/响应模型
 - `serve.py`：Web 启动入口
 - `routes/health.py`：健康检查路由
 - `routes/profile.py`：profile / precheck / camera probe 路由
 - `routes/session.py`：session / replay / adjustment API 路由
 - `routes/ui.py`：页面路由与 workspace 页面入口
+
+### `src/desktop_app/`
+
+- `controller.py`：桌面壳 controller，复用共享 application layer
+- `main.py`：桌面入口、smoke 和 benchmark CLI
+- `qt_runtime.py`：Qt / MVS runtime bootstrap 辅助
+- `window.py`：最小桌面主窗口
+- `preview_canvas.py`：桌面预览画布
+- `overlay_math.py`：桌面 overlay 几何辅助
 
 ## 4. 导入规则
 
@@ -163,16 +185,31 @@ Browser
    ↓
 src.webapp
    ↓
+src.application
+   ↓
+workflow / storage / report
+```
+
+桌面交互入口冻结为：
+
+```text
+Desktop shell
+   ↓
+src.desktop_app
+   ↓
+src.application
+   ↓
 workflow / storage / report
 ```
 
 说明：
 
 - 真正的设备控制命令后置，先把离线主链打通。
-- GUI 不是当前主链的一部分，浏览器是正式交互入口。
+- GUI 不决定算法结构；Web 和桌面壳都通过共享 application layer 进入主链。
 - `workflow` 只负责编排，不替代 `vision` 或 `curve`。
 - `workflow.camera_probe` 只负责编排受控单帧探测，不替代 `camera` 层 SDK 访问实现。
-- `webapp` 负责 HTTP / HTML 交互壳、配置装配和服务依赖注入，不直接连接相机、温度、PLC 或算法实现。
+- `webapp` 负责 HTTP / HTML 交互壳和 Web 依赖注入，不直接连接相机、温度、PLC。
+- `desktop_app` 负责桌面壳和原生预览控件，不复制共享应用服务。
 
 ## 6. 约束提醒
 
@@ -181,3 +218,4 @@ workflow / storage / report
 - 不把结果计算塞进 `workflow`。
 - 不在 `storage` 中调用 `workflow`。
 - 不让 `report` 直接读取相机、温度或 PLC。
+- 不让 `webapp` 或 `desktop_app` 重新成为共享业务逻辑的事实来源。

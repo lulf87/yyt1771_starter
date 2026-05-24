@@ -37,13 +37,29 @@ Use those files as the current entry point for:
 
 ## 3 分钟跑起来
 
+### 0. 本机 Python 选择
+
+在这台 Mac 上，不要用裸 `python` 直接跑 OpenCV/视觉回归或启动 Web。
+当前 shell 的裸 `python` 指向 miniforge base 环境，已确认会触发
+`cv2` / NumPy ABI 不匹配。
+
+从 `yyt1771_starter/` 目录运行时，推荐固定使用下面两个解释器：
+
+```bash
+# 跑 pytest / compileall / 纯项目回归
+.venv/bin/python
+
+# 启动当前 Web 工作站、真实设备、离线素材回放
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11
+```
+
 ### 1. 环境准备
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
-pip install -e .[dev]
+.venv/bin/python -m pip install -U pip
+.venv/bin/python -m pip install -e ".[dev]"
 ```
 
 Windows PowerShell:
@@ -51,19 +67,46 @@ Windows PowerShell:
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -U pip
-pip install -e .[dev]
+.venv\Scripts\python -m pip install -U pip
+.venv\Scripts\python -m pip install -e ".[dev]"
 ```
 
 ### 2. 启动命令
 
-当前最容易本地启动的是过渡期 Web shell：
+当前你实际操作的主入口是 Web 工作站：
 
 ```bash
-python -m src.webapp.serve --profile dev_lab
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.webapp.serve --profile dev_lab
 ```
 
+常用 profile：
+
+- `dev_lab`：真实相机 + 真实温控，本机联机调试用。
+- `dev_lab_camera_mock_temp`：真实相机 + 模拟温控。
+- `dev_offline_capture`：使用真实相机录制的灰度素材做离线 Web 回放。
+- `dev_mock`：纯 mock 开发/回归，不代表真实设备采集链路。
+
+例如离线素材回放：
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.webapp.serve --profile dev_offline_capture
+```
+
+其他入口只在特定场景使用：
+
+- 桌面壳迁移入口：`.venv/bin/python -m src.desktop_app.main --profile dev_mock --smoke-run`
+- 离线素材录制工具：`../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.capture_camera_frames ...`
+- 回归测试：`.venv/bin/python -m pytest tests/vision/test_metric_two_point_distance.py -q`
+
 ### 3. 浏览器地址
+
+实际端口由 profile 的 `webapp.port` 决定；当前常用本机 Web 调试地址是：
+
+```text
+http://127.0.0.1:8002/
+```
+
+若 profile 使用默认端口，则也可能是：
 
 ```text
 http://127.0.0.1:8000/

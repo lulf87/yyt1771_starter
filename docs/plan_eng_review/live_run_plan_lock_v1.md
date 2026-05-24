@@ -339,6 +339,7 @@ editor:
 
 9. execution / finalize error
    - 进入 `failed`
+   - 如果已经采到有效 telemetry，仍必须落盘可分析的 detail / result / AFAS dataset
 
 10. normal finalize
     - 进入 `completed`
@@ -484,8 +485,14 @@ live:
     preview_poll_ms
     telemetry_poll_ms
     capture_interval_ms
+    manual_stop_max_samples
     stop_on_invalid_tracking
 ```
+
+说明：
+
+- `manual_stop_max_samples <= 0` 表示不按采样点数硬截断，运行只由目标温度、手动停止或真实异常结束。
+- 即使 terminal state 是 `failed` 或 `aborted`，只要已有有效 telemetry，workspace 仍应能像正常完成的 run 一样进入数据分析；状态只表达采集过程是否干净结束，不应阻断后处理入口。
 
 ### 4.2 Ownership rules
 

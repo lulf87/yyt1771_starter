@@ -31,7 +31,7 @@ tests/
 允许保留：
 
 - `README.md`
-- 打包与工具配置文件（如 `pyproject.toml`、`pytest.ini`、`.gitignore`）
+- 打包与工具配置文件（如 `pyproject.toml`、`pytest.ini`、`.gitignore`、`uv.lock`）
 
 不允许未经批准新增：
 
@@ -50,6 +50,7 @@ tests/
 
 ```text
 src/
+  application/
   core/
   camera/
   temp/
@@ -61,6 +62,7 @@ src/
   storage/
   report/
   webapp/
+  desktop_app/
 ```
 
 禁止新增新的一级业务模块，除非我明确批准。
@@ -112,6 +114,15 @@ project-root/
       README.md
   src/
     __init__.py
+    application/
+      __init__.py
+      container.py
+      device_factory.py
+      live_preview_service.py
+      live_run_registry.py
+      live_run_service.py
+      preview_render.py
+      runtime_config.py
     core/
       __init__.py
       models.py
@@ -186,8 +197,21 @@ project-root/
         ui.py
       static/
       templates/
+    desktop_app/
+      __init__.py
+      controller.py
+      main.py
+      overlay_math.py
+      preview_canvas.py
+      qt_runtime.py
+      window.py
   tests/
     conftest.py
+    application/
+      test_device_factory.py
+      test_live_preview_service.py
+      test_live_run_service.py
+      test_preview_render.py
     architecture/
       test_import_rules.py
       test_model_contracts.py
@@ -198,6 +222,12 @@ project-root/
     curve/
       test_af95.py
       test_curve_buffer.py
+    desktop_app/
+      test_controller.py
+      test_main.py
+      test_overlay_math.py
+      test_window.py
+    fixtures/
     plc/
       test_modbus_tcp.py
     storage/
@@ -282,16 +312,44 @@ project-root/
 ### storage
 只负责落盘、索引、回放。
 
+允许：
+- 调用 `vision` 中稳定的图像归一化/降采样 helper 来序列化 keyframe artifact
+
+禁止：
+- 做新的视觉识别或测量判定
+
 ### report
 只负责结果摘要与图表导出。
 
+### application
+只负责共享运行时配置、设备工厂、预览服务、live run 服务和应用容器。
+
+允许：
+- 调用硬件适配层、算法层、流程层、存储层来组装用例服务
+- 被 `webapp` 和 `desktop_app` 两个交付壳复用
+
+禁止：
+- 承担具体 GUI 布局
+- 直接写页面路由或桌面控件
+
 ### webapp
-只负责 HTTP 路由、请求响应模型、依赖注入与服务装配。
+只负责 HTTP 路由、请求响应模型、依赖注入与 Web 服务装配。
 
 禁止：
 - 直接读取相机 RTSP
 - 直接读写 Modbus 温度或 PLC
-- 把视觉/曲线算法塞进路由函数
+- 把新的共享业务流程继续塞进路由函数
+
+说明：
+- 迁移期保留少量 AFAS/ROI 分析端点对 `curve` / `vision` 的直接调用。
+- 新增共享能力应优先进入 `application`、`workflow`、`storage` 或 `report`，而不是继续扩大 Web 路由职责。
+
+### desktop_app
+只负责桌面壳、Qt 运行时 bootstrap、桌面 controller 和原生预览控件。
+
+禁止：
+- 复制 `application` 中的业务服务
+- 反向决定算法、设备或存储结构
 
 ---
 
@@ -305,9 +363,11 @@ project-root/
 - `vision -> core`
 - `sync -> core`
 - `curve -> core`
-- `storage -> core`
+- `storage -> core/vision`
 - `report -> core`
-- `webapp -> core/workflow/storage/report`
+- `application -> core/camera/temp/plc/vision/curve/workflow/storage/report`
+- `webapp -> application/core/desktop_app/workflow/storage/report/curve/vision`
+- `desktop_app -> application/core/camera/workflow`
 - `workflow -> core/camera/temp/plc/vision/sync/curve/storage/report`
 - `examples -> src` 公共 API
 - `tests -> 被测模块`
@@ -321,7 +381,8 @@ project-root/
 - `storage -> workflow`（控制反向依赖）
 - `camera/temp/plc -> gui`
 - `report -> camera/temp/plc`
-- `webapp -> camera/temp/plc/vision/curve/sync`
+- `webapp -> camera/temp/plc/sync`
+- `desktop_app -> temp/plc/vision/curve/sync/storage/report`
 - 任意业务模块横向随意互相调用
 
 一句话：
@@ -366,9 +427,12 @@ from src.sync.hub import SyncHub
 
 ```text
 tests/
+  application/
   architecture/
   camera/
   curve/
+  desktop_app/
+  fixtures/
   plc/
   storage/
   sync/

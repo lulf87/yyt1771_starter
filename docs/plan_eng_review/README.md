@@ -16,6 +16,10 @@ Use the files here when you need:
 
 Current authority set:
 
+- [current_run_modes_20260524.md](./current_run_modes_20260524.md)
+- [current_validation_state_20260524.md](./current_validation_state_20260524.md)
+- [cleanup_inventory_20260524.md](./cleanup_inventory_20260524.md)
+- [source_state_inventory_20260524.md](./source_state_inventory_20260524.md)
 - [afas_full_postprocessing_migration_plan_lock_v1.md](./afas_full_postprocessing_migration_plan_lock_v1.md)
 - [live_setup_freeze_roi_tracking_plan_lock_v1.md](./live_setup_freeze_roi_tracking_plan_lock_v1.md)
 - [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)

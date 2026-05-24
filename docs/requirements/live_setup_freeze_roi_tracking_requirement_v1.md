@@ -248,6 +248,19 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 
 - `A-B` 也必须随之在该旋转后的局部横轴上重新定义
 
+### R6.1. A/B are contour boundary points, not projected points
+
+`A-B` 只有一套正式语义：
+
+> `A-B` 点不是投影点，而是 ROI 局部测量方向下，目标物体最大有效跨度对应的两个真实边界点；形变量曲线必须来源于这同一对 `A-B` 点。
+
+这意味着：
+
+- `point_a_px / point_b_px` 必须表示目标物体轮廓或边界上的真实点
+- 系统不得把沿 ROI 方向的数学投影点显示、保存或下发为正式 `A-B`
+- 如需在算法内部使用方向坐标、排序或跨度比较，只能作为临时计算量，不得形成第二套对外可见的 `source A/B`、`axis A/B` 或 `projected A/B`
+- 实时画面、实时曲线、落盘 telemetry、数据分析入口都必须以同一对正式 `A-B` 为来源
+
 ### R7. The target inside ROI follows a blank-object-blank model
 
 当前 requirement 锁定的 operator mental model 是：
