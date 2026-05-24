@@ -104,6 +104,7 @@ def test_load_runtime_config_reads_offline_capture_profile() -> None:
     assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
     assert runtime_config.live.run.manual_stop_max_samples == 0
+    assert runtime_config.live.run.stop_on_invalid_tracking is False
 
 
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(

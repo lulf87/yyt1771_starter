@@ -181,6 +181,7 @@ preview target fps: 10
 measurement target Hz: 10
 artifact capture Hz: 10
 manual_stop_max_samples: 0
+stop_on_invalid_tracking: false
 ```
 
 Startup command:
