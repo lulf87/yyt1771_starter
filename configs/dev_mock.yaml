@@ -8,9 +8,36 @@ adapters:
   camera: mock
   temp: mock
   plc: mock
+camera:
+  trigger_mode: free_run
+  pixel_format: mono8
+  exposure_us: 10000
+  gain_db: 18.0
+  timeout_ms: 1000
+  setup_preview:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 10000
+    gain_db: 18.0
+    timeout_ms: 1000
+    device_roi:
+      x: 1440
+      y: 1086
+      width: 1120
+      height: 620
+  measurement:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 10000
+    gain_db: 18.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
 storage:
   sqlite_path: examples/runtime/dev_mock.sqlite3
   artifact_dir: examples/runtime/artifacts
 replay:
   dataset_path: examples/replay
-  mock_afas_curve_path: ../AFAS/原始数据/2026.2.28/curve_test.xlsx

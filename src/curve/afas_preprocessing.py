@@ -10,6 +10,7 @@ from scipy.signal import savgol_filter
 
 
 AFAS_PREPROCESSING_SCHEMA_VERSION = "afas_preprocessing_result.v1"
+MAX_SAVGOL_WINDOW_DATA_FRACTION = 0.55
 
 
 @dataclass(slots=True)
@@ -218,22 +219,40 @@ def preprocess_afas_channel(
         max_iterations=parameters.outlier_max_iterations,
     )
 
+    warnings: list[str] = []
     smoothing_applied = True
-    smoothing_warning: str | None = None
-    try:
-        smoothed_temperatures, smoothed_values = smooth_data(
-            repaired_temperatures,
-            repaired_values,
+    effective_savgol_window_length: int | None = int(parameters.savgol_window_length)
+    smoothing_warning: str | None = _full_length_savgol_window_warning(
+        len(repaired_values),
+        window_length=parameters.savgol_window_length,
+    )
+    if smoothing_warning is not None:
+        smoothing_applied = False
+        effective_savgol_window_length = None
+        smoothed_temperatures = repaired_temperatures.copy()
+        smoothed_values = repaired_values.copy()
+    else:
+        effective_savgol_window_length, edge_window_warning = _edge_safe_savgol_window_length(
+            len(repaired_values),
             window_length=parameters.savgol_window_length,
             polyorder=parameters.savgol_polyorder,
         )
-    except ValueError as exc:
-        smoothing_applied = False
-        smoothing_warning = str(exc)
-        smoothed_temperatures = repaired_temperatures.copy()
-        smoothed_values = repaired_values.copy()
+        if edge_window_warning is not None:
+            warnings.append(edge_window_warning)
+        try:
+            smoothed_temperatures, smoothed_values = smooth_data(
+                repaired_temperatures,
+                repaired_values,
+                window_length=effective_savgol_window_length,
+                polyorder=parameters.savgol_polyorder,
+            )
+        except ValueError as exc:
+            smoothing_applied = False
+            effective_savgol_window_length = None
+            smoothing_warning = str(exc)
+            smoothed_temperatures = repaired_temperatures.copy()
+            smoothed_values = repaired_values.copy()
 
-    warnings: list[str] = []
     if smoothing_warning is not None:
         warnings.append(smoothing_warning)
 
@@ -264,9 +283,58 @@ def preprocess_afas_channel(
             "temperature_celsius": smoothed_temperatures.tolist(),
             "values": smoothed_values.tolist(),
             "applied": smoothing_applied,
+            "effective_savgol_window_length": effective_savgol_window_length,
         },
         "warnings": warnings,
     }
+
+
+def _full_length_savgol_window_warning(data_length: int, *, window_length: int) -> str | None:
+    if int(data_length) <= 0:
+        return None
+    corrected_window = int(window_length)
+    if corrected_window % 2 == 0:
+        corrected_window += 1
+    if corrected_window != int(data_length):
+        return None
+    return (
+        f"window_length ({corrected_window}) covers the full data length ({int(data_length)}); "
+        "smoothing skipped to avoid global Savitzky-Golay edge distortion"
+    )
+
+
+def _edge_safe_savgol_window_length(
+    data_length: int,
+    *,
+    window_length: int,
+    polyorder: int,
+) -> tuple[int, str | None]:
+    corrected_window = int(window_length)
+    if corrected_window % 2 == 0:
+        corrected_window += 1
+    if int(data_length) <= 0 or corrected_window > int(data_length):
+        return corrected_window, None
+
+    max_fractional_window = int(int(data_length) * MAX_SAVGOL_WINDOW_DATA_FRACTION)
+    if max_fractional_window % 2 == 0:
+        max_fractional_window -= 1
+    min_valid_window = int(polyorder) + 2
+    if min_valid_window % 2 == 0:
+        min_valid_window += 1
+    max_fractional_window = max(max_fractional_window, min_valid_window)
+    max_fractional_window = min(max_fractional_window, int(data_length))
+    if max_fractional_window % 2 == 0:
+        max_fractional_window -= 1
+
+    if corrected_window <= max_fractional_window:
+        return corrected_window, None
+    return (
+        max_fractional_window,
+        (
+            f"window_length ({corrected_window}) reduced to {max_fractional_window} "
+            "to avoid Savitzky-Golay edge distortion"
+        ),
+    )
 
 
 def _rolling_median(values: np.ndarray, *, window: int, min_periods: int) -> np.ndarray:

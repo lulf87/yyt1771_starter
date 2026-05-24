@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import importlib
 import inspect
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -266,16 +267,18 @@ def import_hik_mvs_sdk_module() -> Any:
     try:
         return importlib.import_module(HIK_MVS_PYTHON_MODULE)
     except OSError as exc:
-        source_loaded = _import_hik_mvs_sdk_module_with_library_override()
+        try:
+            source_loaded = _import_hik_mvs_sdk_module_with_library_override()
+        except OSError as override_exc:
+            raise _build_hik_mvs_native_load_error(override_exc) from override_exc
         if source_loaded is not None:
             return source_loaded
-        raise RuntimeError(
-            "Hik MVS SDK Python binding was found, but its native library could not be loaded."
-            f" Configure {HIK_MVS_LIBRARY_PATH_ENV} if libMvCameraControl.dylib lives outside /usr/local/lib."
-            f" Python executable: {sys.executable}."
-        ) from exc
+        raise _build_hik_mvs_native_load_error(exc) from exc
     except ImportError as exc:
-        source_loaded = _import_hik_mvs_sdk_module_with_library_override()
+        try:
+            source_loaded = _import_hik_mvs_sdk_module_with_library_override()
+        except OSError as override_exc:
+            raise _build_hik_mvs_native_load_error(override_exc) from override_exc
         if source_loaded is not None:
             return source_loaded
         extra_hint = ""
@@ -295,6 +298,71 @@ def import_hik_mvs_sdk_module() -> Any:
             f" Configure {HIK_MVS_LIBRARY_PATH_ENV} if libMvCameraControl.dylib lives outside /usr/local/lib."
             f" Python executable: {sys.executable}.{extra_hint}{library_hint}"
         ) from exc
+
+
+def _build_hik_mvs_native_load_error(exc: BaseException) -> RuntimeError:
+    library_path = _configured_hik_mvs_library_path()
+    library_hint = ""
+    if library_path is not None:
+        library_hint = f" Tried {HIK_MVS_LIBRARY_PATH_ENV}={library_path}."
+    return RuntimeError(
+        "Hik MVS SDK Python binding was found, but its native library could not be loaded."
+        f" Configure {HIK_MVS_LIBRARY_PATH_ENV} if libMvCameraControl.dylib lives outside /usr/local/lib."
+        f" Python executable: {sys.executable}."
+        f"{library_hint}"
+        f" Native loader error: {exc}."
+        f"{_hik_mvs_runtime_arch_hint(library_path)}"
+    )
+
+
+def _hik_mvs_runtime_arch_hint(library_path: Path | None) -> str:
+    python_arch = platform.machine() or "unknown"
+    if library_path is None:
+        return f" Python architecture: {python_arch}."
+
+    library_arches = _macos_binary_architectures(library_path)
+    if not library_arches:
+        return f" Python architecture: {python_arch}."
+
+    normalized_python_arch = _normalize_macos_arch(python_arch)
+    normalized_library_arches = {_normalize_macos_arch(arch) for arch in library_arches}
+    library_arch_text = ", ".join(library_arches)
+    detail = (
+        f" Python architecture: {python_arch}."
+        f" {HIK_MVS_LIBRARY_PATH_ENV} architectures: {library_arch_text}."
+    )
+    if normalized_python_arch not in normalized_library_arches:
+        return (
+            detail
+            + " On macOS, the Python process architecture must match the Hik MVS dylib architecture;"
+            " use an x86_64 Python/Rosetta environment for x86_64-only MVS,"
+            " or install an arm64/universal MVS SDK."
+        )
+    return detail
+
+
+def _normalize_macos_arch(arch: str) -> str:
+    if arch == "arm64e":
+        return "arm64"
+    return arch
+
+
+def _macos_binary_architectures(path: Path) -> tuple[str, ...]:
+    if sys.platform != "darwin":
+        return ()
+    try:
+        result = subprocess.run(
+            ["lipo", "-archs", str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    if result.returncode != 0:
+        return ()
+    return tuple(result.stdout.strip().split())
 
 
 def _prepend_hik_mvs_python_paths() -> None:
@@ -539,6 +607,16 @@ class _Mono8ImageView(Sequence[Sequence[int]]):
     @property
     def shape(self) -> tuple[int, int]:
         return (self.height, self.width)
+
+    def __array__(self, dtype: Any | None = None, copy: bool | None = None) -> Any:
+        import numpy as np
+
+        array = np.frombuffer(self._buffer, dtype=np.uint8).reshape((self.height, self.width))
+        if dtype is not None:
+            return array.astype(dtype, copy=True if copy is None else bool(copy))
+        if copy:
+            return array.copy()
+        return array
 
     def __len__(self) -> int:
         return self.height

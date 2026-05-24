@@ -223,6 +223,75 @@ def test_live_preview_service_exposes_active_probe_payload() -> None:
     service.wait_for_stream_stop(run_id="run-probe", timeout_ms=1_000)
 
 
+def test_fetch_frame_reuses_active_stream_frame_before_opening_new_camera() -> None:
+    service = LivePreviewService()
+
+    class StreamingCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            if self.closed:
+                raise RuntimeError("camera closed")
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="active_preview_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    active_camera = StreamingCamera()
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": active_camera
+    service.start_stream(object(), run_id="run-active")
+    time.sleep(0.02)
+
+    frame = service.fetch_frame(SimpleNamespace(adapters={"camera": "hik_gige_mvs"}), run_id="run-other", prefer_cached=False)
+
+    assert frame.source == "active_preview_camera"
+    assert service.get_cached_frame(run_id="run-other") is frame
+
+    service.stop_stream(run_id="run-active")
+    service.wait_for_stream_stop(run_id="run-active", timeout_ms=1_000)
+
+
+def test_retire_active_stream_stops_current_preview_without_knowing_run_id() -> None:
+    service = LivePreviewService()
+
+    class PreviewCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            if self.closed:
+                raise RuntimeError("camera closed")
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="retired_preview_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = PreviewCamera()
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+    service.start_stream(object(), run_id="run-retire")
+    time.sleep(0.02)
+
+    assert service.retire_active_stream(timeout_ms=1_000) is True
+    assert service.wait_for_stream_stop(run_id="run-retire", timeout_ms=1_000) is True
+    assert camera.closed is True
+    assert service.get_preview_state(run_id="run-retire").stream_active is False
+
+
 def test_fetch_frame_discards_hik_warmup_frames_for_fresh_capture() -> None:
     service = LivePreviewService()
 
@@ -281,3 +350,46 @@ def test_fetch_frame_keeps_single_read_for_non_hik_backends() -> None:
 
     assert frame.frame_id == 1
     assert camera.closed is True
+
+
+def test_fetch_frame_retries_retryable_hik_handle_creation_failures() -> None:
+    service = LivePreviewService()
+
+    class RetryableFailCamera:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def read_frame(self) -> FramePacket:
+            raise RuntimeError("Failed to create handle via Hik MVS SDK (ret=0x80000004)")
+
+        def close(self) -> None:
+            self.closed = True
+
+    class SuccessCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=3_000 + self.frame_id,
+                source="retry_success_camera",
+                image=[[self.frame_id]],
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    failing_camera = RetryableFailCamera()
+    success_camera = SuccessCamera()
+    cameras = [failing_camera, success_camera]
+    runtime_config = SimpleNamespace(adapters={"camera": "hik_gige_mvs"})
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": cameras.pop(0)
+
+    frame = service.fetch_frame(runtime_config, run_id="run-hik-retry", prefer_cached=False)
+
+    assert frame.source == "retry_success_camera"
+    assert failing_camera.closed is True
+    assert success_camera.closed is True

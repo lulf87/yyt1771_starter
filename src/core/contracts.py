@@ -24,6 +24,12 @@ class TempControllerPort(Protocol):
     def read_target_temperature(self) -> float:
         """Return the configured target temperature from the controller."""
 
+    def set_output_power_percent(self, percent: float) -> None:
+        """Set the requested controller output power percentage."""
+
+    def read_output_power_percent(self) -> float:
+        """Return the configured controller output power percentage."""
+
     def start_output(self) -> None:
         """Enable controller output for a run."""
 

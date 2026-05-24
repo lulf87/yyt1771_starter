@@ -8,6 +8,7 @@ const runReplayButton = document.getElementById("run-replay-btn");
 const importAfasDatasetFileInput = document.getElementById("import-afas-dataset-file");
 const importAfasDatasetButton = document.getElementById("import-afas-dataset-btn");
 const saveSessionDataButton = document.getElementById("save-session-data-btn");
+const newLiveTestButton = document.getElementById("new-live-test-btn");
 const probeCameraButton = document.getElementById("probe-camera-btn");
 const probeModeSelect = document.getElementById("probe-mode-select");
 const probeAllowedModelsInput = document.getElementById("probe-allowed-models-input");
@@ -34,6 +35,16 @@ const livePointPromptBodyNode = document.getElementById("live-point-prompt-body"
 const livePreviewImageNode = document.getElementById("live-preview-img");
 const livePreviewOverlayNode = document.getElementById("live-preview-overlay");
 const livePreviewEmptyNode = document.getElementById("live-preview-empty");
+const liveProcessPanelNode = document.getElementById("live-process-panel");
+const liveProcessStatusPillNode = document.getElementById("live-process-status-pill");
+const liveProcessChartLayersNode = document.getElementById("live-process-chart-layers");
+const liveProcessChartEmptyNode = document.getElementById("live-process-chart-empty");
+const liveProcessStatusCardNode = document.getElementById("live-process-status-card");
+const liveProcessChannelStatusNode = document.getElementById("live-process-channel-status");
+const liveProcessPointCountNode = document.getElementById("live-process-point-count");
+const liveProcessOutlierCountNode = document.getElementById("live-process-outlier-count");
+const liveProcessAsValueNode = document.getElementById("live-process-as-value");
+const liveProcessAfTanValueNode = document.getElementById("live-process-af-tan-value");
 const livePointPickerStatusNode = document.getElementById("live-point-picker-status");
 const liveRunMessageNode = document.getElementById("live-run-message");
 const homeCurrentTaskTitleNode = document.getElementById("home-current-task-title");
@@ -64,15 +75,19 @@ const liveSensitivityInput = document.getElementById("live-sensitivity");
 const liveCurrentTemperatureInput = document.getElementById("live-current-temperature");
 const liveTargetTemperatureInput = document.getElementById("live-target-temperature");
 const liveControlModeSelect = document.getElementById("live-control-mode");
+const liveCompletionModeSelect = document.getElementById("live-completion-mode");
 const liveOutputPowerInput = document.getElementById("live-output-power-percent");
 const confirmTargetTemperatureButton = document.getElementById("confirm-target-temperature-btn");
 const liveConfirmedTargetTemperatureInput = document.getElementById("live-confirmed-target-temperature");
+const fixtureVideoSwitchNode = document.getElementById("fixture-video-switch");
+const fixtureVideoSelectNode = document.getElementById("fixture-video-select");
 const refreshPrecheckButton = document.getElementById("refresh-precheck-btn");
 const precheckStatusNode = document.getElementById("precheck-status");
 const precheckItemsNode = document.getElementById("precheck-items");
 const cameraProbeResultNode = document.getElementById("camera-probe-result");
 const detailAf95Node = document.getElementById("detail-af95");
 const detailPointCountNode = document.getElementById("detail-point-count");
+const detailCurveLayersNode = document.getElementById("detail-curve-layers");
 const detailCurveNode = document.getElementById("detail-curve-line");
 const detailKeyFramesNode = document.getElementById("detail-key-frames");
 const sessionWorkspaceLinkNode = document.getElementById("session-workspace-link");
@@ -85,6 +100,7 @@ const workspacePointCountNode = document.getElementById("workspace-point-count")
 const workspaceSourceNode = document.getElementById("workspace-source");
 const workspaceDetailPointCountNode = document.getElementById("workspace-detail-point-count");
 const workspaceKeyframeCountNode = document.getElementById("workspace-keyframe-count");
+const workspaceCurveLayersNode = document.getElementById("workspace-curve-layers");
 const workspaceCurveNode = document.getElementById("workspace-curve-line");
 const workspaceCurvePointsNode = document.getElementById("workspace-curve-points");
 const workspaceCurveEmptyNode = document.getElementById("workspace-curve-empty");
@@ -185,6 +201,8 @@ const WORKSPACE_STEP_LABELS_EN = [
 ];
 const TARGET_TEMPERATURE_MIN_C = -50;
 const TARGET_TEMPERATURE_MAX_C = 50;
+const LIVE_TRACKING_POLL_MS = 50;
+const NEW_LIVE_TEST_CONFIRM_TIMEOUT_MS = 12000;
 const LANGUAGE_STORAGE_KEY = "yyt1771-ui-language";
 let workspaceDetailState = null;
 let workspaceSummaryState = null;
@@ -198,6 +216,9 @@ let homeCompactResultState = null;
 let precheckState = null;
 let recentSessionsState = [];
 let probeControlsDirty = false;
+let fixtureVideoSwitchBusy = false;
+let newLiveTestConfirmationTimer = null;
+let newLiveTestPendingConfirmation = false;
 let currentLocale = "zh";
 const liveRunState = {
   runId: "",
@@ -205,6 +226,7 @@ const liveRunState = {
   previewObjectUrl: "",
   previewStreamUrl: "",
   previewStreamActive: false,
+  previewStreamRecovering: false,
   previewFrozenAvailable: false,
   lastPreviewFrameId: null,
   previewSize: null,
@@ -218,10 +240,14 @@ const liveRunState = {
   setupRecomputeInFlight: false,
   setupRecomputeDetail: "",
   setupRecomputeActiveToken: 0,
+  directionProjectionOverlay: null,
   confirmedTemperatureSettings: null,
   currentTemperatureCelsius: null,
   currentTemperatureTimer: null,
   liveTrackingTimer: null,
+  latestTelemetry: null,
+  liveProcessResult: null,
+  resolvedDirectionProjectionMode: "auto",
 };
 const LIVE_SETUP_RUN_STORAGE_KEY = "yyt1771-live-setup-run-id";
 const AFAS_OVERVIEW_CHANNEL_COLORS = ["#8B9DC3", "#C4A4A4", "#A4B8A4", "#D4B896", "#B4A4C4", "#9CB8C4"];
@@ -293,6 +319,12 @@ const TRANSLATIONS = {
     "state.loading": "加载中",
     "state.unknown": "未知",
     "state.not_ready": "未就绪",
+    "home.actions.new_test": "新测试",
+    "home.actions.confirm_new_test": "确认新测试",
+    "home.messages.new_test_confirm": "再次点击“确认新测试”才会清空当前结果并开始下一次测试。",
+    "home.sections.temperature.completion_mode": "结束方式",
+    "home.options.completion_target_reached": "到目标温度自动停止",
+    "home.options.completion_manual_stop_only": "只手动停止",
     "workspace.step_status.todo": "待处理",
     "workspace.step_status.active": "进行中",
     "workspace.step_status.done": "已完成",
@@ -352,6 +384,7 @@ const TRANSLATIONS = {
     "home.status.mode": "Mode",
     "home.status.current_temp": "Current Temp (°C)",
     "home.status.current_temp_compact": "Current Temp (°C)",
+    "home.fixture_video.label": "Fixture Video",
     "home.main_stage.tag": "Main Stage",
     "home.main_stage.title": "Live Preview",
     "home.main_stage.copy": "Keep preview dominant. Freeze first, then define ROI and confirm ROI-local A/B only when needed.",
@@ -361,6 +394,9 @@ const TRANSLATIONS = {
     "home.actions.unfreeze": "Unfreeze",
     "home.actions.enter_analysis": "Enter Analysis",
     "home.actions.save_data": "Save Data",
+    "home.actions.new_test": "New Test",
+    "home.actions.confirm_new_test": "Confirm New Test",
+    "home.messages.new_test_confirm": "Click Confirm New Test again to clear the current result and start the next test.",
     "home.actions.target_confirmed": "Settings Confirmed",
     "home.actions.recompute_ab": "Recompute A/B",
     "home.foldouts.metrics": "Open Live Metrics and Preset",
@@ -410,10 +446,13 @@ const TRANSLATIONS = {
     "home.sections.temperature.copy": "Confirm the temperature bundle here before handing off to runtime.",
     "home.sections.temperature.target": "Target Temp (°C)",
     "home.sections.temperature.control_mode": "Control Mode",
+    "home.sections.temperature.completion_mode": "Stop Mode",
     "home.sections.temperature.power": "Temperature Power (%)",
     "home.sections.temperature.controller_confirm": "Confirm Settings",
     "home.sections.temperature.controller_target": "Confirmed Settings",
     "home.options.control_mode_manual": "Manual",
+    "home.options.completion_target_reached": "Auto at Target",
+    "home.options.completion_manual_stop_only": "Manual Stop Only",
     "home.actions.confirm_target": "Confirm Temperature Settings",
     "home.actions.save_definition": "Save Definition",
     "home.actions.start_live_run": "Start Live Run",
@@ -607,6 +646,7 @@ const TRANSLATIONS = {
 };
 
 const ANALYSIS_ROI_FLOAT_EPSILON = 0.5;
+const METRIC_BOX_POINT_FLOAT_EPSILON = 2.0;
 
 function getSavedLocale() {
   try {
@@ -730,6 +770,7 @@ function syncLanguageToggleUi() {
 }
 
 function refreshLocalizedRuntimeUi() {
+  resetNewLiveTestConfirmation();
   applyStaticTranslations();
   syncCameraProbeControls();
   if (healthStatusNode?.dataset.healthState) {
@@ -787,6 +828,21 @@ function renderSessionResult(payload) {
   }
   sessionResultNode.textContent = JSON.stringify(payload, null, 2);
   renderHomeCompactResultSummary(payload);
+}
+
+function clearHomeResultDisplays() {
+  if (sessionResultNode) {
+    sessionResultNode.textContent = currentLocale === "en" ? "No session has run yet." : "尚未运行任何会话。";
+  }
+  if (detailAf95Node) {
+    detailAf95Node.textContent = "n/a";
+  }
+  if (detailPointCountNode) {
+    detailPointCountNode.textContent = "0";
+  }
+  renderCurve([]);
+  renderKeyFrames([]);
+  renderHomeCompactResultSummary(null);
 }
 
 function renderCameraProbeResult(payload) {
@@ -878,6 +934,10 @@ function getCurrentControlMode() {
   return String(liveControlModeSelect?.value || "manual");
 }
 
+function getCurrentCompletionMode() {
+  return String(liveCompletionModeSelect?.value || "target_reached");
+}
+
 function getCurrentOutputPowerPercent() {
   return normalizePowerPercent(getNumericInputValue(liveOutputPowerInput, 100));
 }
@@ -886,8 +946,17 @@ function getCurrentTemperatureSettings() {
   return {
     target_temperature_celsius: getCurrentTargetTemperature(),
     control_mode: getCurrentControlMode(),
+    completion_mode: getCurrentCompletionMode(),
     output_power_percent: getCurrentOutputPowerPercent(),
   };
+}
+
+function formatCompletionMode(value) {
+  const completionMode = String(value || "target_reached");
+  if (completionMode === "manual_stop_only") {
+    return currentLocale === "en" ? "manual stop only" : "只手动停止";
+  }
+  return currentLocale === "en" ? "auto at target" : "到目标温度自动停止";
 }
 
 function formatConfirmedTemperatureSettings(settings) {
@@ -899,12 +968,13 @@ function formatConfirmedTemperatureSettings(settings) {
   );
   const powerPercent = normalizePowerPercent(settings.output_power_percent);
   const controlMode = String(settings.control_mode || "manual");
+  const completionMode = formatCompletionMode(settings.completion_mode);
   if (confirmedTarget === null || powerPercent === null) {
     return "--";
   }
   return currentLocale === "en"
-    ? `${confirmedTarget.toFixed(1)} °C / ${controlMode} / ${powerPercent.toFixed(0)}%`
-    : `${confirmedTarget.toFixed(1)} °C / 手动方式 / ${powerPercent.toFixed(0)}%`;
+    ? `${confirmedTarget.toFixed(1)} °C / ${controlMode} / ${completionMode} / ${powerPercent.toFixed(0)}%`
+    : `${confirmedTarget.toFixed(1)} °C / 手动方式 / ${completionMode} / ${powerPercent.toFixed(0)}%`;
 }
 
 function isTemperatureSettingsConfirmed() {
@@ -916,7 +986,8 @@ function isTemperatureSettingsConfirmed() {
   return (
     Math.abs(current.target_temperature_celsius - Number(confirmed.target_temperature_celsius)) < 0.05 &&
     Math.abs(current.output_power_percent - Number(confirmed.output_power_percent)) < 0.05 &&
-    String(current.control_mode) === String(confirmed.control_mode)
+    String(current.control_mode) === String(confirmed.control_mode) &&
+    String(current.completion_mode) === String(confirmed.completion_mode || "target_reached")
   );
 }
 
@@ -991,6 +1062,7 @@ function renderHomeCompactResultSummary(payload) {
       sessionWorkspaceLinkNode.href = workspaceUrl(sessionId);
       sessionWorkspaceLinkNode.classList.remove("workspace-link--hidden");
     } else {
+      sessionWorkspaceLinkNode.href = "#";
       sessionWorkspaceLinkNode.classList.add("workspace-link--hidden");
     }
   }
@@ -1271,6 +1343,9 @@ async function confirmTargetTemperature() {
     if (liveControlModeSelect && confirmedSettings?.control_mode) {
       liveControlModeSelect.value = String(confirmedSettings.control_mode);
     }
+    if (liveCompletionModeSelect && confirmedSettings?.completion_mode) {
+      liveCompletionModeSelect.value = String(confirmedSettings.completion_mode);
+    }
     if (liveOutputPowerInput && confirmedSettings?.output_power_percent != null) {
       liveOutputPowerInput.value = String(Number(confirmedSettings.output_power_percent));
     }
@@ -1447,6 +1522,27 @@ function boundingRectForMetricBox(box) {
   };
 }
 
+function axisAlignedRectForRoiBox(box) {
+  const width = Math.max(1, Math.round(Number(box.width)));
+  const height = Math.max(1, Math.round(Number(box.height)));
+  return {
+    x: Math.floor(Number(box.center_x) - width / 2),
+    y: Math.floor(Number(box.center_y) - height / 2),
+    width,
+    height,
+  };
+}
+
+function metricBoxForDirectionalRoi(box) {
+  return {
+    center_x: Math.round(Number(box.center_x)),
+    center_y: Math.round(Number(box.center_y)),
+    width: Math.max(1, Math.round(Number(box.width))),
+    height: Math.max(1, Math.round(Number(box.height))),
+    angle_deg: Number(Number(box.angle_deg || 0).toFixed(1)),
+  };
+}
+
 function metricBoxFromRect(rect) {
   return {
     center_x: Math.round(Number(rect.x) + Number(rect.width) / 2),
@@ -1470,7 +1566,7 @@ function getCurrentAnalysisRoi() {
 }
 
 function getCurrentMetricBox() {
-  return getCurrentRoiBox();
+  return metricBoxForDirectionalRoi(getCurrentRoiBox());
 }
 
 function getCurrentPointA() {
@@ -1624,6 +1720,30 @@ function convertMetricBoxToPreview(box) {
   };
 }
 
+function convertDirectionAngleForCoordinateSpace(angleDeg, coordinateSpace = "preview") {
+  const { scaleX, scaleY } = getPreviewCoordinateSpace();
+  const angleRad = (Number(angleDeg || 0) * Math.PI) / 180;
+  const vector = {
+    x: Math.cos(angleRad),
+    y: Math.sin(angleRad),
+  };
+  const scaled =
+    coordinateSpace === "source"
+      ? { x: vector.x * scaleX, y: vector.y * scaleY }
+      : { x: vector.x / scaleX, y: vector.y / scaleY };
+  return (Math.atan2(scaled.y, scaled.x) * 180) / Math.PI;
+}
+
+function currentDirectionProjectionMode() {
+  return isDirectionProjectionMode(liveRunState.resolvedDirectionProjectionMode)
+    ? liveRunState.resolvedDirectionProjectionMode
+    : "auto";
+}
+
+function isDirectionProjectionMode(value) {
+  return value === "auto" || value === "max_chord" || value === "mask_projection";
+}
+
 function mapDefinitionToCoordinateSpace(definition, coordinateSpace = "preview") {
   if (!definition) {
     return null;
@@ -1636,12 +1756,27 @@ function mapDefinitionToCoordinateSpace(definition, coordinateSpace = "preview")
     : definition.analysis_roi
       ? metricBoxFromRect(convertRect(definition.analysis_roi))
       : null;
+  const analysisRoi = metricBox ? boundingRectForMetricBox(metricBox) : definition.analysis_roi ? convertRect(definition.analysis_roi) : undefined;
   return {
     ...definition,
-    analysis_roi: metricBox ? boundingRectForMetricBox(metricBox) : definition.analysis_roi ? convertRect(definition.analysis_roi) : undefined,
+    analysis_roi: analysisRoi,
     metric_box: metricBox,
-    point_a_px: definition.point_a_px ? convertPoint(definition.point_a_px) : undefined,
-    point_b_px: definition.point_b_px ? convertPoint(definition.point_b_px) : undefined,
+    direction_angle_deg:
+      definition.direction_angle_deg != null
+        ? convertDirectionAngleForCoordinateSpace(definition.direction_angle_deg, coordinateSpace)
+        : definition.direction_angle_deg,
+    point_a_px: definition.point_a_px ? clampPointToRect(convertPoint(definition.point_a_px), analysisRoi) : undefined,
+    point_b_px: definition.point_b_px ? clampPointToRect(convertPoint(definition.point_b_px), analysisRoi) : undefined,
+  };
+}
+
+function clampPointToRect(point, rect) {
+  if (!point || !rect) {
+    return point;
+  }
+  return {
+    x: clamp(Math.round(Number(point.x)), Number(rect.x), Number(rect.x) + Number(rect.width) - 1),
+    y: clamp(Math.round(Number(point.y)), Number(rect.y), Number(rect.y) + Number(rect.height) - 1),
   };
 }
 
@@ -1667,7 +1802,7 @@ function hasValidMetricBoxInputs() {
 }
 
 function pointWithinAnalysisRoi(point, roi) {
-  return point.x >= roi.x && point.y >= roi.y && point.x <= roi.x + roi.width && point.y <= roi.y + roi.height;
+  return point.x >= roi.x && point.y >= roi.y && point.x < roi.x + roi.width && point.y < roi.y + roi.height;
 }
 
 function pointWithinAnalysisRoiFloat(point, roi, epsilon = ANALYSIS_ROI_FLOAT_EPSILON) {
@@ -1683,12 +1818,25 @@ function metricBoxWithinAnalysisRoi(box, roi, epsilon = ANALYSIS_ROI_FLOAT_EPSIL
   return metricBoxCorners(box).every((point) => pointWithinAnalysisRoiFloat(point, roi, epsilon));
 }
 
+function metricBoxWithinPreviewFrame(box) {
+  if (!box || !liveRunState.previewSize) {
+    return true;
+  }
+  const bounds = boundingRectForMetricBox(box);
+  return (
+    bounds.x >= 0 &&
+    bounds.y >= 0 &&
+    bounds.x + bounds.width <= liveRunState.previewSize.width &&
+    bounds.y + bounds.height <= liveRunState.previewSize.height
+  );
+}
+
 function hasLocallyCompleteDefinition() {
   if (!hasValidAnalysisRoi() || !hasValidPointInputs() || !hasValidMetricBoxInputs()) {
     return false;
   }
   const roi = getCurrentAnalysisRoi();
-  const box = getCurrentRoiBox();
+  const box = getCurrentMetricBox();
   const pointA = getCurrentPointA();
   const pointB = getCurrentPointB();
   return (
@@ -1735,6 +1883,8 @@ function normalizeDefinitionForComparison(definition) {
     ignore_internal_texture: Boolean(definition.ignore_internal_texture),
     min_target_area_px: Number(definition.min_target_area_px),
     sensitivity: Number(definition.sensitivity ?? 50),
+    direction_angle_deg: definition.direction_angle_deg == null ? null : Number(definition.direction_angle_deg),
+    direction_projection_mode: definition.direction_projection_mode || currentDirectionProjectionMode(),
   };
 }
 
@@ -1748,7 +1898,7 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-function pointInRotatedMetricBox(box, x, y) {
+function pointInRotatedMetricBox(box, x, y, epsilon = METRIC_BOX_POINT_FLOAT_EPSILON) {
   if (!Number.isFinite(Number(box.width)) || !Number.isFinite(Number(box.height)) || Number(box.width) <= 0 || Number(box.height) <= 0) {
     return false;
   }
@@ -1759,7 +1909,7 @@ function pointInRotatedMetricBox(box, x, y) {
   const translatedY = y - Number(box.center_y);
   const localX = translatedX * cosTheta + translatedY * sinTheta;
   const localY = -translatedX * sinTheta + translatedY * cosTheta;
-  return Math.abs(localX) <= Number(box.width) / 2 && Math.abs(localY) <= Number(box.height) / 2;
+  return Math.abs(localX) <= Number(box.width) / 2 + epsilon && Math.abs(localY) <= Number(box.height) / 2 + epsilon;
 }
 
 function applyMetricBoxToInputs(box) {
@@ -1785,6 +1935,28 @@ function applyMetricBoxToInputs(box) {
   if (liveAnalysisRoiAngleInput) {
     liveAnalysisRoiAngleInput.value = normalizedBox.angle_deg.toFixed(1);
   }
+}
+
+function previewPointFromPayload(point) {
+  if (!point) {
+    return null;
+  }
+  return convertPointToPreview({ x: Number(point.x), y: Number(point.y) });
+}
+
+function directionProjectionOverlayFromAutoPayload(payload) {
+  return null;
+}
+
+function previewPointFromTelemetryArray(point) {
+  if (!Array.isArray(point) || point.length !== 2) {
+    return null;
+  }
+  return { x: Number(point[0]), y: Number(point[1]) };
+}
+
+function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB) {
+  return null;
 }
 
 function ensureMetricBoxWithinAnalysisRoi() {
@@ -1862,6 +2034,40 @@ function localizePointInMetricBox(box, x, y) {
   };
 }
 
+function resizeMetricBoxFromFixedCorner(box, fixedCorner, dragPoint, minSize = 8) {
+  const angleRad = (Number(box.angle_deg) * Math.PI) / 180;
+  const cosTheta = Math.cos(angleRad);
+  const sinTheta = Math.sin(angleRad);
+  const deltaX = Number(dragPoint.x) - Number(fixedCorner.x);
+  const deltaY = Number(dragPoint.y) - Number(fixedCorner.y);
+  const localDeltaX = deltaX * cosTheta + deltaY * sinTheta;
+  const localDeltaY = -deltaX * sinTheta + deltaY * cosTheta;
+  const widthSign = localDeltaX >= 0 ? 1 : -1;
+  const heightSign = localDeltaY >= 0 ? 1 : -1;
+  const width = Math.max(minSize, Math.abs(localDeltaX));
+  const height = Math.max(minSize, Math.abs(localDeltaY));
+  const diagonalX = widthSign * width * cosTheta - heightSign * height * sinTheta;
+  const diagonalY = widthSign * width * sinTheta + heightSign * height * cosTheta;
+  return {
+    center_x: Number(fixedCorner.x) + diagonalX / 2,
+    center_y: Number(fixedCorner.y) + diagonalY / 2,
+    width,
+    height,
+    angle_deg: Number(box.angle_deg || 0),
+  };
+}
+
+function rotateMetricBoxAroundCenter(box, dragPoint) {
+  const angleDeg = (Math.atan2(Number(dragPoint.y) - Number(box.center_y), Number(dragPoint.x) - Number(box.center_x)) * 180) / Math.PI + 90;
+  return {
+    center_x: Number(box.center_x),
+    center_y: Number(box.center_y),
+    width: Number(box.width),
+    height: Number(box.height),
+    angle_deg: angleDeg,
+  };
+}
+
 function metricBoxRotationHandle(box, offset = 28) {
   const topCenter = worldPointFromMetricBoxLocal(box, 0, -Number(box.height) / 2);
   const handle = worldPointFromMetricBoxLocal(box, 0, -(Number(box.height) / 2 + offset));
@@ -1886,6 +2092,7 @@ function renderLivePreviewOverlay() {
 
   const roi = getCurrentAnalysisRoi();
   const box = hasValidMetricBoxInputs() ? getCurrentMetricBox() : null;
+  const directionBox = hasValidMetricBoxInputs() ? getCurrentRoiBox() : null;
   const pointA = hasValidPointInputs() ? getCurrentPointA() : null;
   const pointB = hasValidPointInputs() ? getCurrentPointB() : null;
   const fragments = [];
@@ -1893,7 +2100,7 @@ function renderLivePreviewOverlay() {
     const roiPoints = metricBoxCorners(box)
       .map((point) => `${point.x},${point.y}`)
       .join(" ");
-    const { topCenter, handle } = metricBoxRotationHandle(box);
+    const { topCenter, handle } = metricBoxRotationHandle(directionBox);
     fragments.push(`<polygon class="live-overlay-roi" points="${roiPoints}"></polygon>`);
     fragments.push(
       `<line class="live-overlay-rotate-link" x1="${topCenter.x}" y1="${topCenter.y}" x2="${handle.x}" y2="${handle.y}"></line>`,
@@ -1907,10 +2114,10 @@ function renderLivePreviewOverlay() {
       );
     }
   }
-  if (box) {
-    const localHalfWidth = Number(box.width) / 2;
-    const leftAnchor = worldPointFromMetricBoxLocal(box, -localHalfWidth, 0);
-    const rightAnchor = worldPointFromMetricBoxLocal(box, localHalfWidth, 0);
+  if (directionBox) {
+    const localHalfWidth = Number(directionBox.width) / 2;
+    const leftAnchor = worldPointFromMetricBoxLocal(directionBox, -localHalfWidth, 0);
+    const rightAnchor = worldPointFromMetricBoxLocal(directionBox, localHalfWidth, 0);
     fragments.push(
       `<line class="live-overlay-centerline" x1="${leftAnchor.x}" y1="${leftAnchor.y}" x2="${rightAnchor.x}" y2="${rightAnchor.y}"></line>`,
     );
@@ -1923,7 +2130,36 @@ function renderLivePreviewOverlay() {
     fragments.push(`<circle class="live-overlay-point" cx="${pointB.x}" cy="${pointB.y}" r="6"></circle>`);
     fragments.push(`<text class="live-overlay-point-label" x="${pointB.x + 10}" y="${pointB.y - 10}">B</text>`);
   }
+  const playbackBadge = liveRunPlaybackBadge(width);
+  if (playbackBadge) {
+    fragments.push(playbackBadge);
+  }
   livePreviewOverlayNode.innerHTML = fragments.join("");
+}
+
+function liveRunPlaybackBadge(width) {
+  const status = liveRunState.detail ? liveRunState.detail.status : "";
+  if (!["running", "invalidated", "stopping"].includes(String(status || ""))) {
+    return "";
+  }
+  const latest = liveRunState.latestTelemetry || {};
+  const frameId = Number(latest.frame_id ?? liveRunState.lastPreviewFrameId);
+  const sampleIndex = Number(latest.sample_index);
+  const sampleLabel = Number.isFinite(sampleIndex) ? `S${sampleIndex + 1}` : "S--";
+  const frameLabel = Number.isFinite(frameId) && frameId > 0 ? `F${frameId}` : "F--";
+  const rateLabel = liveMeasurementRateNode ? liveMeasurementRateNode.textContent || "n/a" : "n/a";
+  const label =
+    currentLocale === "en"
+      ? `LIVE ${frameLabel} ${sampleLabel} ${rateLabel}`
+      : `实时回放 ${frameLabel} ${sampleLabel} ${rateLabel}`;
+  const badgeWidth = Math.min(Math.max(250, label.length * 9 + 48), Math.max(250, Number(width) - 24));
+  return `
+    <g class="live-overlay-run-badge" transform="translate(12 12)">
+      <rect class="live-overlay-run-badge-bg" width="${badgeWidth}" height="34" rx="8" ry="8"></rect>
+      <circle class="live-overlay-run-badge-dot" cx="17" cy="17" r="5"></circle>
+      <text class="live-overlay-run-badge-text" x="32" y="22">${label}</text>
+    </g>
+  `;
 }
 
 function setActiveLiveTool(tool) {
@@ -1943,20 +2179,30 @@ function updateLiveRunControls() {
   const previewState = getPreviewStatePayload();
   const status = liveRunState.detail ? liveRunState.detail.status : "";
   const isRunActive = ["running", "invalidated", "stopping"].includes(status);
+  const isRunTerminal = isLiveRunTerminalStatus(status);
   const isSetupBusy = liveRunState.setupRecomputeInFlight;
-  const canEditOverlay = hasPreview && !previewState.stream_active && !isRunActive;
+  const canEditOverlay = hasPreview && !previewState.stream_active && !isRunActive && !isRunTerminal;
   const hasRoi = hasValidAnalysisRoi();
   const roiReady = hasRoi && liveRunState.roiConfirmed;
-  const canSaveDefinition = hasRun && !isRunActive && !previewState.stream_active && hasPreview && roiReady && hasLocallyCompleteDefinition();
+  const canSaveDefinition =
+    hasRun && !isRunActive && !isRunTerminal && !previewState.stream_active && hasPreview && roiReady && hasLocallyCompleteDefinition();
   const temperatureSettingsConfirmed = isTemperatureSettingsConfirmed();
 
   if (stopLivePreviewStreamButton) {
-    stopLivePreviewStreamButton.disabled = !previewState.stream_active;
-    stopLivePreviewStreamButton.textContent = t("home.actions.freeze", {}, currentLocale === "en" ? "Freeze" : "冻结画面");
+    stopLivePreviewStreamButton.disabled = isRunActive || !previewState.stream_active;
+    stopLivePreviewStreamButton.textContent = isRunActive
+      ? currentLocale === "en"
+        ? "Running"
+        : "测试中"
+      : t("home.actions.freeze", {}, currentLocale === "en" ? "Freeze" : "冻结画面");
   }
   if (startLivePreviewStreamButton) {
-    startLivePreviewStreamButton.disabled = !hasRun || previewState.stream_active || isRunActive;
-    startLivePreviewStreamButton.textContent = t("home.actions.unfreeze", {}, currentLocale === "en" ? "Unfreeze" : "解除冻结");
+    startLivePreviewStreamButton.disabled = !hasRun || previewState.stream_active || isRunActive || isRunTerminal;
+    startLivePreviewStreamButton.textContent = isRunActive
+      ? currentLocale === "en"
+        ? "Live replay"
+        : "实时回放"
+      : t("home.actions.unfreeze", {}, currentLocale === "en" ? "Unfreeze" : "解除冻结");
   }
   if (saveLiveDefinitionButton) {
     saveLiveDefinitionButton.disabled = !canSaveDefinition || isSetupBusy;
@@ -1969,7 +2215,7 @@ function updateLiveRunControls() {
     recomputeDefinitionButton.disabled = !canEditOverlay || !roiReady || isSetupBusy;
   }
   if (confirmTargetTemperatureButton) {
-    confirmTargetTemperatureButton.disabled = !hasRun || isRunActive;
+    confirmTargetTemperatureButton.disabled = !hasRun || isRunActive || isRunTerminal;
     confirmTargetTemperatureButton.textContent = temperatureSettingsConfirmed
       ? t("home.actions.target_confirmed", {}, currentLocale === "en" ? "Settings Confirmed" : "已确认")
       : t("home.actions.confirm_target", {}, currentLocale === "en" ? "Confirm Temperature Settings" : "确认温控设置");
@@ -1979,17 +2225,27 @@ function updateLiveRunControls() {
     const hasCompleteLocalDefinition =
       hasRun && !previewState.stream_active && hasPreview && roiReady && hasLocallyCompleteDefinition();
     const hasPendingAbReview = Boolean(isSetupBusy || (roiReady && !hasValidPointInputs()));
-    startLiveRunButton.disabled = !hasCompleteLocalDefinition || isRunActive || !temperatureSettingsConfirmed || hasPendingAbReview;
+    startLiveRunButton.disabled =
+      !hasCompleteLocalDefinition || isRunActive || isRunTerminal || !temperatureSettingsConfirmed || hasPendingAbReview;
   }
   if (stopLiveRunButton) {
     stopLiveRunButton.disabled = !isRunActive;
+  }
+  if (newLiveTestButton) {
+    newLiveTestButton.disabled = isRunActive;
+    if (isRunActive) {
+      resetNewLiveTestConfirmation();
+    }
+  }
+  if (fixtureVideoSelectNode && !fixtureVideoSwitchNode?.hidden) {
+    fixtureVideoSelectNode.disabled = fixtureVideoSwitchBusy || isRunActive;
   }
   updatePointSummaries();
   updateLiveToolButtons();
   renderHomeTaskState();
 }
 
-function fillLiveDefinitionInputs(definition) {
+function fillLiveDefinitionInputs(definition, { updatePoints = true } = {}) {
   if (!definition) {
     return;
   }
@@ -2010,18 +2266,18 @@ function fillLiveDefinitionInputs(definition) {
     liveAnalysisRoiHeightInput.value = String(roiBox.height);
   }
   if (liveAnalysisRoiAngleInput) {
-    liveAnalysisRoiAngleInput.value = String(roiBox.angle_deg);
+    liveAnalysisRoiAngleInput.value = String(uiDefinition.direction_angle_deg ?? roiBox.angle_deg);
   }
-  if (livePointAXInput) {
+  if (updatePoints && livePointAXInput) {
     livePointAXInput.value = String(uiDefinition.point_a_px.x);
   }
-  if (livePointAYInput) {
+  if (updatePoints && livePointAYInput) {
     livePointAYInput.value = String(uiDefinition.point_a_px.y);
   }
-  if (livePointBXInput) {
+  if (updatePoints && livePointBXInput) {
     livePointBXInput.value = String(uiDefinition.point_b_px.x);
   }
-  if (livePointBYInput) {
+  if (updatePoints && livePointBYInput) {
     livePointBYInput.value = String(uiDefinition.point_b_px.y);
   }
   if (liveForegroundPolaritySelect) {
@@ -2064,6 +2320,8 @@ function seedLiveDefinitionDefaults(width, height) {
   }
   liveRunState.roiConfirmed = false;
   liveRunState.confirmedRoiSignature = "";
+  liveRunState.directionProjectionOverlay = null;
+  liveRunState.resolvedDirectionProjectionMode = "auto";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
@@ -2095,6 +2353,8 @@ function resetLiveDefinitionInputs() {
   liveRunState.confirmedRoiSignature = "";
   liveRunState.activeTool = "";
   liveRunState.overlayDrag = null;
+  liveRunState.directionProjectionOverlay = null;
+  liveRunState.resolvedDirectionProjectionMode = "auto";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   renderLivePreviewOverlay();
   renderLiveToolPrompt();
@@ -2106,6 +2366,8 @@ function clearPointInputs() {
       node.value = "";
     }
   }
+  liveRunState.directionProjectionOverlay = null;
+  liveRunState.resolvedDirectionProjectionMode = "auto";
 }
 
 function clearMetricBoxInputs() {
@@ -2121,6 +2383,8 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
   }
   const recomputeToken = liveRunState.setupRecomputeActiveToken + 1;
   liveRunState.setupRecomputeActiveToken = recomputeToken;
+  clearPointInputs();
+  renderLivePreviewOverlay();
   setLivePointPickerStatus(
     currentLocale === "en" ? "Capturing a new frame and recomputing ROI-local A/B points..." : "正在抓取新画面并重算 ROI 内 A/B...",
   );
@@ -2131,19 +2395,44 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
   });
   liveRunState.setupRecomputeTimer = window.setTimeout(async () => {
     liveRunState.setupRecomputeTimer = null;
+    let reusedCachedFrame = false;
     try {
-      await loadFrozenPreviewFrame({
-        runId: liveRunState.runId,
-        cached: false,
-        refreshDetail: false,
-        seedDefaults: false,
-      });
+      try {
+        await loadFrozenPreviewFrame({
+          runId: liveRunState.runId,
+          cached: false,
+          refreshDetail: false,
+          seedDefaults: false,
+        });
+      } catch (error) {
+        await loadFrozenPreviewFrame({
+          runId: liveRunState.runId,
+          cached: true,
+          refreshDetail: false,
+          seedDefaults: false,
+        });
+        reusedCachedFrame = true;
+      }
       await autoDetectLiveDefinition({ silent: true, origin: "roi-refresh", recomputeToken });
       if (recomputeToken !== liveRunState.setupRecomputeActiveToken) {
         return;
       }
-      if (message) {
+      if (message && reusedCachedFrame) {
+        setLiveRunMessage(
+          currentLocale === "en"
+            ? `${message} Fresh capture was unavailable, so the cached frozen frame was reused.`
+            : `${message} 新抓帧不可用，已回退为当前缓存静帧继续重算。`,
+          "info",
+        );
+      } else if (message) {
         setLiveRunMessage(message, "info");
+      } else if (reusedCachedFrame) {
+        setLiveRunMessage(
+          currentLocale === "en"
+            ? "Fresh capture was unavailable. Reused the cached frozen frame and recomputed ROI-local A/B."
+            : "新抓帧不可用，已回退为当前缓存静帧并重算 ROI 内 A/B。",
+          "info",
+        );
       }
     } catch (error) {
       if (recomputeToken !== liveRunState.setupRecomputeActiveToken) {
@@ -2161,8 +2450,8 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
   }, 120);
 }
 
-function commitAnalysisRoiSelection({ force = false, message = "", recompute = true } = {}) {
-  updateLiveDefinitionAfterLocalEdit();
+function commitAnalysisRoiSelection({ force = false, message = "", recompute = true, constrain = true } = {}) {
+  updateLiveDefinitionAfterLocalEdit({ constrain });
   if (!hasValidAnalysisRoi()) {
     liveRunState.roiConfirmed = false;
     liveRunState.confirmedRoiSignature = "";
@@ -2171,7 +2460,7 @@ function commitAnalysisRoiSelection({ force = false, message = "", recompute = t
   }
   const roiSignature = getAnalysisRoiSignature();
   const roiChanged = roiSignature !== liveRunState.confirmedRoiSignature;
-  if (roiChanged && hasValidPointInputs()) {
+  if ((roiChanged || force) && hasValidPointInputs()) {
     clearPointInputs();
   }
   liveRunState.roiConfirmed = force || liveRunState.roiConfirmed || roiChanged;
@@ -2179,13 +2468,27 @@ function commitAnalysisRoiSelection({ force = false, message = "", recompute = t
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
   updateLiveRunControls();
+  if (!metricBoxWithinPreviewFrame(getCurrentMetricBox())) {
+    setLivePointPickerStatus(
+      currentLocale === "en"
+        ? "ROI is outside the preview. Move or shrink it before recomputing A/B."
+        : "ROI 超出画面，请先移动或缩小 ROI 后再重算 A/B。",
+    );
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "ROI is outside the preview. Its size was preserved; adjust position or size before recomputing A/B."
+        : "ROI 超出画面。已保留当前尺寸，请先移动或缩小 ROI 后再重算 A/B。",
+      "warning",
+    );
+    return;
+  }
   setLivePointPickerStatus(
-    currentLocale === "en" ? "ROI ready. Capturing a new frame and recomputing ROI-local horizontal A/B points." : "ROI 已就绪，正在抓取新画面并重算 ROI 内 A/B。",
+    currentLocale === "en" ? "ROI ready. Capturing a new frame and recomputing A/B along the current ROI axis." : "ROI 已就绪，正在抓取新画面并沿当前 ROI 轴线重算 A/B。",
   );
   if (message) {
     setLiveRunMessage(message, "info");
   }
-  if (recompute && (roiChanged || force)) {
+  if (recompute && (roiChanged || force || !hasValidPointInputs())) {
     scheduleRoiPointRecompute({ message });
   }
 }
@@ -2211,6 +2514,9 @@ function renderLiveRunDetail(payload) {
   const serverPreview = payload.preview || {};
   liveRunState.detail = payload;
   liveRunState.runId = payload.run_id || "";
+  if (isDirectionProjectionMode(payload.definition?.direction_projection_mode)) {
+    liveRunState.resolvedDirectionProjectionMode = payload.definition.direction_projection_mode;
+  }
   liveRunState.previewStreamActive = Boolean(
     serverPreview.stream_active || (liveRunState.previewStreamActive && liveRunState.previewStreamUrl),
   );
@@ -2228,8 +2534,9 @@ function renderLiveRunDetail(payload) {
   if (liveMeasurementRateNode) {
     liveMeasurementRateNode.textContent = formatRateValue(payload.rates?.measurement_sample_hz, "Hz");
   }
+  const isRunActive = ["running", "invalidated", "stopping"].includes(String(payload.status || ""));
   if (payload.definition) {
-    fillLiveDefinitionInputs(payload.definition);
+    fillLiveDefinitionInputs(payload.definition, { updatePoints: !isRunActive });
   } else {
     syncLiveDefinitionDirtyState();
   }
@@ -2239,6 +2546,9 @@ function renderLiveRunDetail(payload) {
   }
   if (liveControlModeSelect && payload.temperature_settings?.control_mode) {
     liveControlModeSelect.value = String(payload.temperature_settings.control_mode);
+  }
+  if (liveCompletionModeSelect && payload.temperature_settings?.completion_mode) {
+    liveCompletionModeSelect.value = String(payload.temperature_settings.completion_mode);
   }
   if (liveOutputPowerInput && payload.temperature_settings?.output_power_percent != null) {
     liveOutputPowerInput.value = String(Number(payload.temperature_settings.output_power_percent));
@@ -2279,6 +2589,7 @@ function applyTrackedPointInputs(latestTelemetry) {
   if (!latestTelemetry) {
     return;
   }
+  liveRunState.latestTelemetry = latestTelemetry;
   const pointA = Array.isArray(latestTelemetry.point_a_preview_px)
     ? { x: Number(latestTelemetry.point_a_preview_px[0]), y: Number(latestTelemetry.point_a_preview_px[1]) }
     : Array.isArray(latestTelemetry.point_a_px)
@@ -2305,6 +2616,8 @@ function applyTrackedPointInputs(latestTelemetry) {
       livePointBYInput.value = String(pointB.y);
     }
   }
+  liveRunState.directionProjectionOverlay = directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB);
+  updatePointSummaries();
 }
 
 async function refreshTrackingPreviewFrame(runId) {
@@ -2320,6 +2633,317 @@ async function refreshTrackingPreviewFrame(runId) {
   } catch (error) {
     return false;
   }
+}
+
+function formatLiveProcessTemperature(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} °C` : "--";
+}
+
+function liveProcessOutlierCount(curve) {
+  return (Array.isArray(curve) ? curve : []).filter((point) => liveProcessPointIsOutlier(point)).length;
+}
+
+function liveProcessStatusLabel(status, latest) {
+  if (latest && String(latest.tracking_state || "") === "invalidated") {
+    return currentLocale === "en" ? "Attention" : "异常";
+  }
+  if (["running", "stopping", "invalidated"].includes(String(status || ""))) {
+    return currentLocale === "en" ? "Normal" : "正常";
+  }
+  if (!status) {
+    return currentLocale === "en" ? "Waiting" : "等待";
+  }
+  return localizeStateLabel(status);
+}
+
+function liveProcessStatusTone(status, latest) {
+  if (latest && String(latest.tracking_state || "") === "invalidated") {
+    return "fail";
+  }
+  if (["running", "completed"].includes(String(status || ""))) {
+    return "ok";
+  }
+  if (["aborted", "stopping", "invalidated"].includes(String(status || ""))) {
+    return "warn";
+  }
+  return "pending";
+}
+
+function resetLiveProcessTelemetry({ show = false } = {}) {
+  liveRunState.liveProcessResult = null;
+  liveRunState.latestTelemetry = null;
+  if (liveProcessPanelNode) {
+    liveProcessPanelNode.hidden = !show;
+  }
+  if (liveProcessStatusPillNode) {
+    liveProcessStatusPillNode.className = "status-pill status-pending";
+    liveProcessStatusPillNode.textContent = currentLocale === "en" ? "Waiting" : "等待";
+  }
+  if (liveProcessChartLayersNode) {
+    liveProcessChartLayersNode.innerHTML = "";
+  }
+  if (liveProcessChartEmptyNode) {
+    liveProcessChartEmptyNode.hidden = false;
+    liveProcessChartEmptyNode.style.display = "block";
+    liveProcessChartEmptyNode.textContent = currentLocale === "en" ? "No data" : "暂无数据";
+  }
+  if (liveProcessChannelStatusNode) {
+    liveProcessChannelStatusNode.textContent = currentLocale === "en" ? "Waiting" : "等待";
+  }
+  if (liveProcessPointCountNode) {
+    liveProcessPointCountNode.textContent = "0";
+  }
+  if (liveProcessOutlierCountNode) {
+    liveProcessOutlierCountNode.textContent = "0";
+  }
+  if (liveProcessAsValueNode) {
+    liveProcessAsValueNode.textContent = "--";
+  }
+  if (liveProcessAfTanValueNode) {
+    liveProcessAfTanValueNode.textContent = "--";
+  }
+}
+
+function renderLiveProcessChart(curve, { status = "" } = {}) {
+  if (!liveProcessChartLayersNode || !liveProcessChartEmptyNode) {
+    return;
+  }
+  const rawSamples = (Array.isArray(curve) ? curve : [])
+    .filter((point) => Number.isFinite(Number(point.space1_px)))
+    .filter((point) => !liveProcessPointIsOutlier(point));
+  const chartSeries = buildLiveProcessChartSeries(rawSamples, { status });
+  const samples = chartSeries.samples;
+  const useTemperatureAxis = chartSeries.useTemperatureAxis;
+  if (!samples.length) {
+    liveProcessChartLayersNode.innerHTML = "";
+    liveProcessChartEmptyNode.hidden = false;
+    liveProcessChartEmptyNode.style.display = "block";
+    return;
+  }
+  const xValues = chartSeries.xValues;
+  const displaySamples = smoothLiveProcessDisplaySamples(samples);
+  const displayYValues = displaySamples.map((point) => Number(point.space1_px));
+  const yValues = samples
+    .map((point) => Number(point.space1_px))
+    .concat(displayYValues);
+  const width = 640;
+  const height = 220;
+  const padding = { top: 20, right: 18, bottom: 46, left: 58 };
+  const scaler = buildChartScaler(xValues, yValues, width, height, padding, {
+    minXSpan: useTemperatureAxis ? null : 12,
+  });
+  const smoothedPath = buildLiveProcessSmoothPath(
+    displaySamples.map((point, index) => ({
+      x: scaler.x(xValues[index]),
+      y: scaler.y(Number(point.space1_px)),
+    })),
+  );
+  const xLabel = currentLocale === "en" ? "Temperature (°C)" : "温度 (°C)";
+  const yLabel = currentLocale === "en" ? "Deformation / Space1 (px)" : "形变 / Space1 (px)";
+  liveProcessChartLayersNode.innerHTML = `
+    ${renderWorkspaceChartGrid(width, height, padding, 5, 4)}
+    <path class="live-process-chart-line live-process-chart-smooth-line" fill="none" stroke="${AFAS_CHART_THEME.highlight}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="${smoothedPath}"></path>
+    ${renderChartAxes(width, height, padding, scaler, {
+      xLabel,
+      yLabel,
+      xFormatter: formatChartTick,
+      yFormatter: formatChartTick,
+    })}
+  `;
+  liveProcessChartEmptyNode.hidden = true;
+  liveProcessChartEmptyNode.style.display = "none";
+}
+
+function smoothLiveProcessDisplaySamples(samples) {
+  const sourceSamples = Array.isArray(samples) ? samples : [];
+  if (sourceSamples.length < 5) {
+    return sourceSamples;
+  }
+  const windowSize = liveProcessSmoothingWindowSize(sourceSamples.length);
+  const halfWindow = Math.floor(windowSize / 2);
+  return sourceSamples.map((point, index) => {
+    const start = Math.max(0, index - halfWindow);
+    const end = Math.min(sourceSamples.length, index + halfWindow + 1);
+    const values = sourceSamples
+      .slice(start, end)
+      .map((sample) => Number(sample.space1_px))
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) {
+      return point;
+    }
+    return {
+      ...point,
+      space1_px: weightedAverage(values),
+      raw_space1_px: Number(point.space1_px),
+      display_smoothing: "moving_weighted_average",
+      display_smoothing_window: windowSize,
+    };
+  });
+}
+
+function liveProcessSmoothingWindowSize(sampleCount) {
+  const count = Math.max(0, Number(sampleCount) || 0);
+  if (count < 5) {
+    return 1;
+  }
+  const scaled = Math.max(5, Math.min(21, Math.floor(count / 16) * 2 + 5));
+  return scaled % 2 === 1 ? scaled : scaled + 1;
+}
+
+function weightedAverage(values) {
+  const numericValues = (Array.isArray(values) ? values : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (!numericValues.length) {
+    return null;
+  }
+  const center = (numericValues.length - 1) / 2;
+  let weightedSum = 0;
+  let weightTotal = 0;
+  numericValues.forEach((value, index) => {
+    const weight = numericValues.length - Math.abs(index - center);
+    weightedSum += value * weight;
+    weightTotal += weight;
+  });
+  return weightedSum / weightTotal;
+}
+
+function buildLiveProcessSmoothPath(points) {
+  const pathPoints = (Array.isArray(points) ? points : []).filter(
+    (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+  );
+  if (!pathPoints.length) {
+    return "";
+  }
+  if (pathPoints.length === 1) {
+    return `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+  }
+  if (pathPoints.length < 4) {
+    return pathPoints
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" ");
+  }
+  const commands = [`M ${pathPoints[0].x} ${pathPoints[0].y}`];
+  for (let index = 0; index < pathPoints.length - 1; index += 1) {
+    const previous = pathPoints[Math.max(0, index - 1)];
+    const current = pathPoints[index];
+    const next = pathPoints[index + 1];
+    const afterNext = pathPoints[Math.min(pathPoints.length - 1, index + 2)];
+    const controlOne = {
+      x: current.x + (next.x - previous.x) / 6,
+      y: current.y + (next.y - previous.y) / 6,
+    };
+    const controlTwo = {
+      x: next.x - (afterNext.x - current.x) / 6,
+      y: next.y - (afterNext.y - current.y) / 6,
+    };
+    commands.push(`C ${controlOne.x} ${controlOne.y}, ${controlTwo.x} ${controlTwo.y}, ${next.x} ${next.y}`);
+  }
+  return commands.join(" ");
+}
+
+function liveProcessPointIsOutlier(point) {
+  const trackingState = String(point?.tracking_state || "");
+  const quality = Number(point?.tracking_quality);
+  return trackingState === "holding_last_good" || trackingState === "invalidated" || (Number.isFinite(quality) && quality < 0.5);
+}
+
+function buildLiveProcessChartSeries(rawSamples, { status = "" } = {}) {
+  const samples = Array.isArray(rawSamples) ? rawSamples : [];
+  void status;
+  const finiteTemperatures = samples
+    .map((point) => Number(point.temperature_celsius))
+    .filter((value) => Number.isFinite(value));
+  const useTemperatureAxis = finiteTemperatures.length >= 1;
+  if (!useTemperatureAxis) {
+    return {
+      useTemperatureAxis: true,
+      samples: [],
+      xValues: [],
+    };
+  }
+
+  const buckets = new Map();
+  samples.forEach((point, index) => {
+    const temperature = Number(point.temperature_celsius);
+    const value = Number(point.space1_px);
+    if (!Number.isFinite(temperature) || !Number.isFinite(value)) {
+      return;
+    }
+    const key = temperature.toFixed(2);
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        temperature,
+        values: [],
+        firstIndex: index,
+      });
+    }
+    const bucket = buckets.get(key);
+    bucket.values.push(value);
+  });
+  const temperatureSamples = Array.from(buckets.values())
+    .map((bucket) => ({
+      temperature_celsius: bucket.temperature,
+      space1_px: medianNumber(bucket.values),
+      sample_index: bucket.firstIndex,
+    }))
+    .sort((first, second) => Number(first.temperature_celsius) - Number(second.temperature_celsius));
+  return {
+    useTemperatureAxis: true,
+    samples: temperatureSamples,
+    xValues: temperatureSamples.map((point) => Number(point.temperature_celsius)),
+  };
+}
+
+function medianNumber(values) {
+  const numericValues = (Array.isArray(values) ? values : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((first, second) => first - second);
+  if (!numericValues.length) {
+    return null;
+  }
+  const middle = Math.floor(numericValues.length / 2);
+  if (numericValues.length % 2 === 1) {
+    return numericValues[middle];
+  }
+  return (numericValues[middle - 1] + numericValues[middle]) / 2;
+}
+
+function renderLiveProcessTelemetry(telemetryPayload, resultPayload = null) {
+  if (!liveProcessPanelNode) {
+    return;
+  }
+  if (resultPayload) {
+    liveRunState.liveProcessResult = resultPayload;
+  }
+  const result = resultPayload || liveRunState.liveProcessResult;
+  const curve = Array.isArray(telemetryPayload?.curve) ? telemetryPayload.curve : [];
+  const latest = telemetryPayload?.latest || curve[curve.length - 1] || null;
+  const status = telemetryPayload?.status || liveRunState.detail?.status || "";
+  const statusLabel = liveProcessStatusLabel(status, latest);
+  const statusTone = liveProcessStatusTone(status, latest);
+  liveProcessPanelNode.hidden = false;
+  if (liveProcessStatusPillNode) {
+    liveProcessStatusPillNode.className = `status-pill status-${statusTone}`;
+    liveProcessStatusPillNode.textContent = statusLabel;
+  }
+  if (liveProcessChannelStatusNode) {
+    liveProcessChannelStatusNode.textContent = statusLabel;
+  }
+  if (liveProcessPointCountNode) {
+    liveProcessPointCountNode.textContent = String(curve.length);
+  }
+  if (liveProcessOutlierCountNode) {
+    liveProcessOutlierCountNode.textContent = String(liveProcessOutlierCount(curve));
+  }
+  if (liveProcessAsValueNode) {
+    liveProcessAsValueNode.textContent = formatLiveProcessTemperature(result?.as_value);
+  }
+  if (liveProcessAfTanValueNode) {
+    liveProcessAfTanValueNode.textContent = formatLiveProcessTemperature(result?.af_value);
+  }
+  renderLiveProcessChart(curve, { status });
 }
 
 function stopLiveTrackingLoop() {
@@ -2347,6 +2971,9 @@ function startLiveTrackingLoop(runId) {
         applyTrackedPointInputs(telemetryPayload.latest);
         renderLivePreviewOverlay();
       }
+      if (telemetryPayload) {
+        renderLiveProcessTelemetry(telemetryPayload);
+      }
       await refreshTrackingPreviewFrame(runId);
       if (isLiveRunTerminalStatus(detail.status) && !terminalHandled) {
         terminalHandled = true;
@@ -2356,6 +2983,7 @@ function startLiveTrackingLoop(runId) {
         if (detail.status === "completed") {
           const resultResponse = await fetch(`/api/runs/${runId}/result`);
           const resultPayload = resultResponse.ok ? await resultResponse.json() : null;
+          renderLiveProcessTelemetry(telemetryPayload, resultPayload);
           await hydrateHomeResultForSession(runId, resultPayload);
           setLiveRunMessage(
             currentLocale === "en"
@@ -2370,6 +2998,7 @@ function startLiveTrackingLoop(runId) {
             point_count: telemetryPayload?.curve?.length ?? 0,
             af95: null,
           };
+          renderLiveProcessTelemetry(telemetryPayload, fallbackPayload);
           await hydrateHomeResultForSession(runId, fallbackPayload);
           setLiveRunMessage(
             currentLocale === "en"
@@ -2396,14 +3025,20 @@ function startLiveTrackingLoop(runId) {
   void tick();
   liveRunState.liveTrackingTimer = window.setInterval(() => {
     void tick();
-  }, 250);
+  }, LIVE_TRACKING_POLL_MS);
 }
 
 function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
   const roiBox = getCurrentRoiBox();
+  const metricBox = getCurrentMetricBox();
   const payload = {
     analysis_roi: boundingRectForMetricBox(roiBox),
-    metric_box: roiBox,
+    metric_box: metricBox,
+    direction_angle_deg: Number(roiBox.angle_deg || 0),
+    direction_projection_mode: currentDirectionProjectionMode(),
+    // Use the same contour-direction path for preset and live run. The backend
+    // still receives the rotated ROI box and clips the contour search to it.
+    observation_axis: "long_axis",
     foreground_polarity: liveForegroundPolaritySelect ? liveForegroundPolaritySelect.value : "dark_on_light",
     threshold_mode: liveThresholdModeSelect ? liveThresholdModeSelect.value : "adaptive",
     ignore_internal_texture: liveIgnoreInternalTextureInput ? liveIgnoreInternalTextureInput.checked : false,
@@ -2424,7 +3059,6 @@ function buildLiveDefinitionPayload({ coordinateSpace = "preview" } = {}) {
       x: getNumericInputValue(livePointBXInput),
       y: getNumericInputValue(livePointBYInput),
     },
-    observation_axis: "long_axis",
   };
   return coordinateSpace === "source" ? mapDefinitionToCoordinateSpace(payload, "source") : payload;
 }
@@ -2438,6 +3072,7 @@ async function createLiveRun({ autoStartPreview = false, silent = false, forceRe
       stopLiveTrackingLoop();
       await stopLivePreviewStream({ clearImage: true, silent: true });
       resetLiveDefinitionInputs();
+      resetLiveProcessTelemetry();
       liveRunState.confirmedTemperatureSettings = null;
       clearTemperatureSettingsConfirmation();
     }
@@ -2514,6 +3149,7 @@ async function startLivePreviewStream({ silent = false } = {}) {
   try {
     await stopLivePreviewStream({ clearImage: false, silent: true });
     revokeLivePreviewUrl();
+    liveRunState.previewStreamRecovering = false;
     liveRunState.previewStreamUrl = `/api/runs/${liveRunState.runId}/preview/stream?ts=${Date.now()}`;
     liveRunState.previewStreamActive = true;
     liveRunState.previewFrozenAvailable = false;
@@ -2544,6 +3180,61 @@ async function startLivePreviewStream({ silent = false } = {}) {
       setLiveRunMessage(String(error), "error");
     }
   } finally {
+    updateLiveRunControls();
+  }
+}
+
+async function recoverLivePreviewStreamError() {
+  if (liveRunState.previewStreamRecovering) {
+    return;
+  }
+  const runId = liveRunState.runId;
+  if (!runId) {
+    return;
+  }
+  liveRunState.previewStreamRecovering = true;
+  liveRunState.previewStreamActive = false;
+  liveRunState.previewStreamUrl = "";
+  if (livePreviewImageNode) {
+    livePreviewImageNode.removeAttribute("src");
+    livePreviewImageNode.hidden = true;
+  }
+  updateLiveRunControls();
+  try {
+    try {
+      await fetch(`/api/runs/${runId}/preview/stream/stop`, { method: "POST" });
+    } catch (error) {
+      // Best effort only. The browser-side stream request may already be gone.
+    }
+    await loadFrozenPreviewFrame({
+      runId,
+      cached: true,
+      refreshDetail: true,
+      seedDefaults: false,
+    });
+    liveRunState.previewFrozenAvailable = true;
+    setActiveLiveTool("");
+    setLivePointPickerStatus(
+      currentLocale === "en"
+        ? "Live preview stream interrupted. Recovered the last cached frame for editing."
+        : "实时预览流已中断，已恢复最后一帧静帧供继续编辑。",
+    );
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "Live preview stream failed. Restored the last cached frame for editing."
+        : "实时预览流已中断，已恢复最后一帧静帧。",
+      "error",
+    );
+  } catch (error) {
+    refreshLiveRunDetail(runId).catch(() => {});
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? "Live preview stream failed and the cached frame could not be restored automatically."
+        : "实时预览流已中断，且未能自动恢复最后一帧静帧。",
+      "error",
+    );
+  } finally {
+    liveRunState.previewStreamRecovering = false;
     updateLiveRunControls();
   }
 }
@@ -2620,12 +3311,16 @@ async function loadFrozenPreviewFrame({ runId, cached = false, refreshDetail = t
   const height = Number(response.headers.get("X-Frame-Height") || "0");
   const sourceWidth = Number(response.headers.get("X-Frame-Source-Width") || String(width || 0));
   const sourceHeight = Number(response.headers.get("X-Frame-Source-Height") || String(height || 0));
+  const frameId = Number(response.headers.get("X-Frame-Id") || "0");
   const blob = await response.blob();
   revokeLivePreviewUrl();
   liveRunState.previewObjectUrl = URL.createObjectURL(blob);
   liveRunState.previewSize = width > 0 && height > 0 ? { width, height } : null;
   liveRunState.previewSourceSize =
     sourceWidth > 0 && sourceHeight > 0 ? { width: sourceWidth, height: sourceHeight } : liveRunState.previewSize;
+  if (Number.isFinite(frameId) && frameId > 0) {
+    liveRunState.lastPreviewFrameId = frameId;
+  }
   if (livePreviewImageNode) {
     livePreviewImageNode.src = liveRunState.previewObjectUrl;
     showLivePreviewStage();
@@ -2643,7 +3338,7 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     return;
   }
   if (!silent) {
-    setLiveRunMessage("Auto-detecting locked points from the ROI-local horizontal axis...", "info");
+    setLiveRunMessage("Auto-detecting locked points along the contour direction...", "info");
   }
   try {
     const response = await fetch(`/api/runs/${liveRunState.runId}/definition/auto`, {
@@ -2658,27 +3353,38 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     if (recomputeToken != null && recomputeToken !== liveRunState.setupRecomputeActiveToken) {
       return;
     }
-    const previewPoints = mapDefinitionToCoordinateSpace(
-      {
-        point_a_px: payload.point_a_px,
-        point_b_px: payload.point_b_px,
-      },
-      "preview",
-    );
+    const sourceDefinition = {
+      ...buildLiveDefinitionBasePayload({ coordinateSpace: "source" }),
+      point_a_px: payload.point_a_px,
+      point_b_px: payload.point_b_px,
+    };
+    const previewDefinition = mapDefinitionToCoordinateSpace(sourceDefinition, "preview");
+    const previewBox = {
+      ...(previewDefinition.metric_box || metricBoxFromRect(previewDefinition.analysis_roi)),
+      angle_deg: Number(previewDefinition.direction_angle_deg ?? previewDefinition.metric_box?.angle_deg ?? 0),
+    };
+    applyMetricBoxToInputs(previewBox);
     if (livePointAXInput) {
-      livePointAXInput.value = String(previewPoints.point_a_px.x);
+      livePointAXInput.value = String(previewDefinition.point_a_px.x);
     }
     if (livePointAYInput) {
-      livePointAYInput.value = String(previewPoints.point_a_px.y);
+      livePointAYInput.value = String(previewDefinition.point_a_px.y);
     }
     if (livePointBXInput) {
-      livePointBXInput.value = String(previewPoints.point_b_px.x);
+      livePointBXInput.value = String(previewDefinition.point_b_px.x);
     }
     if (livePointBYInput) {
-      livePointBYInput.value = String(previewPoints.point_b_px.y);
+      livePointBYInput.value = String(previewDefinition.point_b_px.y);
     }
+    liveRunState.directionProjectionOverlay = directionProjectionOverlayFromAutoPayload(payload);
+    liveRunState.resolvedDirectionProjectionMode = isDirectionProjectionMode(payload.direction_projection_mode)
+      ? String(payload.direction_projection_mode)
+      : "auto";
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);
+    }
+    if (liveForegroundPolaritySelect && payload.foreground_polarity_used) {
+      liveForegroundPolaritySelect.value = String(payload.foreground_polarity_used);
     }
     liveRunState.definitionDirty = true;
     syncLiveDefinitionDirtyState();
@@ -2762,8 +3468,11 @@ async function saveLiveDefinition() {
   await persistLiveDefinition({ announce: true });
 }
 
-function updateLiveDefinitionAfterLocalEdit() {
-  ensureMetricBoxWithinAnalysisRoi();
+function updateLiveDefinitionAfterLocalEdit({ constrain = true } = {}) {
+  liveRunState.resolvedDirectionProjectionMode = "auto";
+  if (constrain) {
+    ensureMetricBoxWithinAnalysisRoi();
+  }
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
   updateLiveRunControls();
@@ -2787,12 +3496,13 @@ function hitTestRoiInteraction(point) {
     return null;
   }
   const box = getCurrentRoiBox();
+  const metricBox = getCurrentMetricBox();
   const { handle } = metricBoxRotationHandle(box);
   if (distanceBetweenPoints(point, handle) <= 14) {
     return { tool: "rotate-roi", box };
   }
-  const corners = metricBoxCorners(box);
-  for (const corner of metricBoxResizeHandles(box)) {
+  const corners = metricBoxCorners(metricBox);
+  for (const corner of metricBoxResizeHandles(metricBox)) {
     if (distanceBetweenPoints(point, corner) <= 12) {
       return {
         tool: "resize-roi",
@@ -2802,7 +3512,7 @@ function hitTestRoiInteraction(point) {
       };
     }
   }
-  if (pointInRotatedMetricBox(box, point.x, point.y)) {
+  if (pointInRotatedMetricBox(metricBox, point.x, point.y)) {
     return { tool: "move-roi", box };
   }
   return null;
@@ -2877,42 +3587,15 @@ function handleLivePreviewPointerMove(event) {
     return;
   }
   if (drag.tool === "resize-roi") {
-    const angleRad = (Number(drag.originalAngleDeg) * Math.PI) / 180;
-    const cosTheta = Math.cos(angleRad);
-    const sinTheta = Math.sin(angleRad);
-    const relativeX = point.x - drag.fixedCorner.x;
-    const relativeY = point.y - drag.fixedCorner.y;
-    const localDx = relativeX * cosTheta + relativeY * sinTheta;
-    const localDy = -relativeX * sinTheta + relativeY * cosTheta;
-    const width = Math.max(8, Math.abs(localDx));
-    const height = Math.max(8, Math.abs(localDy));
-    const center = {
-      x: drag.fixedCorner.x + (localDx / 2) * cosTheta - (localDy / 2) * sinTheta,
-      y: drag.fixedCorner.y + (localDx / 2) * sinTheta + (localDy / 2) * cosTheta,
-    };
-    applyMetricBoxToInputs({
-      center_x: center.x,
-      center_y: center.y,
-      width,
-      height,
-      angle_deg: drag.originalAngleDeg,
-    });
+    applyMetricBoxToInputs(resizeMetricBoxFromFixedCorner(drag.box, drag.fixedCorner, point));
     ensureMetricBoxWithinAnalysisRoi();
     updateLiveDefinitionAfterLocalEdit();
     return;
   }
   if (drag.tool === "rotate-roi") {
     const box = getCurrentRoiBox();
-    const angleDeg = (Math.atan2(point.y - box.center_y, point.x - box.center_x) * 180) / Math.PI + 90;
-    applyMetricBoxToInputs({
-      center_x: box.center_x,
-      center_y: box.center_y,
-      width: box.width,
-      height: box.height,
-      angle_deg: angleDeg,
-    });
-    ensureMetricBoxWithinAnalysisRoi();
-    updateLiveDefinitionAfterLocalEdit();
+    applyMetricBoxToInputs(rotateMetricBoxAroundCenter(box, point));
+    updateLiveDefinitionAfterLocalEdit({ constrain: false });
   }
 }
 
@@ -2928,9 +3611,16 @@ function handleLivePreviewPointerUp(event) {
       force: true,
       message: currentLocale === "en" ? "ROI updated from the preview overlay." : "ROI 已从预览中更新。",
     });
-  } else if (["move-roi", "resize-roi", "rotate-roi"].includes(completedTool)) {
+  } else if (["move-roi", "resize-roi"].includes(completedTool)) {
     commitAnalysisRoiSelection({
       force: true,
+      message:
+        currentLocale === "en" ? "ROI adjusted. Capturing a new frame to recompute ROI-local A/B." : "ROI 已调整，正在抓取新画面并重算 ROI 内 A/B。",
+    });
+  } else if (completedTool === "rotate-roi") {
+    commitAnalysisRoiSelection({
+      force: true,
+      constrain: false,
       message:
         currentLocale === "en" ? "ROI adjusted. Capturing a new frame to recompute ROI-local A/B." : "ROI 已调整，正在抓取新画面并重算 ROI 内 A/B。",
     });
@@ -2964,6 +3654,7 @@ async function startLiveRun() {
   }
   startLiveRunButton.disabled = true;
   stopCurrentTemperaturePolling();
+  resetLiveProcessTelemetry({ show: true });
   setLiveRunMessage(currentLocale === "en" ? "Starting live run..." : "正在开始实时测试...", "info");
   try {
     if (liveRunState.definitionDirty || !liveRunState.detail || liveRunState.detail.status !== "run_ready") {
@@ -3038,6 +3729,97 @@ async function loadProfile() {
     profileModeNode.textContent = payload.mode;
   }
   syncCameraProbeDefaults(payload.profile);
+}
+
+function hideFixtureVideoSwitch() {
+  if (fixtureVideoSwitchNode) {
+    fixtureVideoSwitchNode.hidden = true;
+  }
+}
+
+function renderFixtureVideoSwitch(payload) {
+  if (!fixtureVideoSwitchNode || !fixtureVideoSelectNode) {
+    return;
+  }
+  const videos = Array.isArray(payload?.videos) ? payload.videos : [];
+  if (videos.length < 2) {
+    hideFixtureVideoSwitch();
+    return;
+  }
+  fixtureVideoSelectNode.innerHTML = videos
+    .map((video) => {
+      const key = String(video.key || "");
+      const label = String(video.label || key);
+      return `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`;
+    })
+    .join("");
+  fixtureVideoSelectNode.value = String(payload.current || videos[0].key || "");
+  fixtureVideoSelectNode.dataset.currentKey = fixtureVideoSelectNode.value;
+  fixtureVideoSelectNode.disabled = fixtureVideoSwitchBusy;
+  fixtureVideoSwitchNode.hidden = false;
+}
+
+async function loadFixtureVideoSwitch() {
+  if (!fixtureVideoSwitchNode || !fixtureVideoSelectNode) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/debug/fixture-videos");
+    if (!response.ok) {
+      hideFixtureVideoSwitch();
+      return;
+    }
+    renderFixtureVideoSwitch(await response.json());
+  } catch (error) {
+    hideFixtureVideoSwitch();
+  }
+}
+
+async function switchFixtureVideo(videoKey) {
+  if (!fixtureVideoSelectNode || fixtureVideoSwitchBusy) {
+    return;
+  }
+  const key = String(videoKey || "");
+  if (!key) {
+    return;
+  }
+  const previousKey = fixtureVideoSelectNode.dataset.currentKey || fixtureVideoSelectNode.value;
+  fixtureVideoSwitchBusy = true;
+  fixtureVideoSelectNode.disabled = true;
+  setLiveRunMessage(currentLocale === "en" ? "Switching fixture video..." : "正在切换模拟素材...", "info");
+  try {
+    stopLiveTrackingLoop();
+    await stopLivePreviewStream({ clearImage: true, silent: true });
+    storeLiveSetupRunId("");
+    liveRunState.runId = "";
+    liveRunState.detail = null;
+    resetLiveDefinitionInputs();
+    const response = await fetch("/api/debug/fixture-videos/current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(parseErrorDetail(payload, `Fixture video switch failed: ${response.status}`));
+    }
+    renderFixtureVideoSwitch(payload);
+    await Promise.all([loadHealth(), loadProfile()]);
+    await ensureLiveSetupBootstrapped({ forceRestart: true });
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? `Fixture video switched to ${payload.current_label || payload.current || key}.`
+        : `模拟素材已切换为 ${payload.current_label || payload.current || key}。`,
+      "success",
+    );
+  } catch (error) {
+    fixtureVideoSelectNode.value = previousKey;
+    setLiveRunMessage(String(error), "error");
+  } finally {
+    fixtureVideoSwitchBusy = false;
+    fixtureVideoSelectNode.disabled = false;
+    updateLiveRunControls();
+  }
 }
 
 function renderStatusPill(status) {
@@ -3133,29 +3915,63 @@ function renderCurve(points) {
   }
   if (!points.length) {
     detailCurveNode.setAttribute("points", "");
+    if (detailCurveLayersNode) {
+      detailCurveLayersNode.innerHTML = "";
+    }
     return;
   }
 
   const width = 320;
   const height = 180;
-  const padding = 16;
-  const xs = points.map((_, index) => index);
-  const ys = points.map((point) => (point.metric_norm === null ? 0 : point.metric_norm));
-  const maxX = Math.max(...xs, 1);
-  const minY = Math.min(...ys, 0);
-  const maxY = Math.max(...ys, 1);
-  const ySpan = Math.max(maxY - minY, 1);
-
-  const polylinePoints = points
+  const padding = { top: 14, right: 12, bottom: 42, left: 52 };
+  const finiteTemperatures = points
+    .map((point) => Number(point.celsius))
+    .filter((value) => Number.isFinite(value));
+  const useTemperatureAxis =
+    finiteTemperatures.length >= 2 && Math.max(...finiteTemperatures) - Math.min(...finiteTemperatures) > 1e-9;
+  const chartPoints = points
     .map((point, index) => {
-      const x = padding + (index / maxX) * (width - padding * 2);
-      const normalizedY = point.metric_norm === null ? 0 : (point.metric_norm - minY) / ySpan;
-      const y = height - padding - normalizedY * (height - padding * 2);
-      return `${x},${y}`;
+      const y = Number.isFinite(Number(point.metric_raw))
+        ? Number(point.metric_raw)
+        : Number.isFinite(Number(point.metric_norm))
+          ? Number(point.metric_norm)
+          : null;
+      const x = useTemperatureAxis && Number.isFinite(Number(point.celsius)) ? Number(point.celsius) : index;
+      return y === null ? null : { x, y };
     })
-    .join(" ");
+    .filter(Boolean);
+  if (!chartPoints.length) {
+    detailCurveNode.setAttribute("points", "");
+    if (detailCurveLayersNode) {
+      detailCurveLayersNode.innerHTML = "";
+    }
+    return;
+  }
+  const xValues = chartPoints.map((point) => point.x);
+  const yValues = chartPoints.map((point) => point.y);
+  const scaler = buildChartScaler(xValues, yValues, width, height, padding);
+  const polylinePoints = chartPoints.map((point) => `${scaler.x(point.x)},${scaler.y(point.y)}`).join(" ");
 
   detailCurveNode.setAttribute("points", polylinePoints);
+  if (detailCurveLayersNode) {
+    detailCurveLayersNode.innerHTML = `
+      ${renderWorkspaceChartGrid(width, height, padding, 4, 4)}
+      ${renderChartAxes(width, height, padding, scaler, {
+        xLabel: useTemperatureAxis
+          ? currentLocale === "en"
+            ? "Temperature (°C)"
+            : "温度 (°C)"
+          : currentLocale === "en"
+            ? "Sample"
+            : "样本点",
+        yLabel: currentLocale === "en" ? "Deformation" : "形变",
+        xFormatter: useTemperatureAxis ? formatChartTick : formatChartIntegerTick,
+        yFormatter: formatChartTick,
+        xTicks: 4,
+        yTicks: 4,
+      })}
+    `;
+  }
 }
 
 function renderKeyFrames(keyFrames) {
@@ -3449,35 +4265,154 @@ function normalizeChartDomain(values, fallback = [0, 1]) {
   return [min, max];
 }
 
-function buildChartScaler(xValues, yValues, width, height, padding) {
-  const [minX, maxX] = normalizeChartDomain(xValues, [0, 1]);
-  const [minY, maxY] = normalizeChartDomain(yValues, [0, 1]);
+function normalizeChartPadding(padding) {
+  if (typeof padding === "number") {
+    return {
+      top: padding,
+      right: padding,
+      bottom: padding,
+      left: padding,
+    };
+  }
+  return {
+    top: Number(padding?.top ?? 28),
+    right: Number(padding?.right ?? 28),
+    bottom: Number(padding?.bottom ?? 28),
+    left: Number(padding?.left ?? 28),
+  };
+}
+
+function formatChartNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "";
+  }
+  const absolute = Math.abs(numeric);
+  const decimals = absolute >= 100 ? 0 : absolute >= 10 ? 1 : 2;
+  return numeric
+    .toFixed(decimals)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+function formatChartTick(value) {
+  return formatChartNumber(value);
+}
+
+function formatChartIntegerTick(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "";
+  }
+  return String(Math.round(numeric));
+}
+
+function buildChartTicks(minValue, maxValue, tickCount) {
+  const min = Number(minValue);
+  const max = Number(maxValue);
+  const count = Math.max(1, Number.isFinite(Number(tickCount)) ? Math.round(Number(tickCount)) : 4);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return [];
+  }
+  if (Math.abs(max - min) < 1e-9) {
+    return [min];
+  }
+  return Array.from({ length: count + 1 }, (_, index) => min + ((max - min) * index) / count);
+}
+
+function expandChartDomain([minValue, maxValue], minSpan) {
+  const spanFloor = Number(minSpan);
+  if (!Number.isFinite(spanFloor) || spanFloor <= 0) {
+    return [minValue, maxValue];
+  }
+  const min = Number(minValue);
+  const max = Number(maxValue);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return [minValue, maxValue];
+  }
+  const span = Math.max(0, max - min);
+  if (span >= spanFloor) {
+    return [min, max];
+  }
+  const center = (min + max) / 2;
+  const halfSpan = spanFloor / 2;
+  return [center - halfSpan, center + halfSpan];
+}
+
+function buildChartScaler(xValues, yValues, width, height, padding, options = {}) {
+  const chartPadding = normalizeChartPadding(padding);
+  const [minX, maxX] = expandChartDomain(normalizeChartDomain(xValues, [0, 1]), options.minXSpan);
+  const [minY, maxY] = expandChartDomain(normalizeChartDomain(yValues, [0, 1]), options.minYSpan);
   const xSpan = Math.max(maxX - minX, 1);
   const ySpan = Math.max(maxY - minY, 1);
+  const plotWidth = Math.max(1, width - chartPadding.left - chartPadding.right);
+  const plotHeight = Math.max(1, height - chartPadding.top - chartPadding.bottom);
   return {
     minX,
     maxX,
     minY,
     maxY,
+    padding: chartPadding,
     x(value) {
-      return padding + ((Number(value) - minX) / xSpan) * (width - padding * 2);
+      return chartPadding.left + ((Number(value) - minX) / xSpan) * plotWidth;
     },
     y(value) {
-      return height - padding - ((Number(value) - minY) / ySpan) * (height - padding * 2);
+      return height - chartPadding.bottom - ((Number(value) - minY) / ySpan) * plotHeight;
     },
   };
 }
 
 function renderWorkspaceChartGrid(width, height, padding, xTicks = 5, yTicks = 4) {
+  const chartPadding = normalizeChartPadding(padding);
+  const plotWidth = Math.max(1, width - chartPadding.left - chartPadding.right);
+  const plotHeight = Math.max(1, height - chartPadding.top - chartPadding.bottom);
   const verticalLines = Array.from({ length: xTicks + 1 }, (_, index) => {
-    const x = padding + ((width - padding * 2) / xTicks) * index;
-    return `<line x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
+    const x = chartPadding.left + (plotWidth / xTicks) * index;
+    return `<line x1="${x}" y1="${chartPadding.top}" x2="${x}" y2="${height - chartPadding.bottom}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
   }).join("");
   const horizontalLines = Array.from({ length: yTicks + 1 }, (_, index) => {
-    const y = padding + ((height - padding * 2) / yTicks) * index;
-    return `<line x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
+    const y = chartPadding.top + (plotHeight / yTicks) * index;
+    return `<line x1="${chartPadding.left}" y1="${y}" x2="${width - chartPadding.right}" y2="${y}" stroke="${AFAS_CHART_THEME.grid}" stroke-width="1"></line>`;
   }).join("");
   return `${verticalLines}${horizontalLines}`;
+}
+
+function renderChartAxes(width, height, padding, scaler, options = {}) {
+  const chartPadding = normalizeChartPadding(padding);
+  const plotWidth = Math.max(1, width - chartPadding.left - chartPadding.right);
+  const plotHeight = Math.max(1, height - chartPadding.top - chartPadding.bottom);
+  const axisY = height - chartPadding.bottom;
+  const axisX = chartPadding.left;
+  const xFormatter = options.xFormatter || formatChartTick;
+  const yFormatter = options.yFormatter || formatChartTick;
+  const xTicks = buildChartTicks(scaler.minX, scaler.maxX, options.xTicks ?? 5);
+  const yTicks = buildChartTicks(scaler.minY, scaler.maxY, options.yTicks ?? 4);
+  const xTickLabels = xTicks
+    .map(
+      (value) =>
+        `<text class="chart-axis-tick" x="${scaler.x(value)}" y="${axisY + 18}" text-anchor="middle">${escapeHtml(xFormatter(value))}</text>`,
+    )
+    .join("");
+  const yTickLabels = yTicks
+    .map(
+      (value) =>
+        `<text class="chart-axis-tick" x="${axisX - 8}" y="${scaler.y(value) + 4}" text-anchor="end">${escapeHtml(yFormatter(value))}</text>`,
+    )
+    .join("");
+  const xLabel = options.xLabel
+    ? `<text class="chart-axis-label" x="${chartPadding.left + plotWidth / 2}" y="${height - 8}" text-anchor="middle">${escapeHtml(options.xLabel)}</text>`
+    : "";
+  const yLabel = options.yLabel
+    ? `<text class="chart-axis-label" x="${14}" y="${chartPadding.top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 14 ${chartPadding.top + plotHeight / 2})">${escapeHtml(options.yLabel)}</text>`
+    : "";
+  return `
+    <line x1="${axisX}" y1="${axisY}" x2="${width - chartPadding.right}" y2="${axisY}" stroke="${AFAS_CHART_THEME.axis}" stroke-width="1.25"></line>
+    <line x1="${axisX}" y1="${chartPadding.top}" x2="${axisX}" y2="${axisY}" stroke="${AFAS_CHART_THEME.axis}" stroke-width="1.25"></line>
+    ${xTickLabels}
+    ${yTickLabels}
+    ${xLabel}
+    ${yLabel}
+  `;
 }
 
 function renderWorkspaceAfasOverview(overview, activeChannel) {
@@ -3494,8 +4429,15 @@ function renderWorkspaceAfasOverview(overview, activeChannel) {
 
   const allTemps = items.flatMap((item) => (item.series ? item.series.temperature_celsius || [] : []));
   const allValues = items.flatMap((item) => (item.series ? item.series.values || [] : []));
-  const scaler = buildChartScaler(allTemps, allValues, 640, 220, 28);
-  const grid = renderWorkspaceChartGrid(640, 220, 28, 5, 4);
+  const width = 640;
+  const height = 220;
+  const padding = { top: 20, right: 18, bottom: 46, left: 58 };
+  const scaler = buildChartScaler(allTemps, allValues, width, height, padding);
+  const grid = renderWorkspaceChartGrid(width, height, padding, 5, 4);
+  const axes = renderChartAxes(width, height, padding, scaler, {
+    xLabel: currentLocale === "en" ? "Temperature (°C)" : "温度 (°C)",
+    yLabel: currentLocale === "en" ? "Deformation" : "形变",
+  });
   const seriesLayers = items
     .map((item, index) => {
       const temperatures = item.series ? item.series.temperature_celsius || [] : [];
@@ -3519,7 +4461,7 @@ function renderWorkspaceAfasOverview(overview, activeChannel) {
       `;
     })
     .join("");
-  workspaceAfasOverviewSeriesNode.innerHTML = `${grid}${seriesLayers}`;
+  workspaceAfasOverviewSeriesNode.innerHTML = `${grid}${seriesLayers}${axes}`;
   workspaceAfasOverviewSummaryNode.innerHTML = items
     .map(
       (item, index) => `
@@ -3554,7 +4496,7 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
 
   const width = 640;
   const height = 280;
-  const padding = 32;
+  const padding = { top: 22, right: 18, bottom: 48, left: 58 };
   const fitLines = [];
   if (fit?.low_baseline?.range_celsius) {
     fitLines.push(...fit.low_baseline.range_celsius);
@@ -3574,6 +4516,10 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
   const scaler = buildChartScaler(temperatures.concat(fitLines), values, width, height, padding);
   const curvePoints = temperatures.map((temperature, index) => `${scaler.x(temperature)},${scaler.y(values[index])}`).join(" ");
   const grid = renderWorkspaceChartGrid(width, height, padding, 5, 4);
+  const axes = renderChartAxes(width, height, padding, scaler, {
+    xLabel: currentLocale === "en" ? "Temperature (°C)" : "温度 (°C)",
+    yLabel: currentLocale === "en" ? "Deformation" : "形变",
+  });
 
   function renderLineSegment(line, color, dash = "8 6") {
     if (!line || !Array.isArray(line.range_celsius)) {
@@ -3651,6 +4597,7 @@ function renderWorkspaceAfasAnalysisChart(analysis) {
       AFAS_CHART_THEME.rose,
       "diamond",
     )}
+    ${axes}
   `;
   workspaceAfasAnalysisEmptyNode.hidden = true;
 }
@@ -4272,6 +5219,9 @@ function renderWorkspaceCurve(detail) {
   const points = detail.points || [];
   if (!points.length) {
     workspaceCurveNode.setAttribute("points", "");
+    if (workspaceCurveLayersNode) {
+      workspaceCurveLayersNode.innerHTML = "";
+    }
     workspaceCurvePointsNode.innerHTML = "";
     workspaceAf95LineNode.setAttribute("x1", "0");
     workspaceAf95LineNode.setAttribute("x2", "0");
@@ -4284,27 +5234,50 @@ function renderWorkspaceCurve(detail) {
 
   const width = 640;
   const height = 260;
-  const padding = 28;
-  const xValues = points.map((point) => point.celsius);
-  const yValues = points.map((point) => point.metric_raw);
-  const minX = Math.min(...xValues);
-  const maxX = Math.max(...xValues);
-  const minY = Math.min(...yValues);
-  const maxY = Math.max(...yValues);
-  const xSpan = Math.max(maxX - minX, 1);
-  const ySpan = Math.max(maxY - minY, 1);
-
-  const scaledPoints = points.map((point, index) => {
-    const x = padding + ((point.celsius - minX) / xSpan) * (width - padding * 2);
-    const y = height - padding - ((point.metric_raw - minY) / ySpan) * (height - padding * 2);
-    return { ...point, x, y, index };
-  });
+  const padding = { top: 22, right: 18, bottom: 48, left: 58 };
+  const scaledPoints = points
+    .map((point, index) => {
+      const celsius = Number(point.celsius);
+      const metricRaw = Number(point.metric_raw);
+      if (!Number.isFinite(celsius) || !Number.isFinite(metricRaw)) {
+        return null;
+      }
+      return { ...point, celsius, metric_raw: metricRaw, index };
+    })
+    .filter(Boolean);
+  if (!scaledPoints.length) {
+    workspaceCurveNode.setAttribute("points", "");
+    if (workspaceCurveLayersNode) {
+      workspaceCurveLayersNode.innerHTML = "";
+    }
+    workspaceCurvePointsNode.innerHTML = "";
+    workspaceCurveEmptyNode.textContent = currentLocale === "en" ? "No replay detail available." : "暂无 replay detail。";
+    workspaceCurveEmptyNode.hidden = false;
+    return;
+  }
+  const xValues = scaledPoints.map((point) => point.celsius);
+  const yValues = scaledPoints.map((point) => point.metric_raw);
+  const scaler = buildChartScaler(xValues, yValues, width, height, padding);
+  const plottedPoints = scaledPoints.map((point) => ({
+    ...point,
+    x: scaler.x(point.celsius),
+    y: scaler.y(point.metric_raw),
+  }));
 
   workspaceCurveNode.setAttribute(
     "points",
-    scaledPoints.map((point) => `${point.x},${point.y}`).join(" "),
+    plottedPoints.map((point) => `${point.x},${point.y}`).join(" "),
   );
-  workspaceCurvePointsNode.innerHTML = scaledPoints
+  if (workspaceCurveLayersNode) {
+    workspaceCurveLayersNode.innerHTML = `
+      ${renderWorkspaceChartGrid(width, height, padding, 5, 4)}
+      ${renderChartAxes(width, height, padding, scaler, {
+        xLabel: currentLocale === "en" ? "Temperature (°C)" : "温度 (°C)",
+        yLabel: currentLocale === "en" ? "Deformation" : "形变",
+      })}
+    `;
+  }
+  workspaceCurvePointsNode.innerHTML = plottedPoints
     .map(
       (point) =>
         `<circle class="workspace-curve-point" data-point-index="${point.index}" cx="${point.x}" cy="${point.y}" r="6"></circle>`,
@@ -4323,11 +5296,11 @@ function renderWorkspaceCurve(detail) {
     workspaceAf95LineNode.setAttribute("y1", "0");
     workspaceAf95LineNode.setAttribute("y2", "0");
   } else {
-    const af95X = padding + ((detail.af95 - minX) / xSpan) * (width - padding * 2);
+    const af95X = scaler.x(detail.af95);
     workspaceAf95LineNode.setAttribute("x1", String(af95X));
     workspaceAf95LineNode.setAttribute("x2", String(af95X));
-    workspaceAf95LineNode.setAttribute("y1", String(padding));
-    workspaceAf95LineNode.setAttribute("y2", String(height - padding));
+    workspaceAf95LineNode.setAttribute("y1", String(padding.top));
+    workspaceAf95LineNode.setAttribute("y2", String(height - padding.bottom));
   }
 
   workspaceCurveEmptyNode.hidden = true;
@@ -4698,6 +5671,211 @@ function isLiveSetupReusable(detail) {
   return !["completed", "failed", "aborted"].includes(String(detail.status || ""));
 }
 
+function buildTerminalRunFallbackPayload(runId, status, telemetryPayload = null) {
+  return {
+    session_id: runId,
+    state: status || "completed",
+    point_count: Array.isArray(telemetryPayload?.curve) ? telemetryPayload.curve.length : 0,
+    af95: null,
+  };
+}
+
+async function fetchRunTelemetryPayload(runId) {
+  try {
+    const response = await fetch(`/api/runs/${runId}/telemetry`);
+    return response.ok ? await response.json() : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function fetchRunResultPayload(runId) {
+  try {
+    const response = await fetch(`/api/runs/${runId}/result`);
+    return response.ok ? await response.json() : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function fetchSessionSummaryPayload(sessionId) {
+  try {
+    const response = await fetch(`/api/session/${sessionId}`);
+    return response.ok ? await response.json() : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function buildTerminalRunDetailFromSessionSummary(summary) {
+  return {
+    run_id: summary.session_id,
+    status: summary.state,
+    point_count: summary.point_count,
+    af95: summary.af95,
+    session_summary_only: true,
+    preset: liveRunPresetSelect ? liveRunPresetSelect.value : "balloon",
+    definition: null,
+    rates: {},
+    preview: {
+      stream_active: false,
+      frozen_frame_available: false,
+      last_frame_id: null,
+    },
+    temperature_settings: null,
+  };
+}
+
+async function restoreTerminalLiveRunHomeState(runId, detail = null) {
+  stopLiveTrackingLoop();
+  stopCurrentTemperaturePolling();
+  liveRunState.previewStreamActive = false;
+  liveRunState.previewStreamUrl = "";
+  if (detail) {
+    renderLiveRunDetail(detail);
+  }
+
+  const sessionSummaryOnly = Boolean(detail?.session_summary_only);
+  const telemetryPayload = sessionSummaryOnly ? null : await fetchRunTelemetryPayload(runId);
+  const status = String(detail?.status || telemetryPayload?.status || "completed");
+  const resultPayload =
+    (sessionSummaryOnly
+      ? {
+          session_id: runId,
+          state: status,
+          point_count: Number(detail?.point_count || 0),
+          af95: detail?.af95 ?? null,
+        }
+      : await fetchRunResultPayload(runId)) || buildTerminalRunFallbackPayload(runId, status, telemetryPayload);
+
+  if (telemetryPayload?.latest) {
+    renderCurrentTemperature({ temperature_celsius: telemetryPayload.latest.temperature_celsius });
+    applyTrackedPointInputs(telemetryPayload.latest);
+  }
+  if (telemetryPayload) {
+    renderLiveProcessTelemetry(telemetryPayload, resultPayload);
+  }
+  if (sessionSummaryOnly) {
+    liveRunState.previewSize = null;
+    liveRunState.previewFrozenAvailable = false;
+    renderLivePreviewOverlay();
+  } else {
+    try {
+      await refreshTrackingPreviewFrame(runId);
+      if (telemetryPayload?.latest) {
+        applyTrackedPointInputs(telemetryPayload.latest);
+        renderLivePreviewOverlay();
+      }
+    } catch (error) {
+      liveRunState.previewSize = null;
+      liveRunState.previewFrozenAvailable = false;
+      renderLivePreviewOverlay();
+    }
+  }
+  await hydrateHomeResultForSession(runId, resultPayload);
+  setLiveRunMessage(
+    currentLocale === "en"
+      ? `Restored completed test ${runId}. Use New Test only when you want to clear this result.`
+      : `已恢复当前测试 ${runId}。只有点击“新测试”才会清空并开始下一次测试。`,
+    "success",
+  );
+  updateLiveRunControls();
+}
+
+function resetNewLiveTestConfirmation({ resetLabel = true, resetMessage = false } = {}) {
+  if (newLiveTestConfirmationTimer) {
+    window.clearTimeout(newLiveTestConfirmationTimer);
+    newLiveTestConfirmationTimer = null;
+  }
+  newLiveTestPendingConfirmation = false;
+  if (!newLiveTestButton) {
+    return;
+  }
+  newLiveTestButton.classList.remove("new-live-test-confirming");
+  newLiveTestButton.setAttribute("aria-pressed", "false");
+  if (resetLabel) {
+    newLiveTestButton.textContent = t("home.actions.new_test", {}, currentLocale === "en" ? "New Test" : "新测试");
+  }
+  if (resetMessage && liveRunState.runId && isLiveRunTerminalStatus(liveRunState.detail?.status)) {
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? `Restored completed test ${liveRunState.runId}. Use New Test only when you want to clear this result.`
+        : `已恢复当前测试 ${liveRunState.runId}。只有点击“新测试”才会清空并开始下一次测试。`,
+      "success",
+    );
+  }
+}
+
+function requestNewLiveTestConfirmation() {
+  if (!newLiveTestButton || newLiveTestButton.disabled) {
+    return;
+  }
+  if (newLiveTestConfirmationTimer) {
+    window.clearTimeout(newLiveTestConfirmationTimer);
+  }
+  newLiveTestPendingConfirmation = true;
+  newLiveTestButton.classList.add("new-live-test-confirming");
+  newLiveTestButton.setAttribute("aria-pressed", "true");
+  newLiveTestButton.textContent = t(
+    "home.actions.confirm_new_test",
+    {},
+    currentLocale === "en" ? "Confirm New Test" : "确认新测试",
+  );
+  setLiveRunMessage(
+    t(
+      "home.messages.new_test_confirm",
+      {},
+      currentLocale === "en"
+        ? "Click Confirm New Test again to clear the current result and start the next test."
+        : "再次点击“确认新测试”才会清空当前结果并开始下一次测试。",
+    ),
+    "warning",
+  );
+  newLiveTestConfirmationTimer = window.setTimeout(() => {
+    resetNewLiveTestConfirmation({ resetMessage: true });
+  }, NEW_LIVE_TEST_CONFIRM_TIMEOUT_MS);
+}
+
+function handleNewLiveTestClick() {
+  if (!newLiveTestPendingConfirmation) {
+    requestNewLiveTestConfirmation();
+    return;
+  }
+  void startNewLiveTest();
+}
+
+async function startNewLiveTest() {
+  if (!hasLiveSetupUi() || !newLiveTestButton) {
+    return;
+  }
+  resetNewLiveTestConfirmation();
+  newLiveTestButton.disabled = true;
+  setLiveRunMessage(currentLocale === "en" ? "Starting a new test..." : "正在开始新测试...", "info");
+  try {
+    stopLiveTrackingLoop();
+    await stopLivePreviewStream({ clearImage: true, silent: true });
+    storeLiveSetupRunId("");
+    clearHomeResultDisplays();
+    resetLiveProcessTelemetry();
+    liveRunState.confirmedTemperatureSettings = null;
+    clearTemperatureSettingsConfirmation();
+    const runId = await createLiveRun({ autoStartPreview: true, silent: true, forceReset: true });
+    startCurrentTemperaturePolling();
+    setLiveRunMessage(
+      currentLocale === "en"
+        ? `New test ${runId} is ready. Freeze the preview to define ROI.`
+        : `新测试 ${runId} 已就绪。请先冻结画面再框选 ROI。`,
+      "success",
+    );
+  } catch (error) {
+    setLiveRunMessage(String(error), "error");
+  } finally {
+    resetNewLiveTestConfirmation();
+    newLiveTestButton.disabled = false;
+    updateLiveRunControls();
+  }
+}
+
 async function ensureLiveSetupBootstrapped({ forceRestart = false } = {}) {
   if (!hasLiveSetupUi()) {
     return;
@@ -4708,9 +5886,20 @@ async function ensureLiveSetupBootstrapped({ forceRestart = false } = {}) {
     try {
       detail = await refreshLiveRunDetail(runId);
     } catch (error) {
+      const summary = await fetchSessionSummaryPayload(runId);
+      if (summary && isLiveRunTerminalStatus(summary.state)) {
+        storeLiveSetupRunId(runId);
+        await restoreTerminalLiveRunHomeState(runId, buildTerminalRunDetailFromSessionSummary(summary));
+        return;
+      }
       runId = "";
       storeLiveSetupRunId("");
     }
+  }
+  if (runId && detail && isLiveRunTerminalStatus(detail.status)) {
+    storeLiveSetupRunId(runId);
+    await restoreTerminalLiveRunHomeState(runId, detail);
+    return;
   }
   if (!isLiveSetupReusable(detail)) {
     runId = await createLiveRun({ autoStartPreview: false, silent: true, forceReset: true });
@@ -4729,7 +5918,8 @@ async function ensureLiveSetupBootstrapped({ forceRestart = false } = {}) {
 async function bootstrap() {
   try {
     renderHomeCompactResultSummary(null);
-    await Promise.all([loadHealth(), loadProfile(), loadPrecheck(), loadRecentSessions()]);
+    resetLiveProcessTelemetry();
+    await Promise.all([loadHealth(), loadProfile(), loadFixtureVideoSwitch(), loadPrecheck(), loadRecentSessions()]);
     if (liveRunPresetNode && liveRunPresetSelect) {
       liveRunPresetNode.textContent = liveRunPresetSelect.value;
     }
@@ -4886,6 +6076,11 @@ for (const probeInput of [probeAllowedModelsInput, probeSerialNumberInput, probe
 if (probeCameraButton) {
   probeCameraButton.addEventListener("click", runCameraProbe);
 }
+if (fixtureVideoSelectNode) {
+  fixtureVideoSelectNode.addEventListener("change", () => {
+    void switchFixtureVideo(fixtureVideoSelectNode.value);
+  });
+}
 if (liveRunPresetSelect && liveRunPresetNode) {
   liveRunPresetSelect.addEventListener("change", () => {
     liveRunPresetNode.textContent = liveRunPresetSelect.value;
@@ -4910,6 +6105,11 @@ if (workspaceImportAfasDatasetButton && workspaceImportAfasDatasetFileInput) {
 if (saveSessionDataButton) {
   saveSessionDataButton.addEventListener("click", () => {
     void saveSessionData();
+  });
+}
+if (newLiveTestButton) {
+  newLiveTestButton.addEventListener("click", () => {
+    handleNewLiveTestClick();
   });
 }
 if (stopLivePreviewStreamButton) {
@@ -4944,7 +6144,7 @@ if (recomputeDefinitionButton) {
     });
   });
 }
-for (const temperatureInput of [liveTargetTemperatureInput, liveControlModeSelect, liveOutputPowerInput]) {
+for (const temperatureInput of [liveTargetTemperatureInput, liveControlModeSelect, liveCompletionModeSelect, liveOutputPowerInput]) {
   if (!temperatureInput) {
     continue;
   }
@@ -5015,11 +6215,7 @@ if (livePreviewImageNode) {
     if (!liveRunState.previewStreamActive) {
       return;
     }
-    liveRunState.previewStreamActive = false;
-    liveRunState.previewStreamUrl = "";
-    setLiveRunMessage("Live preview stream failed. The last received frame is still available for editing.", "error");
-    refreshLiveRunDetail(liveRunState.runId).catch(() => {});
-    updateLiveRunControls();
+    void recoverLivePreviewStreamError();
   });
 }
 if (livePreviewOverlayNode) {

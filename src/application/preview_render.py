@@ -46,8 +46,19 @@ def build_preview_bitmap(
 ) -> PreviewBitmap:
     native_bitmap_payload = getattr(image, "downsample_bitmap_payload", None)
     if callable(native_bitmap_payload):
-        width, height, pixels = native_bitmap_payload(max_width=max_width, max_height=max_height)
-        return PreviewBitmap(width=width, height=height, pixels=pixels)
+        try:
+            width, height, pixels = native_bitmap_payload(max_width=max_width, max_height=max_height)
+            width = int(width)
+            height = int(height)
+            expected_size = max(0, width * height)
+            if width > 0 and height > 0:
+                return PreviewBitmap(
+                    width=width,
+                    height=height,
+                    pixels=_coerce_bitmap_pixels(pixels, expected_size=expected_size),
+                )
+        except Exception:
+            pass
     rows = build_preview_rows(image, max_width=max_width, max_height=max_height)
     width = len(rows[0]) if rows else 1
     height = len(rows) if rows else 1
@@ -66,7 +77,7 @@ def enhance_preview_bitmap(
     target_mean: float = 42.0,
     max_brightness_boost: float = 8.0,
 ) -> PreviewBitmap:
-    if not bitmap.pixels:
+    if len(bitmap.pixels) == 0:
         return bitmap
     array = np.frombuffer(bitmap.pixels, dtype=np.uint8)
     if array.size == 0:
@@ -90,3 +101,23 @@ def enhance_preview_bitmap(
         adjusted *= brightness_boost
     adjusted = np.clip(adjusted, 0.0, 255.0).astype(np.uint8, copy=False)
     return PreviewBitmap(width=bitmap.width, height=bitmap.height, pixels=adjusted.tobytes())
+
+
+def _coerce_bitmap_pixels(pixels: Any, *, expected_size: int) -> bytes:
+    if expected_size <= 0:
+        return b""
+    if isinstance(pixels, bytes):
+        payload = pixels
+    elif isinstance(pixels, bytearray):
+        payload = bytes(pixels)
+    elif isinstance(pixels, memoryview):
+        payload = pixels.tobytes()
+    elif isinstance(pixels, np.ndarray):
+        payload = np.asarray(pixels, dtype=np.uint8).reshape(-1).tobytes()
+    else:
+        payload = bytes(pixels)
+    if len(payload) < expected_size:
+        raise ValueError("native bitmap payload was smaller than expected")
+    if len(payload) > expected_size:
+        payload = payload[:expected_size]
+    return payload

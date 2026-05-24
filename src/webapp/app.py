@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from src.application.container import ApplicationContainer
 from src.application.runtime_config import load_runtime_config
 from src.desktop_app.qt_runtime import bootstrap_desktop_runtime
+from src.webapp.routes.debug import router as debug_router
 from src.webapp.routes.health import router as health_router
 from src.webapp.routes.live_run import router as live_run_router
 from src.webapp.routes.profile import router as profile_router
@@ -35,6 +36,7 @@ def create_app(profile: str = "dev_lab") -> FastAPI:
     app.include_router(ui_router)
     app.include_router(health_router)
     app.include_router(profile_router)
+    app.include_router(debug_router)
     app.include_router(live_run_router)
     app.include_router(session_router)
     return app

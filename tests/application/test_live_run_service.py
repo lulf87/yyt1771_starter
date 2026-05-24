@@ -6,16 +6,28 @@ from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_service import (
     _ActiveLiveRun,
     _augment_telemetry_for_setup_preview,
+    _coerce_native_bitmap_pixels,
     _composite_tracking_frame_into_setup_preview,
     _definition_in_setup_source_space,
     _measurement_capture_plan_payload,
+    _preview_scaled_grayscale_image,
     _preview_point_from_tracking_frame_meta,
+    _runtime_config_with_operator_output_power,
     _should_cache_tracking_preview,
+    _tracking_preview_min_interval_ms,
 )
 from src.application.device_factory import apply_measurement_acquisition_roi, build_measurement_capture_plan
 from src.application.runtime_config import RuntimeConfig, WebAppConfig
-from src.core.config_models import DeviceRoiConfig
-from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion
+from src.core.config_models import DeviceRoiConfig, RunRuntimeConfig
+from src.core.models import (
+    FramePacket,
+    MeasurementDefinition,
+    MetricBox,
+    PixelPoint,
+    RectRegion,
+    RunDraftRecord,
+    TemperatureSettingsBundle,
+)
 
 
 class _NativePreviewImage:
@@ -26,6 +38,11 @@ class _NativePreviewImage:
 
     def downsample_bitmap_payload(self, *, max_width: int = 640, max_height: int = 480) -> tuple[int, int, bytes]:
         return (self._preview_width, self._preview_height, bytes([0]) * (self._preview_width * self._preview_height))
+
+
+class _NativePreviewArrayImage:
+    def downsample_bitmap_payload(self, *, max_width: int = 640, max_height: int = 480):
+        return (max_width, max_height, np.arange(max_width * max_height, dtype=np.uint8))
 
 
 class _FetchPreviewService:
@@ -48,10 +65,80 @@ def test_augment_telemetry_for_setup_preview_adds_preview_coordinates() -> None:
         }
     }
 
+    _augment_telemetry_for_setup_preview(
+        row,
+        measurement_capture_plan,
+        preview_source_size=(1280, 960),
+        preview_size=(640, 480),
+    )
+
+    assert row["point_a_preview_px"] == [460, 330]
+    assert row["point_b_preview_px"] == [560, 330]
+
+
+def test_augment_telemetry_for_setup_preview_adds_direction_projection_preview_coordinates() -> None:
+    row = {
+        "point_a_px": [80, 92],
+        "point_b_px": [280, 92],
+        "source_point_a_px": [70, 112],
+        "source_point_b_px": [290, 72],
+        "axis_point_a_px": [80, 92],
+        "axis_point_b_px": [280, 92],
+    }
+    measurement_capture_plan = {
+        "effective_local_origin_in_setup_preview_px": {
+            "x": 840,
+            "y": 568,
+        }
+    }
+
+    _augment_telemetry_for_setup_preview(
+        row,
+        measurement_capture_plan,
+        preview_source_size=(1280, 960),
+        preview_size=(640, 480),
+    )
+
+    assert row["source_point_a_preview_px"] == [455, 340]
+    assert row["source_point_b_preview_px"] == [565, 320]
+    assert row["axis_point_a_preview_px"] == [460, 330]
+    assert row["axis_point_b_preview_px"] == [560, 330]
+
+
+def test_augment_telemetry_for_setup_preview_does_not_label_source_points_as_preview_without_preview_geometry() -> None:
+    row = {
+        "point_a_px": [80, 92],
+        "point_b_px": [280, 92],
+    }
+    measurement_capture_plan = {
+        "effective_local_origin_in_setup_preview_px": {
+            "x": 840,
+            "y": 568,
+        }
+    }
+
     _augment_telemetry_for_setup_preview(row, measurement_capture_plan)
 
-    assert row["point_a_preview_px"] == [920, 660]
-    assert row["point_b_preview_px"] == [1120, 660]
+    assert "point_a_preview_px" not in row
+    assert "point_b_preview_px" not in row
+
+
+def test_coerce_native_bitmap_pixels_accepts_numpy_arrays() -> None:
+    payload = _coerce_native_bitmap_pixels(np.arange(6, dtype=np.uint8), expected_size=6)
+
+    assert payload == bytes([0, 1, 2, 3, 4, 5])
+
+
+def test_preview_scaled_grayscale_image_accepts_numpy_native_bitmap_payload() -> None:
+    scaled = _preview_scaled_grayscale_image(
+        _NativePreviewArrayImage(),
+        target_width=3,
+        target_height=2,
+    )
+
+    assert scaled is not None
+    assert scaled.shape == (2, 3)
+    assert scaled.tolist() == [[0, 1, 2], [3, 4, 5]]
 
 
 def test_composite_tracking_frame_into_setup_preview_pastes_measurement_frame_into_cached_preview() -> None:
@@ -112,6 +199,125 @@ def test_composite_tracking_frame_into_setup_preview_pastes_measurement_frame_in
     ]
 
 
+def test_composite_tracking_frame_into_setup_preview_projects_tracking_points_from_measurement_frame_space() -> None:
+    preview_service = LivePreviewService()
+    preview_service.cache_frame(
+        run_id="run-001",
+        frame=FramePacket(
+            timestamp_ms=1_000,
+            source="setup_preview",
+            image=[
+                [10, 10, 10, 10, 10, 10],
+                [10, 10, 10, 10, 10, 10],
+                [10, 10, 10, 10, 10, 10],
+                [10, 10, 10, 10, 10, 10],
+                [10, 10, 10, 10, 10, 10],
+            ],
+            frame_id=1,
+        ),
+    )
+    measurement_frame = FramePacket(
+        timestamp_ms=2_000,
+        source="measurement",
+        image=[
+            [200, 201, 202],
+            [203, 204, 205],
+        ],
+        frame_id=2,
+        meta={
+            "point_a_px_local": [1, 0],
+            "point_b_px_local": [2, 1],
+        },
+    )
+    measurement_capture_plan = {
+        "effective_local_origin_in_setup_preview_px": {
+            "x": 2,
+            "y": 1,
+        }
+    }
+
+    composited, preview_points = _composite_tracking_frame_into_setup_preview(
+        preview_service=preview_service,
+        active_run=_ActiveLiveRun(
+            run_id="run-001",
+            stop_event=threading.Event(),
+            preview_display_max_width=6,
+            preview_display_max_height=5,
+        ),
+        run_id="run-001",
+        measurement_frame=measurement_frame,
+        measurement_capture_plan=measurement_capture_plan,
+    )
+
+    assert composited.meta["tracking_composited"] is True
+    assert preview_points.point_a == [3, 1]
+    assert preview_points.point_b == [4, 2]
+
+
+def test_composite_tracking_frame_into_setup_preview_crops_negative_origin_consistently() -> None:
+    preview_service = LivePreviewService()
+    preview_service.cache_frame(
+        run_id="run-001",
+        frame=FramePacket(
+            timestamp_ms=1_000,
+            source="setup_preview",
+            image=[
+                [10, 10, 10, 10],
+                [10, 10, 10, 10],
+                [10, 10, 10, 10],
+                [10, 10, 10, 10],
+            ],
+            frame_id=1,
+        ),
+    )
+    measurement_frame = FramePacket(
+        timestamp_ms=2_000,
+        source="measurement",
+        image=[
+            [200, 201, 202],
+            [203, 204, 205],
+            [206, 207, 208],
+        ],
+        frame_id=2,
+        meta={
+            "point_a_px_local": [1, 1],
+            "point_b_px_local": [2, 2],
+        },
+    )
+    measurement_capture_plan = {
+        "effective_local_origin_in_setup_preview_px": {
+            "x": -1,
+            "y": -1,
+        }
+    }
+
+    composited, preview_points = _composite_tracking_frame_into_setup_preview(
+        preview_service=preview_service,
+        active_run=_ActiveLiveRun(
+            run_id="run-001",
+            stop_event=threading.Event(),
+            preview_display_max_width=4,
+            preview_display_max_height=4,
+        ),
+        run_id="run-001",
+        measurement_frame=measurement_frame,
+        measurement_capture_plan=measurement_capture_plan,
+    )
+
+    assert composited.meta["tracking_composited"] is True
+    assert composited.meta["tracking_origin_preview_px"] == [-1, -1]
+    assert composited.meta["tracking_paste_origin_preview_px"] == [0, 0]
+    assert composited.meta["tracking_paste_crop_preview_px"] == [1, 1]
+    assert preview_points.point_a == [0, 0]
+    assert preview_points.point_b == [1, 1]
+    assert np.asarray(composited.image).tolist() == [
+        [204, 205, 10, 10],
+        [207, 208, 10, 10],
+        [10, 10, 10, 10],
+        [10, 10, 10, 10],
+    ]
+
+
 def test_composite_tracking_frame_into_setup_preview_falls_back_to_base_preview_when_origin_missing() -> None:
     preview_service = LivePreviewService()
     preview_service.cache_frame(
@@ -166,14 +372,30 @@ def test_composite_tracking_frame_into_setup_preview_falls_back_to_base_preview_
 
 def test_preview_point_from_tracking_frame_meta_scales_local_points_into_display_space() -> None:
     meta = {
-        "tracking_origin_preview_px": [10, 20],
-        "tracking_preview_scale_x": 0.5,
-        "tracking_preview_scale_y": 0.25,
+        "tracking_origin_source_px": [20, 80],
+        "tracking_preview_source_width": 400,
+        "tracking_preview_source_height": 400,
+        "tracking_preview_width": 200,
+        "tracking_preview_height": 100,
     }
 
     point = _preview_point_from_tracking_frame_meta(meta, [100, 40])
 
     assert point == [60, 30]
+
+
+def test_preview_point_from_tracking_frame_meta_clamps_negative_source_points() -> None:
+    meta = {
+        "tracking_origin_source_px": [0, -100],
+        "tracking_preview_source_width": 100,
+        "tracking_preview_source_height": 100,
+        "tracking_preview_width": 50,
+        "tracking_preview_height": 50,
+    }
+
+    point = _preview_point_from_tracking_frame_meta(meta, [20, 10])
+
+    assert point == [10, 0]
 
 
 def test_augment_telemetry_for_setup_preview_preserves_existing_preview_points() -> None:
@@ -236,10 +458,10 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
     )
 
     assert payload["requested_effective_acquisition_roi"] == {
-        "x": 870,
-        "y": 598,
-        "width": 300,
-        "height": 124,
+        "x": 840,
+        "y": 568,
+        "width": 360,
+        "height": 184,
     }
     assert payload["applied_effective_acquisition_roi"] == {
         "x": 832,
@@ -254,9 +476,9 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
         "height": 0,
     }
     assert payload["effective_local_origin_in_setup_preview_px"] == {"x": 832, "y": 560}
-    assert payload["requested_local_origin_in_setup_preview_px"] == {"x": 870, "y": 598}
+    assert payload["requested_local_origin_in_setup_preview_px"] == {"x": 840, "y": 568}
     assert payload["setup_to_effective_local_translation_px"] == {"dx": -832, "dy": -560}
-    assert payload["setup_to_requested_local_translation_px"] == {"dx": -870, "dy": -598}
+    assert payload["setup_to_requested_local_translation_px"] == {"dx": -840, "dy": -568}
 
 
 def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor_coordinates() -> None:
@@ -318,3 +540,34 @@ def test_should_cache_tracking_preview_honors_minimum_interval() -> None:
 
     assert _should_cache_tracking_preview(active_run, 1_100) is False
     assert _should_cache_tracking_preview(active_run, 1_250) is True
+
+
+def test_tracking_preview_min_interval_follows_preview_poll_for_live_display() -> None:
+    run_config = RunRuntimeConfig(preview_poll_ms=50)
+
+    assert _tracking_preview_min_interval_ms(run_config) == 50
+
+
+def test_runtime_config_with_operator_output_power_uses_confirmed_run_power() -> None:
+    runtime_config = RuntimeConfig(
+        profile="dev_lab",
+        platform="mac",
+        mode="lab",
+        webapp=WebAppConfig(host="127.0.0.1", port=8000),
+        adapters={"camera": "hik_gige_mvs", "temp": "lu92xx_modbus_rtu", "plc": "mock"},
+    )
+    runtime_config.live.temp.control.startup_power_percent = 100.0
+    record = RunDraftRecord(
+        run_id="run-001",
+        profile="dev_lab",
+        preset="balloon",
+        temperature_settings=TemperatureSettingsBundle(
+            target_temperature_celsius=37.5,
+            output_power_percent=68.0,
+        ),
+    )
+
+    updated = _runtime_config_with_operator_output_power(runtime_config, record)
+
+    assert updated.live.temp.control.startup_power_percent == 68.0
+    assert runtime_config.live.temp.control.startup_power_percent == 100.0

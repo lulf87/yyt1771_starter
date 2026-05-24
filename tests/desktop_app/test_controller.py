@@ -58,7 +58,7 @@ def test_desktop_workbench_controller_runs_minimum_mock_flow(tmp_path: Path) -> 
     assert precheck["profile"] == "dev_mock"
     assert first_frame.source == "mock_camera"
     assert stopped_snapshot.frozen_frame_available is True
-    assert updated.status == RunStatus.RUN_READY
+    assert updated.status == RunStatus.DEFINITION_EDITING
     assert result is not None
     assert detail is not None
     assert telemetry is not None

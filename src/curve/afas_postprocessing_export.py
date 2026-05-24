@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import io
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-import matplotlib
-
-matplotlib.use("Agg")
-
-from matplotlib import pyplot as plt
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 def build_afas_analysis_png_bytes(
@@ -33,6 +31,7 @@ def build_afas_analysis_png_bytes(
         buffer.seek(0)
         return buffer.read()
     finally:
+        plt = _load_pyplot()
         plt.close(figure)
         buffer.close()
 
@@ -65,7 +64,8 @@ def _generate_afas_analysis_figure(
     analysis_result: Mapping[str, Any],
     *,
     channel_name: str,
-) -> plt.Figure:
+) -> "Figure":
+    plt = _load_pyplot()
     series = dict(analysis_result.get("series", {}))
     temperatures = [float(value) for value in series.get("temperature_celsius", [])]
     values = [float(value) for value in series.get("values", [])]
@@ -98,6 +98,15 @@ def _generate_afas_analysis_figure(
     axis.grid(True, alpha=0.18)
     axis.legend(loc="best")
     return figure
+
+
+def _load_pyplot():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+
+    return plt
 
 
 def _plot_segment(axis: Any, line: Any, color: str, label: str) -> None:

@@ -136,4 +136,6 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "ignore_internal_texture": definition.ignore_internal_texture,
         "min_target_area_px": definition.min_target_area_px,
         "sensitivity": definition.sensitivity,
+        "direction_angle_deg": definition.direction_angle_deg,
+        "direction_projection_mode": definition.direction_projection_mode,
     }

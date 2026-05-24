@@ -28,6 +28,10 @@
         </div>
 
         <div class="hero-utility-row">
+          <div id="fixture-video-switch" class="fixture-video-switch" hidden>
+            <label class="fixture-video-switch__label" for="fixture-video-select" data-i18n="home.fixture_video.label">模拟素材</label>
+            <select id="fixture-video-select" data-testid="fixture-video-select" aria-label="模拟素材" data-i18n-aria-label="home.fixture_video.label"></select>
+          </div>
           <div class="language-switch language-switch--compact" role="group" aria-label="界面语言" data-i18n-aria-label="common.language_group">
             <span class="language-switch-label" data-i18n="common.language_label">界面语言</span>
             <div class="language-switch-controls">
@@ -191,6 +195,13 @@
                   />
                 </div>
                 <div class="current-task-row">
+                  <label for="live-completion-mode" data-i18n="home.sections.temperature.completion_mode">结束方式</label>
+                  <select id="live-completion-mode" data-testid="live-completion-mode">
+                    <option value="target_reached" selected data-i18n="home.options.completion_target_reached">到目标温度自动停止</option>
+                    <option value="manual_stop_only" data-i18n="home.options.completion_manual_stop_only">只手动停止</option>
+                  </select>
+                </div>
+                <div class="current-task-row">
                   <label for="live-output-power-percent" data-i18n="home.sections.temperature.power">温度功率 (%)</label>
                   <input
                     id="live-output-power-percent"
@@ -221,6 +232,53 @@
         </aside>
       </section>
 
+      <section id="live-process-panel" class="panel live-process-panel" data-testid="live-process-panel" hidden>
+        <div class="live-process-head">
+          <h2>总览</h2>
+          <span id="live-process-status-pill" class="status-pill status-pending">等待</span>
+        </div>
+        <div class="live-process-layout">
+          <div class="live-process-chart-shell">
+            <svg
+              id="live-process-chart"
+              data-testid="live-process-chart"
+              class="live-process-chart"
+              viewBox="0 0 640 220"
+              role="img"
+              aria-label="实时过程曲线"
+            >
+              <g id="live-process-chart-layers"></g>
+              <text id="live-process-chart-empty" x="320" y="114" text-anchor="middle">暂无数据</text>
+            </svg>
+          </div>
+          <article id="live-process-status-card" class="live-process-status-card" data-testid="live-process-status-card">
+            <strong id="live-process-channel">Space1</strong>
+            <dl class="live-process-facts">
+              <div>
+                <dt>状态</dt>
+                <dd id="live-process-channel-status">等待</dd>
+              </div>
+              <div>
+                <dt>点数</dt>
+                <dd id="live-process-point-count" data-testid="live-process-point-count">0</dd>
+              </div>
+              <div>
+                <dt>离群点</dt>
+                <dd id="live-process-outlier-count" data-testid="live-process-outlier-count">0</dd>
+              </div>
+              <div>
+                <dt>As</dt>
+                <dd id="live-process-as-value" data-testid="live-process-as-value">--</dd>
+              </div>
+              <div>
+                <dt>Af-tan</dt>
+                <dd id="live-process-af-tan-value" data-testid="live-process-af-tan-value">--</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+      </section>
+
       <section id="home-completion-dock" class="panel home-completion-dock" hidden>
         <div class="home-completion-layout">
           <div class="home-completion-meta">
@@ -236,7 +294,8 @@
           </div>
           <div class="button-row home-completion-actions">
             <button id="save-session-data-btn" class="button-secondary" type="button" disabled data-i18n="home.actions.save_data">保存数据</button>
-            <a id="session-workspace-link" class="workspace-link workspace-link--hidden" href="#" data-i18n="home.actions.enter_analysis">进入分析</a>
+            <a id="session-workspace-link" class="workspace-link button-secondary workspace-link--hidden" href="#" data-i18n="home.actions.enter_analysis">进入分析</a>
+            <button id="new-live-test-btn" class="button-secondary" type="button" data-i18n="home.actions.new_test">新测试</button>
           </div>
         </div>
       </section>
@@ -405,6 +464,7 @@
                   </div>
                   <svg id="detail-curve" data-testid="detail-curve" viewBox="0 0 320 180" class="curve-svg" role="img" aria-label="Replay 曲线" data-i18n-aria-label="home.compact_result.replay_curve_label">
                     <rect x="0" y="0" width="320" height="180" class="curve-bg"></rect>
+                    <g id="detail-curve-layers"></g>
                     <polyline id="detail-curve-line" fill="none" points=""></polyline>
                   </svg>
                   <div id="detail-key-frames" class="key-frame-grid" data-testid="detail-key-frames">

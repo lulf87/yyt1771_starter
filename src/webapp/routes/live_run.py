@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import math
 import struct
 import time
 import zlib
@@ -52,8 +53,15 @@ from src.webapp.schemas import (
     TemperatureSettingsRequest,
     TemperatureSettingsResponse,
 )
-from src.vision.metric_two_point_distance import RoiLongestSpanPointDetector
-from src.workflow.live_run import summarize_measurement_profile, summarize_rate_snapshot, summarize_rate_warnings
+from src.vision.contour_direction import DirectionalContourConfig, DirectionalContourMetricExtractor
+from src.vision.metric_two_point_distance import RoiLongestSpanPointDetector, TwoPointDistanceMetricExtractor
+from src.workflow.live_run import (
+    ROI_LOCAL_WORKING_MAX_HEIGHT,
+    ROI_LOCAL_WORKING_MAX_WIDTH,
+    summarize_measurement_profile,
+    summarize_rate_snapshot,
+    summarize_rate_warnings,
+)
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 _PREVIEW_STREAM_BOUNDARY = "frame"
@@ -106,6 +114,9 @@ def save_measurement_definition(
     preview_service: LivePreviewService = Depends(get_live_preview_service),
     live_run_service: LiveRunService = Depends(get_live_run_service),
 ) -> RunDetailResponse:
+    draft = registry.get(run_id)
+    if draft is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
     definition = MeasurementDefinition(
         analysis_roi=RectRegion(
             x=payload.analysis_roi.x,
@@ -127,6 +138,8 @@ def save_measurement_definition(
         ignore_internal_texture=payload.ignore_internal_texture,
         min_target_area_px=payload.min_target_area_px,
         sensitivity=payload.sensitivity,
+        direction_angle_deg=payload.direction_angle_deg,
+        direction_projection_mode=_resolve_direction_projection_mode(payload, draft.preset),
         observation_axis=ObservationAxis(payload.observation_axis),
     )
     try:
@@ -164,7 +177,8 @@ def fetch_preview_frame(
             max_width=runtime_config.live.run.preview_display_max_width,
             max_height=runtime_config.live.run.preview_display_max_height,
         )
-        bitmap = enhance_preview_bitmap(bitmap)
+        if not _preview_frame_is_already_enhanced(frame):
+            bitmap = enhance_preview_bitmap(bitmap)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -173,7 +187,8 @@ def fetch_preview_frame(
 
     if not tracking:
         registry.mark_preview_frozen(run_id)
-    source_width, source_height = _frame_image_dimensions(frame)
+    frame_width, frame_height = _frame_image_dimensions(frame)
+    source_width, source_height = _frame_source_dimensions(frame, fallback=(frame_width, frame_height))
     if source_width < 1 or source_height < 1:
         source_width, source_height = bitmap.width, bitmap.height
     return Response(
@@ -283,7 +298,9 @@ def confirm_temperature_settings(
             target_temperature_celsius=float(payload.target_temperature_celsius),
             control_mode=str(payload.control_mode),
             output_power_percent=float(payload.output_power_percent),
+            completion_mode=str(payload.completion_mode or runtime_config.live.temp.control.completion_mode),
             confirmed_target_temperature_celsius=float(result["confirmed_target_temperature_celsius"]),
+            confirmed_output_power_percent=float(result["confirmed_output_power_percent"]),
             confirmed_at_ms=int(result["confirmed_at_ms"]),
             source=str(result["source"]),
         ),
@@ -304,7 +321,8 @@ def auto_detect_measurement_definition(
     registry: LiveRunDraftRegistry = Depends(get_live_run_registry),
     preview_service: LivePreviewService = Depends(get_live_preview_service),
 ) -> AutoDetectDefinitionResponse:
-    if registry.get(run_id) is None:
+    record = registry.get(run_id)
+    if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
 
     try:
@@ -316,29 +334,49 @@ def auto_detect_measurement_definition(
         ) from exc
 
     registry.mark_preview_frozen(run_id)
-    metric, threshold_mode_used = _best_auto_detect_metric(
+    metric, threshold_mode_used, foreground_polarity_used = _best_auto_detect_metric(
         frame=frame,
         payload=payload,
         runtime_config=runtime_config,
+        preset=record.preset,
     )
     if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Auto detection failed: {metric.meta.get('reason', 'unknown_error')}",
         )
-    detail = ""
-    if metric.quality < runtime_config.live.vision.quality_threshold:
-        detail = "Auto detection succeeded with low confidence. Please verify the ROI-local result and recompute if needed."
+    detail_parts: list[str] = []
+    if threshold_mode_used != payload.threshold_mode and foreground_polarity_used != payload.foreground_polarity:
+        detail_parts.append(
+            f"Auto detection selected {foreground_polarity_used} polarity and {threshold_mode_used} thresholding because that combination produced a higher-confidence ROI-local A/B result."
+        )
     elif threshold_mode_used != payload.threshold_mode:
-        detail = (
+        detail_parts.append(
             f"Auto detection selected {threshold_mode_used} thresholding because it produced a higher-confidence ROI-local A/B result."
         )
+    elif foreground_polarity_used != payload.foreground_polarity:
+        detail_parts.append(
+            f"Auto detection selected {foreground_polarity_used} polarity because it produced a higher-confidence ROI-local A/B result."
+        )
+    if metric.quality < runtime_config.live.vision.quality_threshold:
+        detail_parts.append(
+            "Auto detection succeeded with low confidence. Please verify the ROI-local result and recompute if needed."
+        )
+    detail = " ".join(detail_parts)
     return AutoDetectDefinitionResponse(
         point_a_px=PixelPointResponse(x=metric.point_a_px[0], y=metric.point_a_px[1]),
         point_b_px=PixelPointResponse(x=metric.point_b_px[0], y=metric.point_b_px[1]),
+        source_point_a_px=_metric_meta_point_response(metric, "source_point_a_px"),
+        source_point_b_px=_metric_meta_point_response(metric, "source_point_b_px"),
+        axis_point_a_px=_metric_meta_point_response(metric, "axis_point_a_px"),
+        axis_point_b_px=_metric_meta_point_response(metric, "axis_point_b_px"),
         quality=metric.quality,
         metric_raw=metric.metric_raw,
         threshold_mode_used=threshold_mode_used,
+        foreground_polarity_used=foreground_polarity_used,
+        direction_angle_deg=_metric_direction_angle_deg(metric),
+        direction_projection_mode=_metric_projection_mode(metric),
+        selection_mode=_metric_selection_mode(metric),
         detail=detail,
     )
 
@@ -396,6 +434,7 @@ def _best_auto_detect_metric(
     frame,
     payload: AutoDetectDefinitionRequest,
     runtime_config: RuntimeConfig,
+    preset: str = "balloon",
 ):
     analysis_roi = RectRegion(
         x=payload.analysis_roi.x,
@@ -403,6 +442,15 @@ def _best_auto_detect_metric(
         width=payload.analysis_roi.width,
         height=payload.analysis_roi.height,
     )
+    if payload.direction_angle_deg is not None:
+        return _best_directional_contour_metric(
+            frame=frame,
+            analysis_roi=analysis_roi,
+            payload=payload,
+            runtime_config=runtime_config,
+            preset=preset,
+        )
+
     metric_box = None if payload.metric_box is None else MetricBox(
         center_x=payload.metric_box.center_x,
         center_y=payload.metric_box.center_y,
@@ -410,28 +458,196 @@ def _best_auto_detect_metric(
         height=payload.metric_box.height,
         angle_deg=payload.metric_box.angle_deg,
     )
+    observation_axis = ObservationAxis(payload.observation_axis)
     selection_strategy = "roi_local_horizontal_boundary" if payload.metric_box is not None else "axis_aligned_span"
     threshold_modes = _candidate_threshold_modes(payload.threshold_mode)
     best_metric = None
     best_threshold_mode = payload.threshold_mode
+    best_foreground_polarity = payload.foreground_polarity
+
+    def _extract_candidate(foreground_polarity: str, threshold_mode: str):
+        if metric_box is not None and observation_axis == ObservationAxis.SHORT_AXIS:
+            detector = TwoPointDistanceMetricExtractor(
+                analysis_roi=analysis_roi,
+                metric_box=metric_box,
+                measurement_axis_deg=float(metric_box.angle_deg) + 90.0,
+                foreground_polarity=foreground_polarity,
+                threshold_mode=threshold_mode,
+                threshold_margin=runtime_config.live.vision.edge_threshold,
+                ignore_internal_texture=payload.ignore_internal_texture,
+                min_target_area_px=payload.min_target_area_px,
+                quality_threshold=runtime_config.live.vision.quality_threshold,
+                sensitivity=payload.sensitivity,
+                selection_strategy="auto_extremes",
+            )
+        else:
+            detector = RoiLongestSpanPointDetector(
+                analysis_roi=analysis_roi,
+                roi_box=metric_box,
+                foreground_polarity=foreground_polarity,
+                threshold_mode=threshold_mode,
+                threshold_margin=runtime_config.live.vision.edge_threshold,
+                ignore_internal_texture=payload.ignore_internal_texture,
+                min_target_area_px=payload.min_target_area_px,
+                quality_threshold=runtime_config.live.vision.quality_threshold,
+                sensitivity=payload.sensitivity,
+                selection_strategy=selection_strategy,
+                working_max_width=ROI_LOCAL_WORKING_MAX_WIDTH,
+                working_max_height=ROI_LOCAL_WORKING_MAX_HEIGHT,
+            )
+        return detector.extract(frame)
+
+    requested_polarity_best = None
+    requested_polarity_threshold = payload.threshold_mode
     for threshold_mode in threshold_modes:
-        detector = RoiLongestSpanPointDetector(
-            analysis_roi=analysis_roi,
-            roi_box=metric_box,
-            foreground_polarity=payload.foreground_polarity,
-            threshold_mode=threshold_mode,
-            threshold_margin=runtime_config.live.vision.edge_threshold,
-            ignore_internal_texture=payload.ignore_internal_texture,
-            min_target_area_px=payload.min_target_area_px,
-            quality_threshold=runtime_config.live.vision.quality_threshold,
-            sensitivity=payload.sensitivity,
-            selection_strategy=selection_strategy,
-        )
-        candidate_metric = detector.extract(frame)
-        if best_metric is None or _auto_detect_metric_rank(candidate_metric) > _auto_detect_metric_rank(best_metric):
+        candidate_metric = _extract_candidate(payload.foreground_polarity, threshold_mode)
+        if best_metric is None or _auto_detect_metric_rank(candidate_metric, analysis_roi, metric_box=metric_box) > _auto_detect_metric_rank(best_metric, analysis_roi, metric_box=metric_box):
             best_metric = candidate_metric
             best_threshold_mode = threshold_mode
-    return best_metric, best_threshold_mode
+            best_foreground_polarity = payload.foreground_polarity
+        if requested_polarity_best is None or _auto_detect_metric_rank(candidate_metric, analysis_roi, metric_box=metric_box) > _auto_detect_metric_rank(
+            requested_polarity_best,
+            analysis_roi,
+            metric_box=metric_box,
+        ):
+            requested_polarity_best = candidate_metric
+            requested_polarity_threshold = threshold_mode
+
+    if _auto_detect_metric_is_acceptably_specific(
+        requested_polarity_best,
+        analysis_roi,
+        metric_box=metric_box,
+        quality_threshold=runtime_config.live.vision.quality_threshold,
+    ):
+        return requested_polarity_best, requested_polarity_threshold, payload.foreground_polarity
+
+    for foreground_polarity in _candidate_foreground_polarities(payload.foreground_polarity):
+        if foreground_polarity == payload.foreground_polarity:
+            continue
+        for threshold_mode in threshold_modes:
+            candidate_metric = _extract_candidate(foreground_polarity, threshold_mode)
+            if best_metric is None or _auto_detect_metric_rank(candidate_metric, analysis_roi, metric_box=metric_box) > _auto_detect_metric_rank(best_metric, analysis_roi, metric_box=metric_box):
+                best_metric = candidate_metric
+                best_threshold_mode = threshold_mode
+                best_foreground_polarity = foreground_polarity
+    return best_metric, best_threshold_mode, best_foreground_polarity
+
+
+def _best_directional_contour_metric(
+    *,
+    frame,
+    analysis_roi: RectRegion,
+    payload: AutoDetectDefinitionRequest,
+    runtime_config: RuntimeConfig,
+    preset: str = "balloon",
+):
+    requested_threshold_mode = str(payload.threshold_mode)
+    threshold_modes = _candidate_threshold_modes(requested_threshold_mode)
+    best_metric = None
+    best_threshold_mode = requested_threshold_mode
+    best_foreground_polarity = payload.foreground_polarity
+    requested_metric = None
+    requested_foreground_polarity = payload.foreground_polarity
+    metric_box = None if payload.metric_box is None else MetricBox(
+        center_x=payload.metric_box.center_x,
+        center_y=payload.metric_box.center_y,
+        width=payload.metric_box.width,
+        height=payload.metric_box.height,
+        angle_deg=payload.metric_box.angle_deg,
+    )
+    for foreground_polarity in _candidate_foreground_polarities(payload.foreground_polarity):
+        candidate_metric = _extract_directional_auto_detect_metric(
+            frame=frame,
+            analysis_roi=analysis_roi,
+            payload=payload,
+            runtime_config=runtime_config,
+            preset=preset,
+            foreground_polarity=foreground_polarity,
+            threshold_mode=requested_threshold_mode,
+        )
+        if requested_metric is None or _directional_auto_detect_metric_rank(
+            candidate_metric,
+            analysis_roi,
+            metric_box=metric_box,
+        ) > _directional_auto_detect_metric_rank(
+            requested_metric,
+            analysis_roi,
+            metric_box=metric_box,
+        ):
+            requested_metric = candidate_metric
+            requested_foreground_polarity = foreground_polarity
+    if requested_metric is not None and _directional_metric_is_acceptably_specific(
+        requested_metric,
+        analysis_roi,
+        metric_box=metric_box,
+        quality_threshold=runtime_config.live.vision.quality_threshold,
+    ):
+        return requested_metric, requested_threshold_mode, requested_foreground_polarity
+    best_metric = requested_metric
+    best_foreground_polarity = requested_foreground_polarity
+    for foreground_polarity in _candidate_foreground_polarities(payload.foreground_polarity):
+        for threshold_mode in threshold_modes:
+            if threshold_mode == requested_threshold_mode:
+                continue
+            candidate_metric = _extract_directional_auto_detect_metric(
+                frame=frame,
+                analysis_roi=analysis_roi,
+                payload=payload,
+                runtime_config=runtime_config,
+                preset=preset,
+                foreground_polarity=foreground_polarity,
+                threshold_mode=threshold_mode,
+            )
+            if best_metric is None or _directional_auto_detect_metric_rank(
+                candidate_metric,
+                analysis_roi,
+                metric_box=metric_box,
+            ) > _directional_auto_detect_metric_rank(
+                best_metric,
+                analysis_roi,
+                metric_box=metric_box,
+            ):
+                best_metric = candidate_metric
+                best_threshold_mode = threshold_mode
+                best_foreground_polarity = foreground_polarity
+    return best_metric, best_threshold_mode, best_foreground_polarity
+
+
+def _extract_directional_auto_detect_metric(
+    *,
+    frame,
+    analysis_roi: RectRegion,
+    payload: AutoDetectDefinitionRequest,
+    runtime_config: RuntimeConfig,
+    preset: str,
+    foreground_polarity: str,
+    threshold_mode: str,
+):
+    metric_box = None if payload.metric_box is None else MetricBox(
+        center_x=payload.metric_box.center_x,
+        center_y=payload.metric_box.center_y,
+        width=payload.metric_box.width,
+        height=payload.metric_box.height,
+        angle_deg=payload.metric_box.angle_deg,
+    )
+    detector = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=analysis_roi,
+            direction_angle_deg=float(payload.direction_angle_deg),
+            metric_box=metric_box,
+            foreground_polarity=foreground_polarity,
+            threshold_mode=threshold_mode,
+            threshold_value=runtime_config.live.vision.edge_threshold,
+            ignore_internal_texture=payload.ignore_internal_texture,
+            min_target_area_px=payload.min_target_area_px,
+            sensitivity=payload.sensitivity,
+            component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
+                payload.sensitivity
+            ),
+            projection_mode=_resolve_direction_projection_mode(payload, preset),
+        )
+    )
+    return detector.extract(frame)
 
 
 def _candidate_threshold_modes(requested_threshold_mode: str) -> list[str]:
@@ -443,11 +659,212 @@ def _candidate_threshold_modes(requested_threshold_mode: str) -> list[str]:
     return candidates
 
 
-def _auto_detect_metric_rank(metric) -> tuple[float, float, int]:
+def _candidate_foreground_polarities(requested_foreground_polarity: str) -> list[str]:
+    alternate = "light_on_dark" if requested_foreground_polarity == "dark_on_light" else "dark_on_light"
+    return [requested_foreground_polarity, alternate]
+
+
+def _directional_component_bridge_kernel_for_sensitivity(sensitivity: float) -> int:
+    normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
+    if normalized <= 0.5:
+        size = 3.0 + (normalized / 0.5) * 8.0
+    else:
+        size = 11.0 + ((normalized - 0.5) / 0.5) * 28.0
+    kernel = max(1, int(round(size)))
+    if kernel % 2 == 0:
+        kernel += 1
+    return kernel
+
+
+def _auto_detect_metric_rank(
+    metric,
+    analysis_roi: RectRegion,
+    *,
+    metric_box: MetricBox | None = None,
+) -> tuple[float, int, int, int, float, int]:
     point_score = 1 if metric.metric_raw is not None and metric.point_a_px is not None and metric.point_b_px is not None else 0
+    component_area = int(getattr(metric, "meta", {}).get("component_area") or 0)
+    roi_area = max(int(analysis_roi.width) * int(analysis_roi.height), 1)
+    endpoint_border_touch_count = _auto_detect_endpoint_edge_touch_count(metric, analysis_roi, metric_box=metric_box)
+    target_component_score = 0 if component_area >= int(roi_area * 0.85) or endpoint_border_touch_count >= 2 else 1
+    endpoint_interior_score = 2 - endpoint_border_touch_count
     quality = float(metric.quality or 0.0)
     span = float(metric.metric_raw or 0.0)
-    return (point_score, quality, int(round(span)))
+    span_reference = _auto_detect_span_reference(analysis_roi, metric_box=metric_box)
+    span_ratio = min(1.0, span / max(span_reference, 1.0))
+    # A single ROI/metric edge touch can be a legitimate physical boundary when
+    # the operator drew the ROI close to the sample. Bucket the horizontal span
+    # before the edge penalty so a clearly fuller envelope can win, while still
+    # preferring interior endpoints when candidates cover the same object span.
+    span_bucket = int(math.floor(span_ratio / 0.15))
+    return (point_score, target_component_score, span_bucket, endpoint_interior_score, quality, int(round(span)))
+
+
+def _directional_auto_detect_metric_rank(
+    metric,
+    analysis_roi: RectRegion,
+    *,
+    metric_box: MetricBox | None = None,
+) -> tuple[float, int, int, float, int]:
+    point_score = 1 if metric.metric_raw is not None and metric.point_a_px is not None and metric.point_b_px is not None else 0
+    component_area = int(getattr(metric, "meta", {}).get("component_area") or 0)
+    roi_area = max(int(analysis_roi.width) * int(analysis_roi.height), 1)
+    target_component_score = 0 if component_area >= int(roi_area * 0.85) else 1
+    endpoint_interior_score = 2 - _auto_detect_endpoint_edge_touch_count(metric, analysis_roi, metric_box=metric_box)
+    quality = float(metric.quality or 0.0)
+    span = float(metric.metric_raw or 0.0)
+    return (point_score, target_component_score, endpoint_interior_score, quality, int(round(span)))
+
+
+def _auto_detect_metric_is_acceptably_specific(
+    metric,
+    analysis_roi: RectRegion,
+    *,
+    metric_box: MetricBox | None = None,
+    quality_threshold: float,
+) -> bool:
+    if metric is None or metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return False
+    component_area = int(getattr(metric, "meta", {}).get("component_area") or 0)
+    roi_area = max(int(analysis_roi.width) * int(analysis_roi.height), 1)
+    if component_area >= int(roi_area * 0.85):
+        return False
+    if _auto_detect_endpoint_edge_touch_count(metric, analysis_roi, metric_box=metric_box) >= 2:
+        return False
+    return float(metric.quality or 0.0) >= float(quality_threshold)
+
+
+def _auto_detect_span_reference(analysis_roi: RectRegion, *, metric_box: MetricBox | None) -> float:
+    if metric_box is not None:
+        return float(max(metric_box.width, 1))
+    return float(max(analysis_roi.width, analysis_roi.height, 1))
+
+
+def _auto_detect_endpoint_edge_touch_count(
+    metric,
+    analysis_roi: RectRegion,
+    *,
+    metric_box: MetricBox | None,
+) -> int:
+    analysis_touch_count = _directional_endpoint_border_touch_count(metric, analysis_roi)
+    if metric_box is None:
+        return analysis_touch_count
+    return max(analysis_touch_count, _metric_box_endpoint_edge_touch_count(metric, metric_box))
+
+
+def _metric_box_endpoint_edge_touch_count(metric, metric_box: MetricBox) -> int:
+    points = [metric.point_a_px, metric.point_b_px]
+    if any(point is None for point in points):
+        return 2
+    margin = max(2.0, float(min(metric_box.width, metric_box.height)) * 0.025)
+    half_width = float(metric_box.width) / 2.0
+    half_height = float(metric_box.height) / 2.0
+    angle_rad = math.radians(float(metric_box.angle_deg))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    touches = 0
+    for point in points:
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except (TypeError, ValueError, IndexError):
+            touches += 1
+            continue
+        translated_x = x - float(metric_box.center_x)
+        translated_y = y - float(metric_box.center_y)
+        local_x = translated_x * cos_theta + translated_y * sin_theta
+        local_y = -translated_x * sin_theta + translated_y * cos_theta
+        if (
+            local_x <= -half_width + margin
+            or local_x >= half_width - margin
+            or local_y <= -half_height + margin
+            or local_y >= half_height - margin
+        ):
+            touches += 1
+    return min(2, touches)
+
+
+def _directional_endpoint_border_touch_count(metric, analysis_roi: RectRegion) -> int:
+    points = [metric.point_a_px, metric.point_b_px]
+    if any(point is None for point in points):
+        return 2
+    margin = max(1, int(round(float(min(int(analysis_roi.width), int(analysis_roi.height))) * 0.015)))
+    left = int(analysis_roi.x) + margin
+    right = int(analysis_roi.x + analysis_roi.width) - 1 - margin
+    top = int(analysis_roi.y) + margin
+    bottom = int(analysis_roi.y + analysis_roi.height) - 1 - margin
+    touches = 0
+    for point in points:
+        try:
+            x = int(point[0])
+            y = int(point[1])
+        except (TypeError, ValueError, IndexError):
+            touches += 1
+            continue
+        if x <= left or x >= right or y <= top or y >= bottom:
+            touches += 1
+    return min(2, touches)
+
+
+def _directional_metric_is_acceptably_specific(
+    metric,
+    analysis_roi: RectRegion,
+    *,
+    metric_box: MetricBox | None = None,
+    quality_threshold: float,
+) -> bool:
+    if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return False
+    component_area = int(getattr(metric, "meta", {}).get("component_area") or 0)
+    roi_area = max(int(analysis_roi.width) * int(analysis_roi.height), 1)
+    if component_area >= int(roi_area * 0.85):
+        return False
+    if _auto_detect_endpoint_edge_touch_count(metric, analysis_roi, metric_box=metric_box) >= 2:
+        return False
+    return float(metric.quality or 0.0) >= float(quality_threshold)
+
+
+def _metric_direction_angle_deg(metric) -> float | None:
+    value = getattr(metric, "meta", {}).get("direction_angle_deg")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_projection_mode(metric) -> str:
+    value = getattr(metric, "meta", {}).get("projection_point_mode")
+    if value in {"max_chord", "mask_projection"}:
+        return str(value)
+    return "auto"
+
+
+def _resolve_direction_projection_mode(payload, preset: str) -> str:
+    explicit_fields = getattr(payload, "model_fields_set", set())
+    if "direction_projection_mode" in explicit_fields:
+        return str(payload.direction_projection_mode)
+    return _default_direction_projection_mode_for_preset(preset)
+
+
+def _default_direction_projection_mode_for_preset(preset: str) -> str:
+    return "auto"
+
+
+def _metric_selection_mode(metric) -> str | None:
+    value = getattr(metric, "meta", {}).get("selection_mode")
+    return None if value is None else str(value)
+
+
+def _metric_meta_point_response(metric, key: str) -> PixelPointResponse | None:
+    value = getattr(metric, "meta", {}).get(key)
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        return PixelPointResponse(x=int(value[0]), y=int(value[1]))
+    except (TypeError, ValueError):
+        return None
 
 
 @router.post("/{run_id}/stop", response_model=RunDetailResponse)
@@ -552,6 +969,25 @@ def _frame_image_dimensions(frame) -> tuple[int, int]:
             return (len(first_row), height)
         return (height, 1)
     return (0, 0)
+
+
+def _frame_source_dimensions(frame, *, fallback: tuple[int, int]) -> tuple[int, int]:
+    meta = getattr(frame, "meta", None)
+    if isinstance(meta, dict):
+        try:
+            source_width = int(meta.get("tracking_preview_source_width", 0) or 0)
+            source_height = int(meta.get("tracking_preview_source_height", 0) or 0)
+        except (TypeError, ValueError):
+            source_width = 0
+            source_height = 0
+        if source_width > 0 and source_height > 0:
+            return source_width, source_height
+    return fallback
+
+
+def _preview_frame_is_already_enhanced(frame) -> bool:
+    meta = getattr(frame, "meta", None)
+    return isinstance(meta, dict) and bool(meta.get("tracking_preview_already_enhanced"))
 
 
 def _build_run_detail(
@@ -694,6 +1130,8 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         ignore_internal_texture=definition.ignore_internal_texture,
         min_target_area_px=definition.min_target_area_px,
         sensitivity=definition.sensitivity,
+        direction_angle_deg=definition.direction_angle_deg,
+        direction_projection_mode=definition.direction_projection_mode,
     )
 
 
@@ -707,7 +1145,13 @@ def _build_temperature_settings(settings: TemperatureSettingsBundle) -> Temperat
         target_temperature_celsius=float(settings.target_temperature_celsius),
         control_mode=str(settings.control_mode),
         output_power_percent=float(settings.output_power_percent),
+        completion_mode=str(settings.completion_mode),
         confirmed_target_temperature_celsius=confirmed_target,
+        confirmed_output_power_percent=(
+            float(settings.confirmed_output_power_percent)
+            if settings.confirmed_output_power_percent is not None
+            else None
+        ),
         confirmed_at_ms=int(settings.confirmed_at_ms),
         source=str(settings.source),
     )
@@ -720,11 +1164,10 @@ def _write_and_confirm_temperature_settings(
     output_power_percent: float,
 ) -> dict[str, object]:
     controller.set_target_temperature(target_temperature_celsius)
-    maybe_set_power = getattr(controller, "set_output_power_percent", None)
-    if callable(maybe_set_power):
-        maybe_set_power(output_power_percent)
+    controller.set_output_power_percent(output_power_percent)
     return {
         "confirmed_target_temperature_celsius": float(controller.read_target_temperature()),
+        "confirmed_output_power_percent": float(controller.read_output_power_percent()),
         "confirmed_at_ms": int(time.time() * 1000),
         "source": type(controller).__name__,
     }

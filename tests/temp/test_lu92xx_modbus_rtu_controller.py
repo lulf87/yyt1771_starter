@@ -157,6 +157,32 @@ def test_start_output_writes_scaled_power_register() -> None:
     assert transport.writes[0][:6] == bytes([1, 6, 0x00, 0x04, 0x64, 0x00])
 
 
+def test_set_output_power_percent_writes_requested_scaled_power_register() -> None:
+    transport = FakeSerialTransport(responses=[_write_response(1, 6, 4, 17408)])
+    controller = LU92XXModbusRtuController(_config(), transport_factory=lambda serial: transport)
+
+    controller.set_output_power_percent(68.0)
+
+    assert transport.writes[0][:6] == bytes([1, 6, 0x00, 0x04, 0x44, 0x00])
+
+
+def test_read_output_power_percent_decodes_scaled_power_register() -> None:
+    transport = FakeSerialTransport(responses=[_read_response(1, 3, [17408])])
+    controller = LU92XXModbusRtuController(_config(), transport_factory=lambda serial: transport)
+
+    confirmed = controller.read_output_power_percent()
+
+    assert confirmed == 68.0
+    assert transport.writes[0][:6] == bytes([1, 3, 0x00, 0x04, 0x00, 0x01])
+
+
+def test_set_output_power_percent_rejects_out_of_range_values() -> None:
+    controller = LU92XXModbusRtuController(_config())
+
+    with pytest.raises(ValueError, match="output power percent"):
+        controller.set_output_power_percent(100.1)
+
+
 def test_stop_output_writes_zero_even_if_already_stopped() -> None:
     transport = FakeSerialTransport(
         responses=[

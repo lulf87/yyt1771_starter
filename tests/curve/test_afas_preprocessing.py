@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from src.curve.afas_postprocessing_dataset import build_afas_postprocessing_dataset
@@ -147,3 +149,62 @@ def test_preprocess_afas_channel_gracefully_skips_smoothing_when_dataset_too_sho
     assert result["smoothed"]["applied"] is False
     assert "cannot be larger than data length" in result["warnings"][0]
     assert result["smoothed"]["values"] == pytest.approx(result["outlier_repair"]["values"])
+
+
+def test_preprocess_afas_channel_skips_full_length_savgol_window_to_avoid_edge_distortion() -> None:
+    sync_points = [
+        _sync_point(1000 + index * 100, 25.0 + index * 0.5, 100.0 + max(0, index - 20) * 3.0, index)
+        for index in range(51)
+    ]
+    dataset = build_afas_postprocessing_dataset(
+        session_id="run-afas-003",
+        definition=_definition(),
+        sync_points=sync_points,
+        channel_name="Space1",
+        analysis_engine="afas",
+        capture_mode="post_run_review",
+        rates={"measurement_sample_hz": 5.0},
+        measurement_profile={"exposure_us": 10000},
+        warnings=[],
+        live_result_snapshot={"result_status": "ok", "af95": 74.0},
+    )
+
+    result = preprocess_afas_channel(dataset)
+
+    assert result["smoothed"]["applied"] is False
+    assert "covers the full data length" in result["warnings"][0]
+    assert result["smoothed"]["values"] == pytest.approx(result["outlier_repair"]["values"])
+
+
+def test_preprocess_afas_channel_caps_large_savgol_window_to_avoid_terminal_edge_reversal() -> None:
+    sync_points = []
+    for index in range(63):
+        temperature = 11.0 + index * 0.1
+        curve_position = -4.0 + 8.0 * index / 62.0
+        metric_raw = 883.0 - 124.0 / (1.0 + math.exp(-curve_position))
+        sync_points.append(_sync_point(1000 + index * 100, temperature, metric_raw, index))
+    dataset = build_afas_postprocessing_dataset(
+        session_id="run-afas-edge-guard",
+        definition=_definition(),
+        sync_points=sync_points,
+        channel_name="Space1",
+        analysis_engine="afas",
+        capture_mode="post_run_review",
+        rates={"measurement_sample_hz": 5.0},
+        measurement_profile={"exposure_us": 10000},
+        warnings=[],
+        live_result_snapshot={"result_status": "ok", "af95": 74.0},
+    )
+
+    result = preprocess_afas_channel(
+        dataset,
+        parameter_overrides={
+            "savgol_window_length": 51,
+            "savgol_polyorder": 3,
+        },
+    )
+
+    smoothed_values = result["smoothed"]["values"]
+    assert result["smoothed"]["applied"] is True
+    assert any("reduced" in warning and "edge distortion" in warning for warning in result["warnings"])
+    assert smoothed_values[-1] <= min(smoothed_values[-20:]) + 0.25

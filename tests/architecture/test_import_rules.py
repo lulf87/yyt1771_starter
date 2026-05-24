@@ -17,10 +17,12 @@ ALLOWED_DEPENDENCIES = {
     "vision": {"core"},
     "sync": {"core"},
     "curve": {"core"},
-    "storage": {"core"},
+    "storage": {"core", "vision"},
     "report": {"core"},
+    "application": {"core", "camera", "temp", "plc", "vision", "curve", "workflow", "storage", "report"},
     "workflow": {"core", "camera", "temp", "plc", "vision", "sync", "curve", "storage", "report"},
-    "webapp": {"core", "workflow", "storage", "report"},
+    "webapp": {"application", "core", "desktop_app", "workflow", "storage", "report", "curve", "vision"},
+    "desktop_app": {"application", "core", "camera", "workflow"},
 }
 
 

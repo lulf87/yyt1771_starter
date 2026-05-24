@@ -10,9 +10,10 @@ SRC_ROOT = PROJECT_ROOT / "src"
 TESTS_ROOT = PROJECT_ROOT / "tests"
 
 ALLOWED_TOP_LEVEL_DIRS = {"configs", "docs", "examples", "src", "tests"}
-IGNORED_TOP_LEVEL_DIRS = {".git", ".pytest_cache", "__pycache__"}
+IGNORED_TOP_LEVEL_DIRS = {".git", ".pytest_cache", "__pycache__", "MvSdkLog", "tmp"}
 DISALLOWED_TOP_LEVEL_DIRS = {"scripts", "utils", "common", "shared", "misc", "temp_files", "frontend"}
 ALLOWED_SRC_MODULES = {
+    "application",
     "core",
     "camera",
     "temp",
@@ -24,8 +25,10 @@ ALLOWED_SRC_MODULES = {
     "storage",
     "report",
     "webapp",
+    "desktop_app",
 }
 ALLOWED_TEST_DIRS = {
+    "application",
     "architecture",
     "camera",
     "core",
@@ -35,11 +38,13 @@ ALLOWED_TEST_DIRS = {
     "storage",
     "sync",
     "temp",
+    "desktop_app",
+    "fixtures",
     "vision",
     "webapp",
     "workflow",
 }
-ALLOWED_ROOT_FILES = {"README.md", "pyproject.toml", ".gitignore"}
+ALLOWED_ROOT_FILES = {"README.md", "pyproject.toml", ".gitignore", "uv.lock"}
 ALLOWED_TOOL_CONFIG_SUFFIXES = {".toml", ".ini", ".cfg"}
 
 

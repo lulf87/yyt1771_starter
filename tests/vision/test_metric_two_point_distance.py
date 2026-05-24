@@ -1,11 +1,14 @@
 import math
 
 import numpy as np
+import pytest
 
 from src.core.models import FramePacket, MetricBox, PixelPoint, RectRegion
 from src.vision.metric_two_point_distance import (
     RoiLongestSpanPointDetector,
     TwoPointDistanceMetricExtractor,
+    _point_in_metric_box,
+    _roi_local_horizontal_boundary_points,
     normalize_frame_image,
 )
 
@@ -222,6 +225,89 @@ def test_extractor_can_downsample_large_working_box_and_remap_points_to_source_s
     assert metric.meta["working_scale_y"] > 1.0
 
 
+def test_roi_longest_span_setup_detector_can_downsample_and_remap_to_source_space() -> None:
+    image = np.full((600, 800), 220, dtype=np.uint8)
+    image[250:310, 260:540] = 30
+    extractor = RoiLongestSpanPointDetector(
+        analysis_roi=RectRegion(x=180, y=220, width=440, height=140),
+        roi_box=MetricBox(center_x=400, center_y=280, width=320, height=100, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=100,
+        sensitivity=100,
+        selection_strategy="roi_local_horizontal_boundary",
+        working_max_width=160,
+        working_max_height=80,
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert abs(metric.point_a_px[0] - 260) <= 3
+    assert abs(metric.point_b_px[0] - 539) <= 3
+    assert abs(metric.point_a_px[1] - 280) <= 3
+    assert abs(metric.point_b_px[1] - 280) <= 3
+    assert metric.meta["working_scale_x"] > 1.0
+    assert metric.meta["working_scale_y"] > 1.0
+
+
+def test_downsampled_live_extractor_reports_overlay_points_in_measurement_frame_space() -> None:
+    image = np.full((600, 800), 220, dtype=np.uint8)
+    image[250:310, 260:540] = 30
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=180, y=220, width=440, height=140),
+        metric_box=MetricBox(center_x=400, center_y=280, width=320, height=100, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=100,
+        selection_strategy="roi_local_horizontal_boundary",
+        working_max_width=160,
+        working_max_height=80,
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert metric.meta["point_a_px_local"] == [metric.point_a_px[0], metric.point_a_px[1]]
+    assert metric.meta["point_b_px_local"] == [metric.point_b_px[0], metric.point_b_px[1]]
+
+
+def test_downsampled_live_extractor_keeps_rotated_metric_box_inside_working_roi() -> None:
+    image = np.zeros((818, 1120), dtype=np.uint8)
+    metric_box = MetricBox(center_x=560, center_y=508, width=860, height=120, angle_deg=31.0)
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=0, y=198, width=1120, height=620),
+        metric_box=metric_box,
+        foreground_polarity="light_on_dark",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=200,
+        sensitivity=0.5,
+        selection_strategy="roi_local_horizontal_boundary",
+        working_max_width=256,
+        working_max_height=160,
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.meta.get("reason") != "metric_box_outside_roi"
+    assert metric.meta["working_scale_x"] > 1.0
+    assert metric.meta["working_scale_y"] > 1.0
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    point_a = PixelPoint(*metric.point_a_px)
+    point_b = PixelPoint(*metric.point_b_px)
+    assert _point_in_metric_box(metric_box, point_a.x, point_a.y)
+    assert _point_in_metric_box(metric_box, point_b.x, point_b.y)
+    assert metric.metric_raw >= 0.95 * metric_box.width
+
+
 def test_measurement_axis_can_follow_short_axis_without_rotating_metric_box_geometry() -> None:
     image = _draw_rect(_blank(width=14, height=10, value=220), x=2, y=2, width=8, height=5, value=40)
     extractor = TwoPointDistanceMetricExtractor(
@@ -237,9 +323,46 @@ def test_measurement_axis_can_follow_short_axis_without_rotating_metric_box_geom
     metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
 
     assert metric.metric_raw is not None
-    assert metric.point_a_px == (5, 2)
-    assert metric.point_b_px == (5, 6)
+    assert metric.point_a_px == (6, 2)
+    assert metric.point_b_px == (6, 6)
     assert metric.meta["measurement_axis_deg"] == 90.0
+
+
+def test_rotated_short_axis_measurement_uses_directional_width_run_instead_of_component_extremes() -> None:
+    width = 240
+    height = 160
+    image = np.full((height, width), 220, dtype=np.uint8)
+    band_angle_deg = -32.0
+    band_angle_rad = math.radians(band_angle_deg)
+    center_x = 120
+    center_y = 80
+    for local_x in range(-90, 91):
+        for local_y in range(-18, 19):
+            world_x = int(round(center_x + local_x * math.cos(band_angle_rad) - local_y * math.sin(band_angle_rad)))
+            world_y = int(round(center_y + local_x * math.sin(band_angle_rad) + local_y * math.cos(band_angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 40
+
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=0, y=0, width=width, height=height),
+        metric_box=MetricBox(center_x=center_x, center_y=center_y, width=140, height=70, angle_deg=band_angle_deg),
+        measurement_axis_deg=band_angle_deg + 90.0,
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=90,
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+        sensitivity=50,
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px == (137, 48)
+    assert metric.point_b_px == (91, 120)
+    assert 80.0 <= metric.metric_raw <= 86.0
+    assert metric.meta["selection_mode"] == "auto_extremes"
+    assert metric.meta["measurement_axis_deg"] == 58.0
 
 
 def test_ignore_internal_texture_fills_split_target_before_extreme_detection() -> None:
@@ -560,6 +683,10 @@ def test_roi_local_horizontal_boundary_accepts_tight_rotated_roi_bounds() -> Non
     assert metric.metric_raw is not None
     assert metric.meta["selection_mode"] == "roi_local_horizontal_boundary"
     assert metric.meta.get("reason") != "roi_box_outside_roi"
+    point_a = PixelPoint(*metric.point_a_px)
+    point_b = PixelPoint(*metric.point_b_px)
+    assert _point_in_metric_box(roi_box, point_a.x, point_a.y)
+    assert _point_in_metric_box(roi_box, point_b.x, point_b.y)
 
 
 def test_roi_local_horizontal_boundary_ignores_detached_far_side_noise() -> None:
@@ -589,6 +716,254 @@ def test_roi_local_horizontal_boundary_ignores_detached_far_side_noise() -> None
     assert metric.meta["selection_mode"] == "roi_local_horizontal_boundary"
     assert metric.point_a_px == (14, 20)
     assert metric.point_b_px == (38, 20)
+
+
+def test_roi_local_horizontal_boundary_returns_points_on_physical_contour() -> None:
+    image = _blank(width=56, height=40, value=240)
+    for x in range(14, 39):
+        image[17][x] = 24
+
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=10, y=12, width=42, height=18),
+        metric_box=MetricBox(center_x=28, center_y=20, width=34, height=12, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=20,
+        min_target_area_px=8,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px == (14, 17)
+    assert metric.point_b_px == (38, 17)
+    assert image[metric.point_a_px[1]][metric.point_a_px[0]] == 24
+    assert image[metric.point_b_px[1]][metric.point_b_px[0]] == 24
+    assert metric.meta["source_point_a_px"] == (14, 17)
+    assert metric.meta["source_point_b_px"] == (38, 17)
+    assert metric.meta["axis_point_a_px"] == (14, 20)
+    assert metric.meta["axis_point_b_px"] == (38, 20)
+
+
+def test_roi_local_horizontal_boundary_keeps_rotated_points_on_physical_contour() -> None:
+    image = _blank(width=72, height=72, value=240)
+    roi_box = MetricBox(center_x=36, center_y=36, width=34, height=14, angle_deg=28.0)
+    angle_rad = math.radians(roi_box.angle_deg)
+    physical_pixels: set[tuple[int, int]] = set()
+
+    for local_x in range(-13, 14):
+        local_y = 3
+        world_x = int(round(roi_box.center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+        world_y = int(round(roi_box.center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+        if 0 <= world_x < 72 and 0 <= world_y < 72:
+            image[world_y][world_x] = 24
+            physical_pixels.add((world_x, world_y))
+
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=16, y=16, width=40, height=40),
+        metric_box=roi_box,
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=20,
+        min_target_area_px=12,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px in physical_pixels
+    assert metric.point_b_px in physical_pixels
+    point_a = PixelPoint(*metric.point_a_px)
+    point_b = PixelPoint(*metric.point_b_px)
+    axis_a = PixelPoint(*metric.meta["axis_point_a_px"])
+    axis_b = PixelPoint(*metric.meta["axis_point_b_px"])
+    point_a_local_y = -(point_a.x - roi_box.center_x) * math.sin(angle_rad) + (point_a.y - roi_box.center_y) * math.cos(angle_rad)
+    point_b_local_y = -(point_b.x - roi_box.center_x) * math.sin(angle_rad) + (point_b.y - roi_box.center_y) * math.cos(angle_rad)
+    axis_a_local_y = -(axis_a.x - roi_box.center_x) * math.sin(angle_rad) + (axis_a.y - roi_box.center_y) * math.cos(angle_rad)
+    axis_b_local_y = -(axis_b.x - roi_box.center_x) * math.sin(angle_rad) + (axis_b.y - roi_box.center_y) * math.cos(angle_rad)
+    assert point_a_local_y == pytest.approx(3.0, abs=0.8)
+    assert point_b_local_y == pytest.approx(3.0, abs=0.8)
+    assert axis_a_local_y == pytest.approx(0.0, abs=0.8)
+    assert axis_b_local_y == pytest.approx(0.0, abs=0.8)
+
+
+def test_roi_local_horizontal_boundary_reports_centerline_projection_without_moving_visible_points() -> None:
+    roi_box = MetricBox(center_x=28, center_y=20, width=34, height=12, angle_deg=0.0)
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=10, y=12, width=42, height=18),
+        metric_box=roi_box,
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=20,
+        min_target_area_px=8,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+    detected_points = []
+    detected_axis_points = []
+    for row_y in (17, 23):
+        image = _blank(width=56, height=40, value=240)
+        for x in range(14, 39):
+            image[row_y][x] = 24
+
+        metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+        assert metric.metric_raw is not None
+        detected_points.append((metric.point_a_px, metric.point_b_px))
+        detected_axis_points.append((metric.meta["axis_point_a_px"], metric.meta["axis_point_b_px"]))
+
+    assert detected_points == [
+        ((14, 17), (38, 17)),
+        ((14, 23), (38, 23)),
+    ]
+    assert detected_axis_points == [
+        ((14, 20), (38, 20)),
+        ((14, 20), (38, 20)),
+    ]
+
+
+def test_roi_local_horizontal_boundary_skips_empty_local_rows() -> None:
+    pixels = [(x, 17) for x in range(14, 39)] + [(x, 23) for x in range(14, 39)]
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=28, center_y=20, width=34, height=12, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(14, 17)
+    assert point_b == PixelPoint(38, 17)
+
+
+def test_roi_local_horizontal_boundary_uses_supported_outer_edge_for_tied_rows() -> None:
+    pixels = [(x, 20) for x in range(0, 81)] + [(x, 21) for x in range(10, 91)]
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=45, center_y=20, width=92, height=12, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(0, 20)
+    assert point_b == PixelPoint(90, 21)
+
+
+def test_roi_local_horizontal_boundary_prefers_interior_run_over_metric_box_edge_run() -> None:
+    pixels = [(x, 18) for x in range(0, 101)] + [(x, 20) for x in range(24, 77)]
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=50, center_y=20, width=104, height=20, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(24, 20)
+    assert point_b == PixelPoint(76, 20)
+
+
+def test_roi_local_horizontal_boundary_rejects_near_edge_run_before_it_reaches_box_edge() -> None:
+    pixels = [(x, 18) for x in range(15, 96)] + [(x, 20) for x in range(30, 76)]
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=50, center_y=20, width=100, height=20, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(30, 20)
+    assert point_b == PixelPoint(75, 20)
+
+
+def test_roi_local_horizontal_boundary_prefers_roi_axis_over_distant_tail_run() -> None:
+    pixels = [(x, 20) for x in range(0, 81)] + [(x, 55) for x in range(10, 96)]
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=50, center_y=20, width=104, height=90, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(0, 20)
+    assert point_b == PixelPoint(80, 20)
+
+
+def test_roi_local_horizontal_boundary_uses_outer_envelope_for_disconnected_lattice_segments() -> None:
+    pixels = []
+    for start, end in [(15, 21), (30, 38), (55, 63), (78, 84)]:
+        pixels.extend((x, 20) for x in range(start, end + 1))
+    pixels.extend((x, 22) for x in range(34, 61))
+
+    point_a, point_b = _roi_local_horizontal_boundary_points(
+        pixels,
+        MetricBox(center_x=50, center_y=20, width=100, height=30, angle_deg=0.0),
+    )
+
+    assert point_a == PixelPoint(15, 20)
+    assert point_b == PixelPoint(84, 20)
+
+
+def test_setup_detector_uses_union_envelope_for_disconnected_lattice_components() -> None:
+    image = _blank(width=120, height=56, value=240)
+    for start, end in [(16, 22), (32, 40), (58, 66), (82, 88)]:
+        _draw_rect(image, x=start, y=26, width=end - start + 1, height=3, value=28)
+    _draw_rect(image, x=36, y=31, width=29, height=3, value=28)
+
+    extractor = RoiLongestSpanPointDetector(
+        analysis_roi=RectRegion(x=0, y=0, width=120, height=56),
+        roi_box=MetricBox(center_x=54, center_y=28, width=108, height=38, angle_deg=0.0),
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=40,
+        ignore_internal_texture=True,
+        min_target_area_px=4,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert metric.point_a_px[0] <= 18
+    assert metric.point_b_px[0] >= 86
+
+
+def test_roi_local_horizontal_boundary_follows_cv_style_longest_foreground_run_in_rotated_roi() -> None:
+    image = _blank(width=72, height=72, value=240)
+    roi_box = MetricBox(center_x=36, center_y=36, width=34, height=14, angle_deg=28.0)
+    angle_rad = math.radians(roi_box.angle_deg)
+
+    for local_y in range(-5, 6):
+        half_span = 6 if abs(local_y) >= 4 else 10 if abs(local_y) >= 2 else 14
+        for local_x in range(-half_span, half_span + 1):
+            world_x = int(round(roi_box.center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(roi_box.center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < 72 and 0 <= world_y < 72:
+                image[world_y][world_x] = 24
+
+    extractor = TwoPointDistanceMetricExtractor(
+        analysis_roi=RectRegion(x=16, y=16, width=40, height=40),
+        metric_box=roi_box,
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        threshold_margin=20,
+        min_target_area_px=20,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    point_a = PixelPoint(*metric.point_a_px)
+    point_b = PixelPoint(*metric.point_b_px)
+    point_a_local_x = (point_a.x - roi_box.center_x) * math.cos(angle_rad) + (point_a.y - roi_box.center_y) * math.sin(angle_rad)
+    point_b_local_x = (point_b.x - roi_box.center_x) * math.cos(angle_rad) + (point_b.y - roi_box.center_y) * math.sin(angle_rad)
+    point_a_local_y = -(point_a.x - roi_box.center_x) * math.sin(angle_rad) + (point_a.y - roi_box.center_y) * math.cos(angle_rad)
+    point_b_local_y = -(point_b.x - roi_box.center_x) * math.sin(angle_rad) + (point_b.y - roi_box.center_y) * math.cos(angle_rad)
+
+    assert point_a_local_x < -12.0
+    assert point_b_local_x > 12.0
+    assert abs(point_a_local_y) <= 1.5
+    assert abs(point_b_local_y) <= 1.5
+    assert metric.meta["selection_mode"] == "roi_local_horizontal_boundary"
+    assert _point_in_metric_box(roi_box, point_a.x, point_a.y)
+    assert _point_in_metric_box(roi_box, point_b.x, point_b.y)
 
 
 def test_live_roi_local_horizontal_boundary_matches_setup_detector_on_same_frame() -> None:
@@ -631,3 +1006,37 @@ def test_live_roi_local_horizontal_boundary_matches_setup_detector_on_same_frame
     assert setup_metric.point_a_px == live_metric.point_a_px
     assert setup_metric.point_b_px == live_metric.point_b_px
     assert setup_metric.metric_raw == live_metric.metric_raw
+
+def test_roi_local_horizontal_boundary_does_not_expand_to_full_roi_when_bright_target_touches_roi_edge() -> None:
+    width = 900
+    height = 500
+    image = np.full((height, width), 30, dtype=np.uint8)
+    band_angle_deg = 32.0
+    band_angle_rad = math.radians(band_angle_deg)
+    center_x = 470
+    center_y = 250
+    for local_x in range(-420, 421):
+        for local_y in range(-42, 43):
+            world_x = int(round(center_x + local_x * math.cos(band_angle_rad) - local_y * math.sin(band_angle_rad)))
+            world_y = int(round(center_y + local_x * math.sin(band_angle_rad) + local_y * math.cos(band_angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 220
+
+    roi_box = MetricBox(center_x=515, center_y=219, width=384, height=204, angle_deg=0.0)
+    detector = RoiLongestSpanPointDetector(
+        analysis_roi=RectRegion(x=323, y=117, width=384, height=204),
+        roi_box=roi_box,
+        foreground_polarity="light_on_dark",
+        threshold_mode="binary",
+        threshold_margin=20,
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+        selection_strategy="roi_local_horizontal_boundary",
+    )
+
+    metric = detector.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw is not None
+    assert metric.metric_raw < 320.0
+    assert metric.point_a_px != (323, 219)
+    assert metric.point_b_px != (706, 219)

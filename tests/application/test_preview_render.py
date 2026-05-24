@@ -1,3 +1,5 @@
+import numpy as np
+
 from src.application.preview_render import build_preview_bitmap, build_preview_rows, enhance_preview_bitmap
 
 
@@ -19,6 +21,15 @@ class _NativeBitmapImage:
         return (2, 2, bytes([1, 2, 3, 4]))
 
 
+class _NativeBitmapArrayImage:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int]] = []
+
+    def downsample_bitmap_payload(self, *, max_width: int, max_height: int):
+        self.calls.append((max_width, max_height))
+        return (2, 2, np.array([1, 2, 3, 4], dtype=np.uint8))
+
+
 def test_build_preview_rows_prefers_native_downsample() -> None:
     image = _NativeDownsampleImage()
 
@@ -38,8 +49,29 @@ def test_build_preview_bitmap_flattens_grayscale_rows() -> None:
     assert bitmap.pixels == bytes([0, 127, 255, 255, 127, 0])
 
 
+def test_build_preview_bitmap_accepts_numpy_grayscale_arrays() -> None:
+    image = np.array([[0, 127, 255], [255, 127, 0]], dtype=np.uint8)
+
+    bitmap = build_preview_bitmap(image, max_width=10, max_height=10)
+
+    assert bitmap.width == 3
+    assert bitmap.height == 2
+    assert bitmap.pixels == bytes([0, 127, 255, 255, 127, 0])
+
+
 def test_build_preview_bitmap_prefers_native_bitmap_payload() -> None:
     image = _NativeBitmapImage()
+
+    bitmap = build_preview_bitmap(image, max_width=320, max_height=240)
+
+    assert bitmap.width == 2
+    assert bitmap.height == 2
+    assert bitmap.pixels == bytes([1, 2, 3, 4])
+    assert image.calls == [(320, 240)]
+
+
+def test_build_preview_bitmap_coerces_numpy_native_bitmap_payload_to_bytes() -> None:
+    image = _NativeBitmapArrayImage()
 
     bitmap = build_preview_bitmap(image, max_width=320, max_height=240)
 

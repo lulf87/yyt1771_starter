@@ -66,5 +66,6 @@ def test_build_afas_postprocessing_dataset_returns_future_proof_single_channel_c
     assert dataset["channel_map"]["Space1"]["metric_norm"][-1] == 1.0
     assert dataset["channel_map"]["Space1"]["point_a_px"][1] == [21, 50]
     assert dataset["definition"]["sensitivity"] == 55.0
+    assert dataset["definition"]["direction_projection_mode"] == "auto"
     assert dataset["preprocessing_defaults"]["savgol_window_length"] == 51
     assert dataset["analysis_defaults"]["tangent_offset"] == 0

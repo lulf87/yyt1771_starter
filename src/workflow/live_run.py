@@ -29,7 +29,21 @@ from src.report.summary import build_live_run_result
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SessionSummary
 from src.sync.hub import SyncHub
+from src.vision.contour_direction import DirectionalContourConfig, DirectionalContourMetricExtractor
 from src.vision.metric_two_point_distance import TwoPointDistanceMetricExtractor
+
+
+DIRECTIONAL_MAX_FRAME_SPAN_CHANGE_RATIO = 0.08
+DIRECTIONAL_DEFAULT_MAX_FRAME_SPAN_JUMP_PX = 6.0
+DIRECTIONAL_MIN_FRAME_SPAN_JUMP_PX = 3.0
+DIRECTIONAL_MAX_FRAME_SPAN_JUMP_FRACTION = 0.008
+ROI_LOCAL_DEFAULT_MAX_FRAME_SPAN_JUMP_PX = 1.0
+ROI_LOCAL_MIN_FRAME_SPAN_JUMP_PX = 1.0
+ROI_LOCAL_MAX_FRAME_SPAN_JUMP_FRACTION = 0.001
+ROI_LOCAL_WORKING_MAX_WIDTH = 384
+ROI_LOCAL_WORKING_MAX_HEIGHT = 240
+DIRECTIONAL_WORKING_MAX_WIDTH = 384
+DIRECTIONAL_WORKING_MAX_HEIGHT = 384
 
 
 class SessionSummaryRepo(Protocol):
@@ -56,6 +70,7 @@ class LiveRunExecution:
     result: dict[str, Any]
     telemetry: list[dict[str, Any]]
     events: list[dict[str, Any]]
+    afas_dataset: dict[str, Any] | None = None
 
 
 class LiveRunStopRequested(RuntimeError):
@@ -109,8 +124,11 @@ class MockLiveMetricSource:
         point_b_x = self._base_b.x + self._unit_x * offset_px
         point_b_y = self._base_b.y + self._unit_y * offset_px
 
-        max_x = (len(frame.image[0]) - 1) if frame.image and frame.image[0] else max(self._base_a.x, self._base_b.x)
-        max_y = (len(frame.image) - 1) if frame.image else max(self._base_a.y, self._base_b.y)
+        max_x, max_y = _frame_max_xy(
+            frame,
+            fallback_x=max(self._base_a.x, self._base_b.x),
+            fallback_y=max(self._base_a.y, self._base_b.y),
+        )
 
         point_a = (
             int(max(0, min(max_x, round(point_a_x)))),
@@ -219,7 +237,31 @@ class LockedDefinitionMetricSource:
         debug_locked_points: bool = False,
         working_max_width: int | None = None,
         working_max_height: int | None = None,
+        max_chord_axis_prior_provider: Callable[[], PixelPoint | None] | None = None,
+        max_chord_axis_prior_tolerance_provider: Callable[[], float | None] | None = None,
     ) -> None:
+        self._directional_config: DirectionalContourConfig | None = None
+        self._directional_axis_prior_provider = max_chord_axis_prior_provider
+        self._directional_axis_prior_tolerance_provider = max_chord_axis_prior_tolerance_provider
+        self._extractor = None
+        if definition.direction_angle_deg is not None:
+            self._directional_config = DirectionalContourConfig(
+                analysis_roi=definition.analysis_roi,
+                direction_angle_deg=float(definition.direction_angle_deg),
+                metric_box=definition.metric_box,
+                foreground_polarity=definition.foreground_polarity,
+                threshold_mode=definition.threshold_mode,
+                ignore_internal_texture=definition.ignore_internal_texture,
+                min_target_area_px=definition.min_target_area_px,
+                sensitivity=definition.sensitivity,
+                projection_mode=definition.direction_projection_mode,
+                processing_max_side_px=_directional_processing_max_side_px(
+                    working_max_width,
+                    working_max_height,
+                ),
+            )
+            return
+
         measurement_axis_deg = float(definition.metric_box.angle_deg)
         selection_strategy = "roi_local_horizontal_boundary"
         if definition.observation_axis == ObservationAxis.SHORT_AXIS:
@@ -248,11 +290,72 @@ class LockedDefinitionMetricSource:
         sample_index: int,
         total_samples: int,
     ) -> ShapeMetric:
-        metric = self._extractor.extract(frame)
+        if self._directional_config is not None:
+            metric = DirectionalContourMetricExtractor(
+                _directional_config_with_axis_prior(
+                    self._directional_config,
+                    axis_prior_provider=self._directional_axis_prior_provider,
+                    axis_prior_tolerance_provider=self._directional_axis_prior_tolerance_provider,
+                )
+            ).extract(frame)
+        else:
+            assert self._extractor is not None
+            metric = self._extractor.extract(frame)
         metric.timestamp_ms = temp.timestamp_ms
         metric.meta["sample_index"] = sample_index
         metric.meta["total_samples"] = total_samples
         return metric
+
+
+def _directional_processing_max_side_px(
+    working_max_width: int | None,
+    working_max_height: int | None,
+) -> int:
+    candidates = [
+        int(value)
+        for value in (working_max_width, working_max_height)
+        if value is not None and int(value) > 0
+    ]
+    return min(candidates) if candidates else 384
+
+
+def _tracking_working_size(definition: MeasurementDefinition) -> tuple[int, int]:
+    if definition.direction_angle_deg is None and definition.observation_axis == ObservationAxis.LONG_AXIS:
+        return ROI_LOCAL_WORKING_MAX_WIDTH, ROI_LOCAL_WORKING_MAX_HEIGHT
+    return DIRECTIONAL_WORKING_MAX_WIDTH, DIRECTIONAL_WORKING_MAX_HEIGHT
+
+
+def _directional_config_with_axis_prior(
+    config: DirectionalContourConfig,
+    *,
+    axis_prior_provider: Callable[[], PixelPoint | None] | None,
+    axis_prior_tolerance_provider: Callable[[], float | None] | None,
+) -> DirectionalContourConfig:
+    axis_prior_point = axis_prior_provider() if axis_prior_provider is not None else None
+    axis_prior_tolerance_px = (
+        axis_prior_tolerance_provider()
+        if axis_prior_tolerance_provider is not None
+        else None
+    )
+    if axis_prior_point is None and axis_prior_tolerance_px is None:
+        return config
+    return DirectionalContourConfig(
+        analysis_roi=config.analysis_roi,
+        direction_angle_deg=config.direction_angle_deg,
+        metric_box=config.metric_box,
+        foreground_polarity=config.foreground_polarity,
+        threshold_mode=config.threshold_mode,
+        threshold_value=config.threshold_value,
+        min_target_area_px=config.min_target_area_px,
+        sensitivity=config.sensitivity,
+        ignore_internal_texture=config.ignore_internal_texture,
+        component_bridge_kernel=config.component_bridge_kernel,
+        open_kernel=config.open_kernel,
+        projection_mode=config.projection_mode,
+        max_chord_axis_prior_point=axis_prior_point,
+        max_chord_axis_prior_tolerance_px=axis_prior_tolerance_px,
+        processing_max_side_px=config.processing_max_side_px,
+    )
 
 
 class PriorTrackingMetricSource:
@@ -264,35 +367,112 @@ class PriorTrackingMetricSource:
         *,
         max_endpoint_jump_px: float | None = None,
         max_midpoint_drift_px: float | None = None,
+        max_frame_span_jump_px: float | None = None,
         max_span_change_ratio: float = 0.35,
         max_consecutive_misses: int = 3,
         hold_quality: float = 0.8,
     ) -> None:
-        self._observation_source = LockedDefinitionMetricSource(
-            definition=definition,
-            working_max_width=256,
-            working_max_height=160,
-        )
         self._tracking_mode = "prior_gated_reacquire"
         self._last_good_point_a = definition.point_a_px
         self._last_good_point_b = definition.point_b_px
         self._last_good_span_px = _point_distance(self._last_good_point_a, self._last_good_point_b)
         box_span = max(float(definition.metric_box.width), float(definition.metric_box.height), 1.0)
+        endpoint_jump_cap_px = 180.0 if definition.direction_projection_mode == "max_chord" else 72.0
         self._max_endpoint_jump_px = (
             float(max_endpoint_jump_px)
             if max_endpoint_jump_px is not None
-            else max(12.0, min(box_span * 0.20, 72.0))
+            else max(12.0, min(box_span * 0.20, endpoint_jump_cap_px))
         )
+        midpoint_drift_cap_px = 180.0 if definition.direction_projection_mode == "max_chord" else 48.0
         self._max_midpoint_drift_px = (
             float(max_midpoint_drift_px)
             if max_midpoint_drift_px is not None
-            else max(8.0, min(box_span * 0.16, 48.0))
+            else max(8.0, min(box_span * 0.20, midpoint_drift_cap_px))
+        )
+        allows_axis_span_stabilization = (
+            definition.direction_angle_deg is None
+            and definition.observation_axis == ObservationAxis.LONG_AXIS
         )
         self._max_span_change_ratio = max(0.0, float(max_span_change_ratio))
+        if definition.direction_angle_deg is not None or allows_axis_span_stabilization:
+            self._max_span_change_ratio = min(
+                self._max_span_change_ratio,
+                DIRECTIONAL_MAX_FRAME_SPAN_CHANGE_RATIO,
+            )
+        self._max_frame_span_jump_px = (
+            max(0.0, float(max_frame_span_jump_px))
+            if max_frame_span_jump_px is not None
+            else None
+        )
+        if definition.direction_angle_deg is not None and self._max_frame_span_jump_px is None:
+            self._max_frame_span_jump_px = max(
+                DIRECTIONAL_MIN_FRAME_SPAN_JUMP_PX,
+                min(
+                    self._last_good_span_px * DIRECTIONAL_MAX_FRAME_SPAN_JUMP_FRACTION,
+                    DIRECTIONAL_DEFAULT_MAX_FRAME_SPAN_JUMP_PX,
+                ),
+            )
+        if allows_axis_span_stabilization and self._max_frame_span_jump_px is None:
+            self._max_frame_span_jump_px = max(
+                ROI_LOCAL_MIN_FRAME_SPAN_JUMP_PX,
+                min(
+                    self._last_good_span_px * ROI_LOCAL_MAX_FRAME_SPAN_JUMP_FRACTION,
+                    ROI_LOCAL_DEFAULT_MAX_FRAME_SPAN_JUMP_PX,
+                ),
+            )
+        self._max_soft_frame_span_jump_px: float | None = None
+        if (definition.direction_angle_deg is not None or allows_axis_span_stabilization) and self._max_frame_span_jump_px is not None:
+            max_stabilized_span_jump_px = self._last_good_span_px * self._max_span_change_ratio
+            self._max_soft_frame_span_jump_px = max(
+                float(self._max_frame_span_jump_px),
+                min(
+                    max_stabilized_span_jump_px,
+                    self._max_endpoint_jump_px,
+                ),
+            )
         self._max_consecutive_misses = max(1, int(max_consecutive_misses))
         self._hold_quality = max(float(hold_quality), 0.0)
         self._consecutive_misses = 0
         self._has_runtime_lock = False
+        self._analysis_roi = definition.analysis_roi
+        self._direction_unit: tuple[float, float] | None = None
+        self._normal_unit: tuple[float, float] | None = None
+        self._allows_axis_lateral_stabilization = (
+            definition.direction_angle_deg is None
+            and definition.observation_axis == ObservationAxis.LONG_AXIS
+        )
+        self._allows_axis_span_stabilization = allows_axis_span_stabilization
+        self._axis_lateral_stabilization_trigger_px = min(
+            self._max_midpoint_drift_px,
+            max(4.0, float(definition.metric_box.height) * 0.02),
+        )
+        if definition.direction_angle_deg is not None or self._allows_axis_lateral_stabilization:
+            axis_angle_deg = (
+                float(definition.direction_angle_deg)
+                if definition.direction_angle_deg is not None
+                else float(definition.metric_box.angle_deg)
+            )
+            angle_rad = math.radians(axis_angle_deg)
+            direction_x = math.cos(angle_rad)
+            direction_y = math.sin(angle_rad)
+            self._direction_unit = (direction_x, direction_y)
+            self._normal_unit = (-direction_y, direction_x)
+        self._allows_directional_relocation = (
+            definition.direction_angle_deg is not None
+            and definition.direction_projection_mode in {"max_chord", "mask_projection", "auto"}
+        )
+        use_axis_prior = (
+            definition.direction_angle_deg is not None
+            and definition.direction_projection_mode in {"max_chord", "mask_projection", "auto"}
+        )
+        working_max_width, working_max_height = _tracking_working_size(definition)
+        self._observation_source = LockedDefinitionMetricSource(
+            definition=definition,
+            working_max_width=working_max_width,
+            working_max_height=working_max_height,
+            max_chord_axis_prior_provider=self._current_axis_prior_point if use_axis_prior else None,
+            max_chord_axis_prior_tolerance_provider=self._current_axis_prior_tolerance_px if use_axis_prior else None,
+        )
 
     def extract(
         self,
@@ -310,7 +490,10 @@ class PriorTrackingMetricSource:
         )
         diagnostics = self._tracking_diagnostics(observation)
         if observation.metric_raw is not None and observation.point_a_px is not None and observation.point_b_px is not None and not self._has_runtime_lock:
-            if not self._bootstrap_candidate_within_prior(diagnostics):
+            if not self._bootstrap_candidate_within_prior(diagnostics) and not self._directional_candidate_is_plausible_relocation(
+                observation,
+                diagnostics,
+            ):
                 rejection_reason = self._rejection_reason(observation, diagnostics)
                 return self._hold_last_good_metric(
                     frame,
@@ -325,11 +508,83 @@ class PriorTrackingMetricSource:
             self._consecutive_misses = 0
             self._has_runtime_lock = True
             observation.meta["tracking_mode"] = self._tracking_mode
-            observation.meta["tracking_state"] = "bootstrapped"
+            observation.meta["tracking_state"] = (
+                "bootstrapped"
+                if self._bootstrap_candidate_within_prior(diagnostics)
+                else "bootstrapped_relocated"
+            )
             observation.meta.update(diagnostics)
             return observation
+        if self._axis_candidate_is_stabilizable_lateral_jitter(observation, diagnostics):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_lateral_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                tracking_state=tracking_state,
+            )
+            self._remember(stabilized)
+            self._consecutive_misses = 0
+            return stabilized
+        if self._axis_candidate_is_stabilizable_span_jitter(observation, diagnostics):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_axis_span_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                tracking_state=tracking_state,
+            )
+            self._remember(stabilized)
+            self._consecutive_misses = 0
+            return stabilized
+        if self._axis_candidate_is_stabilizable_same_axis_step_jitter(observation, diagnostics):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_axis_span_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                tracking_state=tracking_state,
+                reason="same_axis_step_stabilized",
+            )
+            self._remember(stabilized)
+            self._consecutive_misses = 0
+            return stabilized
         if observation.metric_raw is not None and self._candidate_within_prior(diagnostics):
             tracking_state = "reacquired" if self._consecutive_misses > 0 else "accepted"
+            self._remember(observation)
+            self._consecutive_misses = 0
+            observation.meta["tracking_mode"] = self._tracking_mode
+            observation.meta["tracking_state"] = tracking_state
+            observation.meta.update(diagnostics)
+            return observation
+        if self._directional_candidate_is_stabilizable_span_jitter(observation, diagnostics):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_directional_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                tracking_state=tracking_state,
+            )
+            self._remember(stabilized)
+            self._consecutive_misses = 0
+            return stabilized
+        if observation.metric_raw is not None and self._directional_candidate_is_plausible_relocation(
+            observation,
+            diagnostics,
+        ):
+            tracking_state = "relocated" if self._consecutive_misses > 0 else "accepted_relocated"
             self._remember(observation)
             self._consecutive_misses = 0
             observation.meta["tracking_mode"] = self._tracking_mode
@@ -354,19 +609,48 @@ class PriorTrackingMetricSource:
             return {
                 "endpoint_jump_px": None,
                 "midpoint_drift_px": None,
+                "midpoint_along_shift_px": None,
+                "midpoint_lateral_drift_px": None,
+                "span_change_px": None,
                 "span_change_ratio": None,
+                "max_frame_span_jump_px": self._max_frame_span_jump_px,
+                "max_soft_frame_span_jump_px": self._max_soft_frame_span_jump_px,
                 "consecutive_misses": self._consecutive_misses,
             }
         previous_midpoint = _midpoint(self._last_good_point_a, self._last_good_point_b)
         current_midpoint = _midpoint(point_a, point_b)
+        directional_shift = self._directional_midpoint_shift(previous_midpoint, current_midpoint)
         return {
             "endpoint_jump_px": max(
                 _point_distance(self._last_good_point_a, point_a),
                 _point_distance(self._last_good_point_b, point_b),
             ),
             "midpoint_drift_px": _point_distance(previous_midpoint, current_midpoint),
+            **directional_shift,
+            "span_change_px": abs(float(observation.metric_raw) - self._last_good_span_px),
             "span_change_ratio": abs(float(observation.metric_raw) - self._last_good_span_px) / max(self._last_good_span_px, 1.0),
+            "max_frame_span_jump_px": self._max_frame_span_jump_px,
+            "max_soft_frame_span_jump_px": self._max_soft_frame_span_jump_px,
             "consecutive_misses": self._consecutive_misses,
+        }
+
+    def _directional_midpoint_shift(
+        self,
+        previous_midpoint: PixelPoint,
+        current_midpoint: PixelPoint,
+    ) -> dict[str, float | None]:
+        if self._direction_unit is None or self._normal_unit is None:
+            return {
+                "midpoint_along_shift_px": None,
+                "midpoint_lateral_drift_px": None,
+            }
+        delta_x = float(current_midpoint.x - previous_midpoint.x)
+        delta_y = float(current_midpoint.y - previous_midpoint.y)
+        direction_x, direction_y = self._direction_unit
+        normal_x, normal_y = self._normal_unit
+        return {
+            "midpoint_along_shift_px": abs(delta_x * direction_x + delta_y * direction_y),
+            "midpoint_lateral_drift_px": abs(delta_x * normal_x + delta_y * normal_y),
         }
 
     def _candidate_within_prior(self, diagnostics: dict[str, Any]) -> bool:
@@ -378,7 +662,7 @@ class PriorTrackingMetricSource:
         return (
             float(endpoint_jump_px) <= self._max_endpoint_jump_px
             and float(midpoint_drift_px) <= self._max_midpoint_drift_px
-            and float(span_change_ratio) <= self._max_span_change_ratio
+            and self._span_change_within_limits(diagnostics)
         )
 
     def _bootstrap_candidate_within_prior(self, diagnostics: dict[str, Any]) -> bool:
@@ -391,16 +675,400 @@ class PriorTrackingMetricSource:
             and float(midpoint_drift_px) <= self._max_midpoint_drift_px
         )
 
+    def _directional_candidate_is_plausible_relocation(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_directional_relocation:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        if span_change_ratio is None or not self._span_change_within_limits(diagnostics):
+            return False
+        lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
+        if lateral_drift_px is None or float(lateral_drift_px) > self._max_midpoint_drift_px:
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        return True
+
+    def _directional_candidate_is_stabilizable_span_jitter(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_directional_relocation:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        endpoint_jump_px = diagnostics.get("endpoint_jump_px")
+        midpoint_drift_px = diagnostics.get("midpoint_drift_px")
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        span_change_px = diagnostics.get("span_change_px")
+        if (
+            endpoint_jump_px is None
+            or midpoint_drift_px is None
+            or span_change_ratio is None
+            or span_change_px is None
+            or self._max_frame_span_jump_px is None
+            or self._max_soft_frame_span_jump_px is None
+        ):
+            return False
+        if float(endpoint_jump_px) > self._max_endpoint_jump_px:
+            return False
+        if float(midpoint_drift_px) > self._max_midpoint_drift_px:
+            return False
+        lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
+        if lateral_drift_px is not None and float(lateral_drift_px) > self._max_midpoint_drift_px:
+            return False
+        return (
+            float(span_change_ratio) <= self._max_span_change_ratio
+            and float(span_change_px) > self._max_frame_span_jump_px
+            and float(span_change_px) <= self._max_soft_frame_span_jump_px
+        )
+
+    def _axis_candidate_is_stabilizable_lateral_jitter(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_axis_lateral_stabilization or not self._has_runtime_lock:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        if observation.meta.get("selection_mode") != "roi_local_horizontal_boundary":
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        if not self._span_change_within_limits(diagnostics):
+            return False
+        lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
+        along_shift_px = diagnostics.get("midpoint_along_shift_px")
+        if lateral_drift_px is None or along_shift_px is None:
+            return False
+        if float(lateral_drift_px) <= self._axis_lateral_stabilization_trigger_px:
+            return False
+        if float(along_shift_px) > self._max_endpoint_jump_px:
+            return False
+        if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
+            return False
+        return True
+
+    def _axis_candidate_is_stabilizable_span_jitter(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_axis_span_stabilization or not self._has_runtime_lock:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        if observation.meta.get("selection_mode") != "roi_local_horizontal_boundary":
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        endpoint_jump_px = diagnostics.get("endpoint_jump_px")
+        midpoint_drift_px = diagnostics.get("midpoint_drift_px")
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        span_change_px = diagnostics.get("span_change_px")
+        if (
+            endpoint_jump_px is None
+            or midpoint_drift_px is None
+            or span_change_ratio is None
+            or span_change_px is None
+            or self._max_frame_span_jump_px is None
+            or self._max_soft_frame_span_jump_px is None
+        ):
+            return False
+        if float(endpoint_jump_px) > self._max_endpoint_jump_px:
+            return False
+        if float(midpoint_drift_px) > self._max_midpoint_drift_px:
+            return False
+        if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
+            return False
+        return (
+            float(span_change_ratio) <= self._max_span_change_ratio
+            and float(span_change_px) > self._max_frame_span_jump_px
+            and float(span_change_px) <= self._max_soft_frame_span_jump_px
+        )
+
+    def _axis_candidate_is_stabilizable_same_axis_step_jitter(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_axis_span_stabilization or not self._has_runtime_lock:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        if observation.meta.get("selection_mode") != "roi_local_horizontal_boundary":
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        endpoint_jump_px = diagnostics.get("endpoint_jump_px")
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        span_change_px = diagnostics.get("span_change_px")
+        lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
+        if (
+            endpoint_jump_px is None
+            or span_change_ratio is None
+            or span_change_px is None
+            or lateral_drift_px is None
+            or self._max_frame_span_jump_px is None
+            or self._max_soft_frame_span_jump_px is None
+        ):
+            return False
+        if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
+            return False
+        return (
+            float(span_change_ratio) <= self._max_span_change_ratio
+            and float(span_change_px) <= self._max_frame_span_jump_px
+            and float(endpoint_jump_px) > self._max_frame_span_jump_px
+            and float(endpoint_jump_px) <= self._max_soft_frame_span_jump_px
+            and float(lateral_drift_px) <= self._axis_lateral_stabilization_trigger_px
+        )
+
     def _rejection_reason(self, observation: ShapeMetric, diagnostics: dict[str, Any]) -> str:
         if observation.metric_raw is None:
             return str(observation.meta.get("reason", "missing_observation"))
+        if (
+            self._allows_directional_relocation
+            and diagnostics.get("midpoint_lateral_drift_px") is not None
+            and float(diagnostics["midpoint_lateral_drift_px"]) > self._max_midpoint_drift_px
+        ):
+            return "midpoint_lateral_drift_exceeded"
         if diagnostics.get("endpoint_jump_px") is not None and float(diagnostics["endpoint_jump_px"]) > self._max_endpoint_jump_px:
             return "endpoint_jump_exceeded"
         if diagnostics.get("midpoint_drift_px") is not None and float(diagnostics["midpoint_drift_px"]) > self._max_midpoint_drift_px:
             return "midpoint_drift_exceeded"
-        if diagnostics.get("span_change_ratio") is not None and float(diagnostics["span_change_ratio"]) > self._max_span_change_ratio:
+        if diagnostics.get("span_change_ratio") is not None and not self._span_change_within_limits(diagnostics):
             return "span_change_exceeded"
         return str(observation.meta.get("reason", "tracking_rejected"))
+
+    def _span_change_within_limits(self, diagnostics: dict[str, Any]) -> bool:
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        if span_change_ratio is None or float(span_change_ratio) > self._max_span_change_ratio:
+            return False
+        if self._max_frame_span_jump_px is None:
+            return True
+        span_change_px = diagnostics.get("span_change_px")
+        return span_change_px is not None and float(span_change_px) <= self._max_frame_span_jump_px
+
+    def _stabilized_directional_metric(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        tracking_state: str,
+        reason: str = "span_change_stabilized",
+    ) -> ShapeMetric:
+        point_a = _shape_metric_point(observation.point_a_px)
+        point_b = _shape_metric_point(observation.point_b_px)
+        if point_a is None or point_b is None or observation.metric_raw is None or self._max_frame_span_jump_px is None:
+            return observation
+        raw_delta = float(observation.metric_raw) - self._last_good_span_px
+        limited_delta = max(
+            -float(self._max_frame_span_jump_px),
+            min(float(self._max_frame_span_jump_px), raw_delta),
+        )
+        stabilized_span_px = max(0.0, self._last_good_span_px + limited_delta)
+        midpoint = _midpoint(point_a, point_b)
+        direction_x, direction_y = self._direction_unit or _unit_vector(point_a, point_b)
+        stabilized_a = PixelPoint(
+            x=int(round(float(midpoint.x) - direction_x * stabilized_span_px / 2.0)),
+            y=int(round(float(midpoint.y) - direction_y * stabilized_span_px / 2.0)),
+        )
+        stabilized_b = PixelPoint(
+            x=int(round(float(midpoint.x) + direction_x * stabilized_span_px / 2.0)),
+            y=int(round(float(midpoint.y) + direction_y * stabilized_span_px / 2.0)),
+        )
+        stabilized_span_px = _point_distance(stabilized_a, stabilized_b)
+        meta = dict(observation.meta)
+        meta.update(
+            {
+                "source": frame.source,
+                "frame_id": frame.frame_id,
+                "selection_mode": "tracking_prior_stabilized",
+                "tracking_mode": self._tracking_mode,
+                "tracking_state": tracking_state,
+                "reason": reason,
+                "sample_index": sample_index,
+                "total_samples": total_samples,
+                "observed_metric_raw": observation.metric_raw,
+                "observed_point_a_px": observation.point_a_px,
+                "observed_point_b_px": observation.point_b_px,
+                "stabilized_span_change_px": abs(stabilized_span_px - self._last_good_span_px),
+                **diagnostics,
+            }
+        )
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name=observation.metric_name,
+            metric_raw=stabilized_span_px,
+            metric_norm=observation.metric_norm,
+            quality=observation.quality,
+            roi=observation.roi,
+            feature_point_px=(midpoint.x, midpoint.y),
+            point_a_px=(stabilized_a.x, stabilized_a.y),
+            point_b_px=(stabilized_b.x, stabilized_b.y),
+            baseline_px=observation.baseline_px,
+            meta=meta,
+        )
+
+    def _stabilized_lateral_metric(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        tracking_state: str,
+    ) -> ShapeMetric:
+        point_a = _shape_metric_point(observation.point_a_px)
+        point_b = _shape_metric_point(observation.point_b_px)
+        if point_a is None or point_b is None or observation.metric_raw is None or self._direction_unit is None:
+            return observation
+        previous_midpoint = _midpoint(self._last_good_point_a, self._last_good_point_b)
+        current_midpoint = _midpoint(point_a, point_b)
+        direction_x, direction_y = self._direction_unit
+        delta_x = float(current_midpoint.x - previous_midpoint.x)
+        delta_y = float(current_midpoint.y - previous_midpoint.y)
+        along_shift_px = delta_x * direction_x + delta_y * direction_y
+        stabilized_midpoint_x = float(previous_midpoint.x) + direction_x * along_shift_px
+        stabilized_midpoint_y = float(previous_midpoint.y) + direction_y * along_shift_px
+        stabilized_span_px = float(observation.metric_raw)
+        stabilized_a = PixelPoint(
+            x=int(round(stabilized_midpoint_x - direction_x * stabilized_span_px / 2.0)),
+            y=int(round(stabilized_midpoint_y - direction_y * stabilized_span_px / 2.0)),
+        )
+        stabilized_b = PixelPoint(
+            x=int(round(stabilized_midpoint_x + direction_x * stabilized_span_px / 2.0)),
+            y=int(round(stabilized_midpoint_y + direction_y * stabilized_span_px / 2.0)),
+        )
+        stabilized_span_px = _point_distance(stabilized_a, stabilized_b)
+        midpoint = _midpoint(stabilized_a, stabilized_b)
+        meta = dict(observation.meta)
+        meta.update(
+            {
+                "source": frame.source,
+                "frame_id": frame.frame_id,
+                "selection_mode": "tracking_prior_stabilized",
+                "tracking_mode": self._tracking_mode,
+                "tracking_state": tracking_state,
+                "reason": "lateral_drift_stabilized",
+                "sample_index": sample_index,
+                "total_samples": total_samples,
+                "observed_metric_raw": observation.metric_raw,
+                "observed_point_a_px": observation.point_a_px,
+                "observed_point_b_px": observation.point_b_px,
+                **diagnostics,
+            }
+        )
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name=observation.metric_name,
+            metric_raw=stabilized_span_px,
+            metric_norm=observation.metric_norm,
+            quality=observation.quality,
+            roi=observation.roi,
+            feature_point_px=(midpoint.x, midpoint.y),
+            point_a_px=(stabilized_a.x, stabilized_a.y),
+            point_b_px=(stabilized_b.x, stabilized_b.y),
+            baseline_px=observation.baseline_px,
+            meta=meta,
+        )
+
+    def _stabilized_axis_span_metric(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        tracking_state: str,
+        reason: str = "span_change_stabilized",
+    ) -> ShapeMetric:
+        point_a = _shape_metric_point(observation.point_a_px)
+        point_b = _shape_metric_point(observation.point_b_px)
+        if point_a is None or point_b is None or observation.metric_raw is None or self._max_frame_span_jump_px is None:
+            return observation
+        direction = self._direction_unit or _unit_vector(self._last_good_point_a, self._last_good_point_b)
+        stabilized_a = _limited_axis_endpoint(
+            previous=self._last_good_point_a,
+            observed=point_a,
+            direction=direction,
+            max_step_px=float(self._max_frame_span_jump_px),
+        )
+        stabilized_b = _limited_axis_endpoint(
+            previous=self._last_good_point_b,
+            observed=point_b,
+            direction=direction,
+            max_step_px=float(self._max_frame_span_jump_px),
+        )
+        stabilized_span_px = _point_distance(stabilized_a, stabilized_b)
+        midpoint = _midpoint(stabilized_a, stabilized_b)
+        span_delta_px = stabilized_span_px - self._last_good_span_px
+        max_span_delta_px = float(self._max_frame_span_jump_px)
+        if abs(span_delta_px) > max_span_delta_px:
+            limited_span_px = max(
+                0.0,
+                self._last_good_span_px
+                + max(-max_span_delta_px, min(max_span_delta_px, span_delta_px)),
+            )
+            direction_x, direction_y = direction
+            stabilized_a = PixelPoint(
+                x=int(round(float(midpoint.x) - direction_x * limited_span_px / 2.0)),
+                y=int(round(float(midpoint.y) - direction_y * limited_span_px / 2.0)),
+            )
+            stabilized_b = PixelPoint(
+                x=int(round(float(midpoint.x) + direction_x * limited_span_px / 2.0)),
+                y=int(round(float(midpoint.y) + direction_y * limited_span_px / 2.0)),
+            )
+            stabilized_span_px = _point_distance(stabilized_a, stabilized_b)
+            midpoint = _midpoint(stabilized_a, stabilized_b)
+        meta = dict(observation.meta)
+        meta.update(
+            {
+                "source": frame.source,
+                "frame_id": frame.frame_id,
+                "selection_mode": "tracking_prior_stabilized",
+                "tracking_mode": self._tracking_mode,
+                "tracking_state": tracking_state,
+                "reason": reason,
+                "sample_index": sample_index,
+                "total_samples": total_samples,
+                "observed_metric_raw": observation.metric_raw,
+                "observed_point_a_px": observation.point_a_px,
+                "observed_point_b_px": observation.point_b_px,
+                "stabilized_span_change_px": abs(stabilized_span_px - self._last_good_span_px),
+                **diagnostics,
+            }
+        )
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name=observation.metric_name,
+            metric_raw=stabilized_span_px,
+            metric_norm=observation.metric_norm,
+            quality=observation.quality,
+            roi=observation.roi,
+            feature_point_px=(midpoint.x, midpoint.y),
+            point_a_px=(stabilized_a.x, stabilized_a.y),
+            point_b_px=(stabilized_b.x, stabilized_b.y),
+            baseline_px=observation.baseline_px,
+            meta=meta,
+        )
 
     def _hold_last_good_metric(
         self,
@@ -442,6 +1110,8 @@ class PriorTrackingMetricSource:
                 "max_endpoint_jump_px": self._max_endpoint_jump_px,
                 "max_midpoint_drift_px": self._max_midpoint_drift_px,
                 "max_span_change_ratio": self._max_span_change_ratio,
+                "max_frame_span_jump_px": self._max_frame_span_jump_px,
+                "max_soft_frame_span_jump_px": self._max_soft_frame_span_jump_px,
                 "max_consecutive_misses": self._max_consecutive_misses,
                 "consecutive_misses": self._consecutive_misses,
                 **diagnostics,
@@ -458,6 +1128,12 @@ class PriorTrackingMetricSource:
         self._last_good_point_b = point_b
         self._last_good_span_px = float(observation.metric_raw)
         self._has_runtime_lock = True
+
+    def _current_axis_prior_point(self) -> PixelPoint | None:
+        return _midpoint(self._last_good_point_a, self._last_good_point_b)
+
+    def _current_axis_prior_tolerance_px(self) -> float | None:
+        return self._max_midpoint_drift_px
 
 
 class LiveRunCoordinator:
@@ -505,7 +1181,7 @@ class LiveRunCoordinator:
         telemetry: list[dict[str, Any]] = []
         hub = SyncHub()
         output_started = False
-        playback_sample_count = _resolve_playback_sample_count(metric_source, temp_reader)
+        playback_sample_count = _resolve_playback_sample_count(metric_source, temp_reader, camera)
         sample_interval_ms = resolve_measurement_interval_ms(
             run_config,
             playback_sample_count=playback_sample_count,
@@ -528,13 +1204,15 @@ class LiveRunCoordinator:
             if status_callback is not None:
                 status_callback(RunStatus.RUNNING, {"started_at_ms": started_at_ms})
 
-            if playback_sample_count is not None and stop_on_target_reached:
+            if playback_sample_count is not None:
                 max_samples = max(1, int(playback_sample_count))
             else:
-                # Do not hard-stop target-reached runs after a tiny temperature-only heuristic.
-                # Real cooling/heating benches may need many samples even for low target values.
-                max_samples = max(1, int(run_config.manual_stop_max_samples))
-            for sample_index in range(max_samples):
+                configured_max_samples = int(getattr(run_config, "manual_stop_max_samples", 10_000) or 0)
+                # A non-positive value means operator/hardware terminal conditions own the run.
+                max_samples = None if configured_max_samples <= 0 else max(1, configured_max_samples)
+            sample_index = 0
+            sample_limit_exhausted = False
+            while max_samples is None or sample_index < max_samples:
                 if stop_requested is not None and stop_requested():
                     stop_detail = "Run stop requested before the next sample."
                     events.append(_event(_now_ms(), "run_stop_requested", {"reason": "user_stop"}))
@@ -564,7 +1242,7 @@ class LiveRunCoordinator:
                     frame,
                     temp,
                     sample_index=sample_index,
-                    total_samples=max_samples,
+                    total_samples=0 if max_samples is None else max_samples,
                 )
                 metric_extract_ms = (time.perf_counter() - extract_started_perf) * 1000.0
                 metric.meta["frame_read_ms"] = frame_read_ms
@@ -644,7 +1322,6 @@ class LiveRunCoordinator:
 
                 if (
                     playback_sample_count is not None
-                    and stop_on_target_reached
                     and len(sync_points) >= playback_sample_count
                 ):
                     break
@@ -657,8 +1334,11 @@ class LiveRunCoordinator:
                     if status_callback is not None:
                         status_callback(RunStatus.STOPPING, {"reason": "user_stop"})
                     raise LiveRunStopRequested("user_stop", "Run stop requested while waiting for the next sample.")
+                sample_index += 1
             else:
-                if playback_sample_count is not None and stop_on_target_reached:
+                sample_limit_exhausted = True
+            if sample_limit_exhausted:
+                if playback_sample_count is not None:
                     raise RuntimeError("mock_playback_not_completed")
                 if stop_on_target_reached:
                     raise RuntimeError("target_temperature_not_reached")
@@ -787,6 +1467,7 @@ class LiveRunCoordinator:
             result=result,
             telemetry=telemetry,
             events=events,
+            afas_dataset=afas_dataset,
         )
 
 
@@ -803,6 +1484,8 @@ def build_partial_live_run_execution(
     camera_config: CameraRuntimeConfig | None,
     analysis_engine: str,
     channel_name: str,
+    as_fit_point_count: int,
+    af_fit_point_count: int,
     target_measurement_hz: float | None,
 ) -> LiveRunExecution:
     rate_snapshot = summarize_rate_snapshot(telemetry=telemetry)
@@ -816,47 +1499,70 @@ def build_partial_live_run_execution(
     )
     rates_payload = _rate_snapshot_payload(rate_snapshot)
     measurement_profile_payload = _measurement_profile_payload(measurement_profile)
-    detail_points = _detail_points_from_telemetry(telemetry)
-    detail = {
-        "session_id": session_id,
-        "source": "live_run",
-        "af95": None,
-        "as_value": None,
-        "af_value": None,
-        "result_status": "unavailable",
-        "result_reason": terminal_reason,
-        "result_detail": terminal_detail,
-        "point_count": len(detail_points),
-        "capture_mode": CaptureMode.POST_RUN_REVIEW.value,
-        "rates": rates_payload,
-        "measurement_profile": measurement_profile_payload,
-        "warnings": list(warnings),
-        "points": detail_points,
-        "key_frames": [],
-    }
+    sync_points = _sync_points_from_telemetry(telemetry)
+    afas_result = analyze_afas(
+        sync_points,
+        channel_name=channel_name,
+        as_fit_point_count=as_fit_point_count,
+        af_fit_point_count=af_fit_point_count,
+    )
+    terminal_warning = f"terminal_{terminal_state}: {terminal_detail}"
+    warnings_with_terminal = [*warnings, terminal_warning]
+    afas_dataset = build_afas_postprocessing_dataset(
+        session_id=session_id,
+        definition=definition,
+        sync_points=sync_points,
+        channel_name=channel_name,
+        analysis_engine=analysis_engine,
+        capture_mode=CaptureMode.POST_RUN_REVIEW.value,
+        rates=rates_payload,
+        measurement_profile=measurement_profile_payload,
+        warnings=list(warnings_with_terminal),
+        live_result_snapshot={
+            "result_status": afas_result.result_status,
+            "result_reason": afas_result.reason,
+            "result_detail": afas_result.detail,
+            "terminal_state": terminal_state,
+            "terminal_reason": terminal_reason,
+            "terminal_detail": terminal_detail,
+            "af95": afas_result.af95,
+            "as_value": afas_result.as_value,
+            "af_value": afas_result.af_value,
+            "point_count": len(sync_points),
+        },
+    )
+    detail = build_live_detail(
+        session_id=session_id,
+        sync_points=sync_points,
+        afas_result=afas_result,
+        rate_snapshot=rate_snapshot,
+        measurement_profile=measurement_profile,
+        warnings=list(warnings_with_terminal),
+    )
+    detail["key_frames"] = []
     result = build_live_run_result(
         session_id=session_id,
         state=terminal_state,
         analysis_engine=analysis_engine,
         channel_name=channel_name,
-        result_status="unavailable",
-        result_reason=terminal_reason,
-        result_detail=terminal_detail,
-        af95=None,
-        as_value=None,
-        af_value=None,
-        point_count=len(detail_points),
+        result_status=afas_result.result_status,
+        result_reason=afas_result.reason,
+        result_detail=afas_result.detail,
+        af95=afas_result.af95,
+        as_value=afas_result.as_value,
+        af_value=afas_result.af_value,
+        point_count=detail["point_count"],
         keyframe_refs=[],
         capture_mode=CaptureMode.POST_RUN_REVIEW.value,
         rates=rates_payload,
         measurement_profile=measurement_profile_payload,
-        warnings=warnings,
+        warnings=warnings_with_terminal,
     )
     summary = SessionSummary(
         session_id=session_id,
         state=terminal_state,
-        point_count=len(detail_points),
-        af95=None,
+        point_count=detail["point_count"],
+        af95=afas_result.af95,
         created_at_ms=started_at_ms,
     )
     return LiveRunExecution(
@@ -865,6 +1571,7 @@ def build_partial_live_run_execution(
         result=result,
         telemetry=list(telemetry),
         events=list(events),
+        afas_dataset=afas_dataset,
     )
 
 
@@ -927,6 +1634,54 @@ def _detail_points_from_telemetry(telemetry: list[dict[str, Any]]) -> list[dict[
             }
         )
     return detail_points
+
+
+def _sync_points_from_telemetry(telemetry: list[dict[str, Any]]) -> list[SyncPoint]:
+    sync_points: list[SyncPoint] = []
+    for row in telemetry:
+        if row.get("timestamp_ms") is None or row.get("temperature_celsius") is None or row.get("space1_px") is None:
+            continue
+        timestamp_ms = int(row["timestamp_ms"])
+        temp_timestamp_ms = int(row.get("temp_timestamp_ms") or timestamp_ms)
+        metric_timestamp_ms = int(row.get("metric_timestamp_ms") or timestamp_ms)
+        frame_timestamp_ms = row.get("frame_timestamp_ms")
+        frame_id = row.get("frame_id")
+        frame = None
+        if frame_timestamp_ms is not None or frame_id is not None:
+            frame = FramePacket(
+                timestamp_ms=int(frame_timestamp_ms or timestamp_ms),
+                source="telemetry",
+                frame_id=None if frame_id is None else int(frame_id),
+            )
+        sync_points.append(
+            SyncPoint(
+                timestamp_ms=timestamp_ms,
+                frame=frame,
+                temp=TempReading(
+                    timestamp_ms=temp_timestamp_ms,
+                    celsius=float(row["temperature_celsius"]),
+                    source="telemetry",
+                ),
+                metric=ShapeMetric(
+                    timestamp_ms=metric_timestamp_ms,
+                    metric_name="metric_raw",
+                    metric_raw=float(row["space1_px"]),
+                    quality=float(row.get("tracking_quality") or 0.0),
+                    point_a_px=_tuple_point(row.get("point_a_px")),
+                    point_b_px=_tuple_point(row.get("point_b_px")),
+                ),
+            )
+        )
+    return sync_points
+
+
+def _tuple_point(value: Any) -> tuple[int, int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        return int(value[0]), int(value[1])
+    except (TypeError, ValueError):
+        return None
 
 
 def summarize_rate_snapshot(
@@ -997,6 +1752,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "ignore_internal_texture": definition.ignore_internal_texture,
         "min_target_area_px": definition.min_target_area_px,
         "sensitivity": definition.sensitivity,
+        "direction_angle_deg": definition.direction_angle_deg,
+        "direction_projection_mode": definition.direction_projection_mode,
     }
 
 
@@ -1009,6 +1766,8 @@ def _telemetry_row(
     if sync_point.temp is None or sync_point.metric is None or sync_point.metric.metric_raw is None:
         raise ValueError("telemetry row requires temperature and metric data")
     frame = sync_point.frame
+    metric = sync_point.metric
+    metric_meta = metric.meta
     return {
         "timestamp_ms": sync_point.timestamp_ms,
         "sample_index": sample_index,
@@ -1021,34 +1780,53 @@ def _telemetry_row(
         "metric_timestamp_ms": int(sync_point.metric.timestamp_ms),
         "camera_resulting_fps": _frame_resulting_fps(frame),
         "temperature_celsius": sync_point.temp.celsius,
-        "space1_px": sync_point.metric.metric_raw,
-        "tracking_quality": sync_point.metric.quality,
+        "space1_px": metric.metric_raw,
+        "tracking_quality": metric.quality,
         "point_a_px": None
-        if sync_point.metric.point_a_px is None
-        else [int(sync_point.metric.point_a_px[0]), int(sync_point.metric.point_a_px[1])],
+        if metric.point_a_px is None
+        else [int(metric.point_a_px[0]), int(metric.point_a_px[1])],
         "point_b_px": None
-        if sync_point.metric.point_b_px is None
-        else [int(sync_point.metric.point_b_px[0]), int(sync_point.metric.point_b_px[1])],
-        "tracking_mode": sync_point.metric.meta.get("tracking_mode"),
-        "tracking_state": sync_point.metric.meta.get("tracking_state"),
-        "selection_mode": sync_point.metric.meta.get("selection_mode"),
-        "reason": sync_point.metric.meta.get("reason"),
-        "observation_selection_mode": sync_point.metric.meta.get("observation_selection_mode"),
-        "observation_reason": sync_point.metric.meta.get("observation_reason"),
-        "component_area": sync_point.metric.meta.get("component_area"),
-        "threshold_value": sync_point.metric.meta.get("threshold_value"),
-        "endpoint_jump_px": sync_point.metric.meta.get("endpoint_jump_px"),
-        "midpoint_drift_px": sync_point.metric.meta.get("midpoint_drift_px"),
-        "span_change_ratio": sync_point.metric.meta.get("span_change_ratio"),
-        "consecutive_misses": sync_point.metric.meta.get("consecutive_misses"),
-        "frame_read_ms": sync_point.metric.meta.get("frame_read_ms"),
-        "temp_read_ms": sync_point.metric.meta.get("temp_read_ms"),
-        "metric_extract_ms": sync_point.metric.meta.get("metric_extract_ms"),
-        "sample_loop_ms": sync_point.metric.meta.get("sample_loop_ms"),
-        "telemetry_row_ms": sync_point.metric.meta.get("telemetry_row_ms"),
-        "sample_callbacks_ms": sync_point.metric.meta.get("sample_callbacks_ms"),
-        "post_sample_ms": sync_point.metric.meta.get("post_sample_ms"),
+        if metric.point_b_px is None
+        else [int(metric.point_b_px[0]), int(metric.point_b_px[1])],
+        "source_point_a_px": _metric_meta_point(metric_meta, "source_point_a_px"),
+        "source_point_b_px": _metric_meta_point(metric_meta, "source_point_b_px"),
+        "axis_point_a_px": _metric_meta_point(metric_meta, "axis_point_a_px"),
+        "axis_point_b_px": _metric_meta_point(metric_meta, "axis_point_b_px"),
+        "tracking_mode": metric_meta.get("tracking_mode"),
+        "tracking_state": metric_meta.get("tracking_state"),
+        "selection_mode": metric_meta.get("selection_mode"),
+        "reason": metric_meta.get("reason"),
+        "observation_selection_mode": metric_meta.get("observation_selection_mode"),
+        "observation_reason": metric_meta.get("observation_reason"),
+        "component_area": metric_meta.get("component_area"),
+        "threshold_value": metric_meta.get("threshold_value"),
+        "endpoint_jump_px": metric_meta.get("endpoint_jump_px"),
+        "midpoint_drift_px": metric_meta.get("midpoint_drift_px"),
+        "midpoint_along_shift_px": metric_meta.get("midpoint_along_shift_px"),
+        "midpoint_lateral_drift_px": metric_meta.get("midpoint_lateral_drift_px"),
+        "span_change_px": metric_meta.get("span_change_px"),
+        "span_change_ratio": metric_meta.get("span_change_ratio"),
+        "max_frame_span_jump_px": metric_meta.get("max_frame_span_jump_px"),
+        "max_soft_frame_span_jump_px": metric_meta.get("max_soft_frame_span_jump_px"),
+        "consecutive_misses": metric_meta.get("consecutive_misses"),
+        "frame_read_ms": metric_meta.get("frame_read_ms"),
+        "temp_read_ms": metric_meta.get("temp_read_ms"),
+        "metric_extract_ms": metric_meta.get("metric_extract_ms"),
+        "sample_loop_ms": metric_meta.get("sample_loop_ms"),
+        "telemetry_row_ms": metric_meta.get("telemetry_row_ms"),
+        "sample_callbacks_ms": metric_meta.get("sample_callbacks_ms"),
+        "post_sample_ms": metric_meta.get("post_sample_ms"),
     }
+
+
+def _metric_meta_point(meta: dict[str, Any], key: str) -> list[int] | None:
+    payload = meta.get(key)
+    if not isinstance(payload, (list, tuple)) or len(payload) != 2:
+        return None
+    try:
+        return [int(payload[0]), int(payload[1])]
+    except (TypeError, ValueError):
+        return None
 
 
 def _rate_snapshot_payload(rate_snapshot: RunRateSnapshot) -> dict[str, Any]:
@@ -1093,8 +1871,6 @@ def resolve_measurement_interval_ms(
     playback_sample_count: int | None = None,
     stop_on_target_reached: bool = True,
 ) -> int:
-    if playback_sample_count is not None and stop_on_target_reached:
-        return 1
     target_hz = getattr(run_config, "measurement_target_hz", None)
     if target_hz is not None:
         resolved_hz = float(target_hz)
@@ -1195,8 +1971,11 @@ def _points_for_projected_span(
     point_b_x = center_x + unit_x * half_span
     point_b_y = center_y + unit_y * half_span
 
-    max_x = (len(frame.image[0]) - 1) if frame.image and frame.image[0] else int(round(center_x))
-    max_y = (len(frame.image) - 1) if frame.image else int(round(center_y))
+    max_x, max_y = _frame_max_xy(
+        frame,
+        fallback_x=int(round(center_x)),
+        fallback_y=int(round(center_y)),
+    )
     point_a = (
         int(max(0, min(max_x, round(point_a_x)))),
         int(max(0, min(max_y, round(point_a_y)))),
@@ -1206,6 +1985,26 @@ def _points_for_projected_span(
         int(max(0, min(max_y, round(point_b_y)))),
     )
     return point_a, point_b
+
+
+def _frame_max_xy(frame: FramePacket, *, fallback_x: int, fallback_y: int) -> tuple[int, int]:
+    image = frame.image
+    shape = getattr(image, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        height = int(shape[0])
+        width = int(shape[1])
+        if width > 0 and height > 0:
+            return width - 1, height - 1
+    if image is None:
+        return int(fallback_x), int(fallback_y)
+    try:
+        height = len(image)
+        width = len(image[0]) if height > 0 else 0
+    except (TypeError, ValueError):
+        return int(fallback_x), int(fallback_y)
+    if width > 0 and height > 0:
+        return int(width) - 1, int(height) - 1
+    return int(fallback_x), int(fallback_y)
 
 
 def _event(timestamp_ms: int, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1222,6 +2021,23 @@ def _shape_metric_point(value: tuple[int, int] | None) -> PixelPoint | None:
     return PixelPoint(x=int(value[0]), y=int(value[1]))
 
 
+def _metric_endpoint_border_touch_count(metric: ShapeMetric, roi: RectRegion) -> int:
+    points = (_shape_metric_point(metric.point_a_px), _shape_metric_point(metric.point_b_px))
+    if any(point is None for point in points):
+        return 2
+    margin = max(1, int(round(float(min(roi.width, roi.height)) * 0.015)))
+    left = int(roi.x) + margin
+    right = int(roi.x + roi.width) - 1 - margin
+    top = int(roi.y) + margin
+    bottom = int(roi.y + roi.height) - 1 - margin
+    touches = 0
+    for point in points:
+        assert point is not None
+        if point.x <= left or point.x >= right or point.y <= top or point.y >= bottom:
+            touches += 1
+    return min(2, touches)
+
+
 def _midpoint(point_a: PixelPoint, point_b: PixelPoint) -> PixelPoint:
     return PixelPoint(
         x=int(round((point_a.x + point_b.x) / 2)),
@@ -1231,6 +2047,31 @@ def _midpoint(point_a: PixelPoint, point_b: PixelPoint) -> PixelPoint:
 
 def _point_distance(point_a: PixelPoint, point_b: PixelPoint) -> float:
     return math.hypot(float(point_b.x - point_a.x), float(point_b.y - point_a.y))
+
+
+def _limited_axis_endpoint(
+    *,
+    previous: PixelPoint,
+    observed: PixelPoint,
+    direction: tuple[float, float],
+    max_step_px: float,
+) -> PixelPoint:
+    direction_x, direction_y = direction
+    delta_x = float(observed.x - previous.x)
+    delta_y = float(observed.y - previous.y)
+    along_delta = delta_x * direction_x + delta_y * direction_y
+    limited_delta = max(-float(max_step_px), min(float(max_step_px), along_delta))
+    return PixelPoint(
+        x=int(round(float(previous.x) + direction_x * limited_delta)),
+        y=int(round(float(previous.y) + direction_y * limited_delta)),
+    )
+
+
+def _unit_vector(point_a: PixelPoint, point_b: PixelPoint) -> tuple[float, float]:
+    distance = _point_distance(point_a, point_b)
+    if distance <= 0:
+        return 1.0, 0.0
+    return (float(point_b.x - point_a.x) / distance, float(point_b.y - point_a.y) / distance)
 
 
 def _select_key_frames(sync_points: list[SyncPoint]) -> list[dict[str, Any]]:

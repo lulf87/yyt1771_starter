@@ -11,6 +11,7 @@ from src.core.enums import CaptureMode, ObservationAxis, RunStatus, SessionState
 
 ScalarPointValue = bool | float | int | str
 ANALYSIS_ROI_FLOAT_EPSILON = 0.5
+METRIC_BOX_POINT_FLOAT_EPSILON = 2.0
 
 
 @dataclass(slots=True)
@@ -55,6 +56,8 @@ class MeasurementDefinition:
     ignore_internal_texture: bool
     min_target_area_px: int
     sensitivity: float = 50.0
+    direction_angle_deg: float | None = None
+    direction_projection_mode: str = "auto"
     observation_axis: ObservationAxis = ObservationAxis.LONG_AXIS
 
     def has_valid_roi(self) -> bool:
@@ -111,7 +114,9 @@ class TemperatureSettingsBundle:
     target_temperature_celsius: float
     control_mode: str = "manual"
     output_power_percent: float = 100.0
+    completion_mode: str = "target_reached"
     confirmed_target_temperature_celsius: float | None = None
+    confirmed_output_power_percent: float | None = None
     confirmed_at_ms: int = 0
     source: str = "unknown"
 
@@ -226,7 +231,10 @@ def _point_in_metric_box(box: MetricBox, x: int, y: int) -> bool:
     translated_y = y - box.center_y
     local_x = translated_x * cos_theta + translated_y * sin_theta
     local_y = -translated_x * sin_theta + translated_y * cos_theta
-    return abs(local_x) <= box.width / 2 and abs(local_y) <= box.height / 2
+    return (
+        abs(local_x) <= box.width / 2 + METRIC_BOX_POINT_FLOAT_EPSILON
+        and abs(local_y) <= box.height / 2 + METRIC_BOX_POINT_FLOAT_EPSILON
+    )
 
 
 def _metric_box_corners(box: MetricBox) -> list[tuple[float, float]]:

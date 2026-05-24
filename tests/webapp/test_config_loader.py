@@ -22,12 +22,21 @@ def test_load_runtime_config_reads_known_profile() -> None:
     assert runtime_config.storage["sqlite_path"] == "examples/runtime/dev_mock.sqlite3"
     assert runtime_config.storage["artifact_dir"] == "examples/runtime/artifacts"
     assert runtime_config.replay["dataset_path"] == "examples/replay"
-    assert runtime_config.camera == {}
+    assert runtime_config.camera["setup_preview"]["device_roi"]["width"] == 1120
+    assert runtime_config.camera["measurement"]["device_roi"]["width"] == 2048
     assert runtime_config.live.camera.transport == ""
     assert runtime_config.live.camera.setup_preview.exposure_us == 10_000
-    assert runtime_config.live.camera.setup_preview.device_roi.width == 0
+    assert runtime_config.live.camera.setup_preview.gain_db == 18.0
+    assert runtime_config.live.camera.setup_preview.device_roi.x == 1440
+    assert runtime_config.live.camera.setup_preview.device_roi.y == 1086
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 1120
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 620
     assert runtime_config.live.camera.measurement.exposure_us == 10_000
-    assert runtime_config.live.camera.measurement.device_roi.width == 0
+    assert runtime_config.live.camera.measurement.gain_db == 18.0
+    assert runtime_config.live.camera.measurement.device_roi.x == 512
+    assert runtime_config.live.camera.measurement.device_roi.y == 342
+    assert runtime_config.live.camera.measurement.device_roi.width == 2048
+    assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.temp.protocol == "modbus_rtu"
     assert runtime_config.live.temp.slave_address == 1
     assert runtime_config.live.temp.serial.port == ""
@@ -59,17 +68,42 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
         "plc": "mock",
     }
     assert runtime_config.live.temp.backend == "mock"
-    assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
-    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.5
-    assert runtime_config.live.camera.setup_preview.device_roi.width == 0
-    assert runtime_config.live.camera.setup_preview.device_roi.height == 0
+    assert runtime_config.live.temp.control.completion_mode == "target_reached"
+    assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.005
+    assert runtime_config.live.camera.setup_preview.exposure_us == 10_000
+    assert runtime_config.live.camera.setup_preview.gain_db == 18.0
+    assert runtime_config.live.camera.setup_preview.device_roi.x == 1440
+    assert runtime_config.live.camera.setup_preview.device_roi.y == 1086
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 1120
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 620
+    assert runtime_config.live.camera.measurement.exposure_us == 10_000
+    assert runtime_config.live.camera.measurement.gain_db == 18.0
     assert runtime_config.live.camera.measurement.device_roi.width == 2048
     assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.measurement_target_hz == 20.0
+    assert runtime_config.live.run.manual_stop_max_samples == 0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
     assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
+
+
+def test_load_runtime_config_reads_offline_capture_profile() -> None:
+    runtime_config = load_runtime_config("dev_offline_capture")
+
+    assert runtime_config.profile == "dev_offline_capture"
+    assert runtime_config.mode == "offline"
+    assert runtime_config.adapters["camera"] == "offline_capture"
+    assert runtime_config.adapters["temp"] == "offline_capture"
+    assert runtime_config.live.temp.backend == "offline_capture"
+    assert runtime_config.camera["offline_capture"]["capture_dir"].endswith(
+        "examples/runtime/camera_captures/20260522-183158-dev_lab"
+    )
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 0
+    assert runtime_config.live.camera.measurement.device_roi.width == 2048
+    assert runtime_config.live.camera.measurement.device_roi.height == 1364
+    assert runtime_config.live.temp.control.completion_mode == "manual_stop_only"
+    assert runtime_config.live.run.manual_stop_max_samples == 0
 
 
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(
@@ -136,7 +170,7 @@ run:
   preview_target_fps: 20
   measurement_target_hz: 20
   artifact_capture_hz: 20
-  manual_stop_max_samples: 10000
+  manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
   invalid_tracking_grace_samples: 5
@@ -176,7 +210,7 @@ replay:
     assert runtime_config.live.temp.control.mock_ramp_step_celsius == 0.5
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.preview_poll_ms == 50
-    assert runtime_config.live.run.manual_stop_max_samples == 10_000
+    assert runtime_config.live.run.manual_stop_max_samples == 0
     assert runtime_config.live.run.preview_display_max_width == 816
     assert runtime_config.live.run.preview_display_max_height == 544
     assert runtime_config.live.run.capture_interval_ms == 50

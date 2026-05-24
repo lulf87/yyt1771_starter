@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import threading
 import time
 from typing import Any, Protocol
 
@@ -34,6 +35,7 @@ class LU92XXModbusRtuController(TempReader, TempControllerPort):
         self.config = config
         self.transport_factory = transport_factory
         self._transport: SerialTransport | None = None
+        self._io_lock = threading.RLock()
 
         if self.config.protocol and self.config.protocol != "modbus_rtu":
             raise ValueError(f"unsupported temp protocol: {self.config.protocol}")
@@ -46,21 +48,23 @@ class LU92XXModbusRtuController(TempReader, TempControllerPort):
             raise ValueError(f"unsupported start_output_mode: {self.config.control.start_output_mode}")
 
     def open(self) -> None:
-        if self._transport is not None:
-            return
-        if not self.config.serial.port.strip():
-            raise ValueError("temp.serial.port is required for LU92XX Modbus RTU")
-        factory = self.transport_factory or self._default_transport_factory()
-        try:
-            self._transport = factory(self.config.serial)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to open LU92XX serial transport: {exc}") from exc
+        with self._io_lock:
+            if self._transport is not None:
+                return
+            if not self.config.serial.port.strip():
+                raise ValueError("temp.serial.port is required for LU92XX Modbus RTU")
+            factory = self.transport_factory or self._default_transport_factory()
+            try:
+                self._transport = factory(self.config.serial)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to open LU92XX serial transport: {exc}") from exc
 
     def close(self) -> None:
-        if self._transport is None:
-            return
-        self._transport.close()
-        self._transport = None
+        with self._io_lock:
+            if self._transport is None:
+                return
+            self._transport.close()
+            self._transport = None
 
     def read(self) -> TempReading:
         register = self.config.register_map.process_value
@@ -115,20 +119,44 @@ class LU92XXModbusRtuController(TempReader, TempControllerPort):
         )
         return float(raw_value) / register.encode_scale
 
-    def start_output(self) -> None:
+    def set_output_power_percent(self, percent: float) -> None:
+        if percent < 0.0 or percent > 100.0:
+            raise ValueError("output power percent must be within 0..100")
+        self._write_output_power_percent(percent)
+
+    def read_output_power_percent(self) -> float:
         register = self.config.register_map.output_power
-        encoded_value = self._encode_register_values(
-            self.config.control.startup_power_percent,
+        response = self._transceive(
+            request=self._build_read_request(
+                TempRegisterConfig(
+                    function_code=3,
+                    start_address=register.start_address,
+                    register_count=register.register_count,
+                    signed=register.signed,
+                    decode_scale=1.0 / register.encode_scale if register.encode_scale != 0 else 1.0,
+                )
+            ),
+            expected_size=5 + register.register_count * 2,
+            function_code=3,
+        )
+        register_bytes = response[3:-2]
+        raw_value = self._decode_register_value(
+            register_bytes,
             register_count=register.register_count,
-            encode_scale=register.encode_scale,
             signed=register.signed,
         )
-        self._write_register_values(register, encoded_value)
+        return float(raw_value) / register.encode_scale
+
+    def start_output(self) -> None:
+        self._write_output_power_percent(self.config.control.startup_power_percent)
 
     def stop_output(self) -> None:
+        self._write_output_power_percent(0.0)
+
+    def _write_output_power_percent(self, percent: float) -> None:
         register = self.config.register_map.output_power
         encoded_value = self._encode_register_values(
-            0.0,
+            percent,
             register_count=register.register_count,
             encode_scale=register.encode_scale,
             signed=register.signed,
@@ -145,10 +173,11 @@ class LU92XXModbusRtuController(TempReader, TempControllerPort):
         )
 
     def _transceive(self, *, request: bytes, expected_size: int, function_code: int) -> bytes:
-        self.open()
-        assert self._transport is not None
-        self._transport.write(request)
-        response = self._transport.read(expected_size)
+        with self._io_lock:
+            self.open()
+            assert self._transport is not None
+            self._transport.write(request)
+            response = self._transport.read(expected_size)
         if not response:
             raise RuntimeError("No response from LU92XX controller")
         if len(response) < 5:

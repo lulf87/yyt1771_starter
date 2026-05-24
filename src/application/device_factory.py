@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from src.application.runtime_config import RuntimeConfig
-from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, build_hik_rtsp_url
+from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, OfflineCaptureCamera, build_hik_rtsp_url
 from src.core.config_models import CameraAcquisitionProfileConfig, DeviceRoiConfig
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, _metric_box_within_region
 from src.curve.mock_afas_curve_playback import resolve_mock_afas_curve_playback
-from src.temp import LU92XXModbusRtuController, MockTempController, WorkbookPlaybackTempController
+from src.temp import LU92XXModbusRtuController, MockTempController, OfflineCaptureTempController, WorkbookPlaybackTempController
 from src.workflow.live_run import (
+    DIRECTIONAL_WORKING_MAX_HEIGHT,
+    DIRECTIONAL_WORKING_MAX_WIDTH,
     LockedDefinitionMetricSource,
     MockLiveMetricSource,
     PriorTrackingMetricSource,
     WorkbookPlaybackMetricSource,
 )
 
-_MEASUREMENT_ROI_TARGET_MAX_WIDTH = 512
-_MEASUREMENT_ROI_TARGET_MAX_HEIGHT = 512
 _MEASUREMENT_ROI_MIN_PADDING_PX = 32
 _MEASUREMENT_ROI_MAX_PADDING_PX = 160
 
@@ -45,6 +45,12 @@ def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_pre
             decimation=profile.decimation,
             binning=profile.binning,
         )
+    if backend == "offline_capture":
+        return OfflineCaptureCamera(
+            capture_dir=_resolve_offline_capture_dir(runtime_config),
+            profile_name=profile_name,
+            device_roi=profile.device_roi,
+        )
     if backend == "hik_gige_mvs":
         return _build_hik_gige_camera(runtime_config, profile_name=profile_name)
     if backend == "hik_rtsp_opencv":
@@ -63,6 +69,8 @@ def build_temp_controller(runtime_config: RuntimeConfig) -> object:
         )
     if backend == "lu92xx_modbus_rtu":
         return LU92XXModbusRtuController(runtime_config.live.temp)
+    if backend == "offline_capture":
+        return OfflineCaptureTempController(capture_dir=_resolve_offline_capture_dir(runtime_config))
     raise ValueError(f"Temperature backend does not support Phase 3 live runs yet: {backend or 'missing'}")
 
 
@@ -81,10 +89,14 @@ def build_metric_source(
             definition=definition,
             target_temperature_celsius=target_temperature_celsius,
         )
-    return LockedDefinitionMetricSource(
-        definition=definition,
-        debug_locked_points=runtime_config.live.run.debug_locked_points_tracking,
-    ) if runtime_config.live.run.debug_locked_points_tracking else PriorTrackingMetricSource(definition=definition)
+    if runtime_config.live.run.debug_locked_points_tracking:
+        return LockedDefinitionMetricSource(
+            definition=definition,
+            debug_locked_points=True,
+            working_max_width=DIRECTIONAL_WORKING_MAX_WIDTH if definition.direction_angle_deg is not None else None,
+            working_max_height=DIRECTIONAL_WORKING_MAX_HEIGHT if definition.direction_angle_deg is not None else None,
+        )
+    return PriorTrackingMetricSource(definition=definition)
 
 
 def build_measurement_capture_plan(
@@ -105,6 +117,13 @@ def build_measurement_capture_plan(
         )
 
     if measurement_base_roi.width < 1 or measurement_base_roi.height < 1:
+        if measurement_profile.device_roi.width < 1 or measurement_profile.device_roi.height < 1:
+            return MeasurementCapturePlan(
+                measurement_profile=measurement_profile,
+                metric_definition=definition,
+                setup_preview_roi=setup_preview_roi,
+                measurement_base_roi=measurement_base_roi,
+            )
         effective_definition = _translate_definition_for_measurement_roi(
             definition,
             setup_preview_roi=setup_preview_roi,
@@ -117,32 +136,53 @@ def build_measurement_capture_plan(
             measurement_base_roi=measurement_base_roi,
         )
 
-    analysis_roi_in_measurement_base = type(definition.analysis_roi)(
-        x=int(definition.analysis_roi.x + setup_preview_roi.x - measurement_base_roi.x),
-        y=int(definition.analysis_roi.y + setup_preview_roi.y - measurement_base_roi.y),
+    analysis_roi_in_sensor = type(definition.analysis_roi)(
+        x=int(definition.analysis_roi.x + setup_preview_roi.x),
+        y=int(definition.analysis_roi.y + setup_preview_roi.y),
         width=int(definition.analysis_roi.width),
         height=int(definition.analysis_roi.height),
     )
-    measurement_focus_region = _metric_box_bounding_region(
+    metric_box_region_in_sensor = _metric_box_bounding_region(
         type(definition.analysis_roi)(
-            x=int(definition.metric_box.center_x - definition.metric_box.width / 2 + setup_preview_roi.x - measurement_base_roi.x),
-            y=int(definition.metric_box.center_y - definition.metric_box.height / 2 + setup_preview_roi.y - measurement_base_roi.y),
+            x=int(definition.metric_box.center_x - definition.metric_box.width / 2 + setup_preview_roi.x),
+            y=int(definition.metric_box.center_y - definition.metric_box.height / 2 + setup_preview_roi.y),
             width=int(definition.metric_box.width),
             height=int(definition.metric_box.height),
         ),
         angle_deg=float(definition.metric_box.angle_deg),
     )
-    local_capture_roi = _derive_measurement_local_capture_roi(
-        measurement_focus_region,
-        container_width=measurement_base_roi.width,
-        container_height=measurement_base_roi.height,
+    measurement_focus_region = _region_union(
+        analysis_roi_in_sensor,
+        metric_box_region_in_sensor,
     )
-    effective_device_roi = DeviceRoiConfig(
-        x=measurement_base_roi.x + local_capture_roi.x,
-        y=measurement_base_roi.y + local_capture_roi.y,
-        width=local_capture_roi.width,
-        height=local_capture_roi.height,
-    )
+    if _region_contains_region(measurement_base_roi, measurement_focus_region):
+        focus_region_in_measurement_base = type(definition.analysis_roi)(
+            x=int(measurement_focus_region.x - measurement_base_roi.x),
+            y=int(measurement_focus_region.y - measurement_base_roi.y),
+            width=int(measurement_focus_region.width),
+            height=int(measurement_focus_region.height),
+        )
+        local_capture_roi = _derive_measurement_local_capture_roi(
+            focus_region_in_measurement_base,
+            container_width=measurement_base_roi.width,
+            container_height=measurement_base_roi.height,
+        )
+        effective_device_roi = DeviceRoiConfig(
+            x=measurement_base_roi.x + local_capture_roi.x,
+            y=measurement_base_roi.y + local_capture_roi.y,
+            width=local_capture_roi.width,
+            height=local_capture_roi.height,
+        )
+    else:
+        unconstrained_capture_roi = _derive_unbounded_measurement_capture_roi(
+            measurement_focus_region,
+        )
+        effective_device_roi = DeviceRoiConfig(
+            x=unconstrained_capture_roi.x,
+            y=unconstrained_capture_roi.y,
+            width=unconstrained_capture_roi.width,
+            height=unconstrained_capture_roi.height,
+        )
     effective_profile = replace(measurement_profile, device_roi=effective_device_roi)
     shifted_definition = _translate_definition_for_measurement_roi(
         definition,
@@ -265,6 +305,19 @@ def _resolve_mock_afas_curve_playback(runtime_config: RuntimeConfig):
         raise FileNotFoundError(f"Configured mock AFAS curve sample is missing: {resolved_path}") from exc
 
 
+def _resolve_offline_capture_dir(runtime_config: RuntimeConfig) -> Path:
+    offline_config = runtime_config.camera.get("offline_capture")
+    if not isinstance(offline_config, dict):
+        offline_config = {}
+    capture_dir = str(offline_config.get("capture_dir", "") or "").strip()
+    if not capture_dir:
+        raise ValueError("offline_capture camera config requires camera.offline_capture.capture_dir")
+    resolved_path = Path(capture_dir)
+    if not resolved_path.is_absolute():
+        resolved_path = Path(__file__).resolve().parents[2] / resolved_path
+    return resolved_path
+
+
 def _setup_preview_sensor_roi(runtime_config: RuntimeConfig) -> DeviceRoiConfig:
     camera_config = runtime_config.live.camera
     candidate = camera_config.setup_preview.device_roi
@@ -308,11 +361,11 @@ def _derive_measurement_local_capture_roi(
 
     desired_width = min(
         int(container_width),
-        max(span_width, min(_MEASUREMENT_ROI_TARGET_MAX_WIDTH, span_width + padding_x * 2)),
+        max(span_width, span_width + padding_x * 2),
     )
     desired_height = min(
         int(container_height),
-        max(span_height, min(_MEASUREMENT_ROI_TARGET_MAX_HEIGHT, span_height + padding_y * 2)),
+        max(span_height, span_height + padding_y * 2),
     )
 
     center_x = float(analysis_roi.x) + float(span_width) / 2.0
@@ -329,9 +382,50 @@ def _derive_measurement_local_capture_roi(
     )
 
 
+def _derive_unbounded_measurement_capture_roi(region):
+    span_width = max(1, int(region.width))
+    span_height = max(1, int(region.height))
+    padding_x = _measurement_padding_px(span_width)
+    padding_y = _measurement_padding_px(span_height)
+    desired_width = max(span_width, span_width + padding_x * 2)
+    desired_height = max(span_height, span_height + padding_y * 2)
+    center_x = float(region.x) + float(span_width) / 2.0
+    center_y = float(region.y) + float(span_height) / 2.0
+    x = max(0, int(round(center_x - float(desired_width) / 2.0)))
+    y = max(0, int(round(center_y - float(desired_height) / 2.0)))
+    return type(region)(
+        x=int(x),
+        y=int(y),
+        width=int(desired_width),
+        height=int(desired_height),
+    )
+
+
 def _measurement_padding_px(span_px: int) -> int:
     proportional = int(round(float(span_px) * 0.25))
     return max(_MEASUREMENT_ROI_MIN_PADDING_PX, min(_MEASUREMENT_ROI_MAX_PADDING_PX, proportional))
+
+
+def _region_union(first, second):
+    min_x = min(int(first.x), int(second.x))
+    min_y = min(int(first.y), int(second.y))
+    max_x = max(int(first.x) + int(first.width), int(second.x) + int(second.width))
+    max_y = max(int(first.y) + int(first.height), int(second.y) + int(second.height))
+    return type(first)(
+        x=int(min_x),
+        y=int(min_y),
+        width=max(1, int(max_x - min_x)),
+        height=max(1, int(max_y - min_y)),
+    )
+
+
+def _region_contains_region(container, region) -> bool:
+    return (
+        int(container.x) <= int(region.x)
+        and int(container.y) <= int(region.y)
+        and int(region.x) + int(region.width) <= int(container.x) + int(container.width)
+        and int(region.y) + int(region.height) <= int(container.y) + int(container.height)
+    )
 
 
 def _metric_box_bounding_region(region, *, angle_deg: float):
@@ -395,6 +489,8 @@ def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: 
         ignore_internal_texture=definition.ignore_internal_texture,
         min_target_area_px=int(definition.min_target_area_px),
         sensitivity=float(definition.sensitivity),
+        direction_angle_deg=definition.direction_angle_deg,
+        direction_projection_mode=definition.direction_projection_mode,
         observation_axis=definition.observation_axis,
     )
 
@@ -451,6 +547,8 @@ def _normalize_definition_to_local_frame(
         ignore_internal_texture=translated.ignore_internal_texture,
         min_target_area_px=translated.min_target_area_px,
         sensitivity=translated.sensitivity,
+        direction_angle_deg=translated.direction_angle_deg,
+        direction_projection_mode=translated.direction_projection_mode,
         observation_axis=translated.observation_axis,
     )
 

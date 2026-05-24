@@ -40,6 +40,7 @@ camera:
 run:
   preview_poll_ms: 50
   preview_target_fps: 20
+  manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
 

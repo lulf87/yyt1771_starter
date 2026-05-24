@@ -64,8 +64,14 @@ class LivePreviewService:
         cached_frame = self._latest_frame_for_run(run_id) if prefer_cached else None
         if cached_frame is not None:
             return cached_frame
-        frame = self._read_with_close(
-            self.open_camera(runtime_config, profile_name="setup_preview"),
+        active_frame = self.get_active_frame()
+        if active_frame is not None:
+            if run_id:
+                self._store_latest_frame(run_id, active_frame)
+            return active_frame
+        frame = self._read_fresh_frame_with_retry(
+            runtime_config,
+            profile_name="setup_preview",
             warmup_frame_count=_fresh_capture_warmup_frame_count(runtime_config),
         )
         if run_id:
@@ -261,6 +267,23 @@ class LivePreviewService:
                 return None
             return self._latest_tracking_frame
 
+    def get_active_frame(self) -> FramePacket | None:
+        with self._state_lock:
+            active_stream = self._active_stream
+            if active_stream is None:
+                return None
+            return active_stream.latest_frame
+
+    def retire_active_stream(self, *, timeout_ms: int = 1_000) -> bool:
+        with self._state_lock:
+            active_stream = self._active_stream
+        if active_stream is None:
+            return False
+        active_stream.stop_event.set()
+        active_stream.frame_event.set()
+        self._retire_stream(active_stream, join_timeout_s=max(0.05, float(timeout_ms) / 1000.0))
+        return True
+
     def get_active_probe_payload(self) -> dict[str, object] | None:
         with self._state_lock:
             active_stream = self._active_stream
@@ -409,6 +432,32 @@ class LivePreviewService:
             if callable(close):
                 close()
 
+    def _read_fresh_frame_with_retry(
+        self,
+        runtime_config: RuntimeConfig,
+        *,
+        profile_name: str,
+        warmup_frame_count: int = 0,
+    ) -> FramePacket:
+        last_error: Exception | None = None
+        for attempt_index in range(3):
+            camera = None
+            try:
+                camera = self.open_camera(runtime_config, profile_name=profile_name)
+                return self._read_with_close(camera, warmup_frame_count=warmup_frame_count)
+            except Exception as exc:
+                last_error = exc
+                close = getattr(camera, "close", None) if camera is not None else None
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        pass
+                if attempt_index >= 2 or not _is_retryable_preview_open_error(exc):
+                    raise
+                time.sleep(0.12 * (attempt_index + 1))
+        raise RuntimeError(f"Preview fresh capture failed: {last_error}")
+
 
 def _preview_display_fps(active_stream: _ActivePreviewStream) -> float | None:
     if active_stream.frames_presented < 2:
@@ -425,7 +474,10 @@ def _preview_display_fps(active_stream: _ActivePreviewStream) -> float | None:
 
 def _is_retryable_preview_open_error(exc: Exception) -> bool:
     message = str(exc).lower()
-    return any(token in message for token in ("0x80000203", "resource", "access denied", "already active"))
+    return any(
+        token in message
+        for token in ("0x80000203", "0x80000004", "resource", "access denied", "already active", "create handle")
+    )
 
 
 def compute_preview_interval_ms(

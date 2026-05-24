@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic import model_validator
+from src.core.models import METRIC_BOX_POINT_FLOAT_EPSILON
 
 ANALYSIS_ROI_FLOAT_EPSILON = 0.5
 
@@ -51,13 +52,16 @@ class TemperatureSettingsRequest(BaseModel):
     target_temperature_celsius: float = Field(ge=-50, le=50)
     control_mode: Literal["manual"] = "manual"
     output_power_percent: float = Field(default=100.0, ge=0.0, le=100.0)
+    completion_mode: Literal["target_reached", "manual_stop_only"] | None = None
 
 
 class TemperatureSettingsResponse(BaseModel):
     target_temperature_celsius: float
     control_mode: Literal["manual"]
     output_power_percent: float
+    completion_mode: Literal["target_reached", "manual_stop_only"]
     confirmed_target_temperature_celsius: float
+    confirmed_output_power_percent: float | None = None
     confirmed_at_ms: int
     source: str
 
@@ -112,6 +116,8 @@ class MeasurementDefinitionRequest(BaseModel):
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
+    direction_angle_deg: float | None = None
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -140,11 +146,14 @@ class MeasurementDefinitionResponse(MeasurementDefinitionRequest):
 class AutoDetectDefinitionRequest(BaseModel):
     analysis_roi: RectRegionRequest
     metric_box: MetricBoxRequest | None = None
+    direction_angle_deg: float | None = None
+    observation_axis: Literal["long_axis", "short_axis"] = "long_axis"
     foreground_polarity: Literal["dark_on_light", "light_on_dark"]
     threshold_mode: Literal["adaptive", "binary", "otsu"]
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -160,9 +169,17 @@ class AutoDetectDefinitionRequest(BaseModel):
 class AutoDetectDefinitionResponse(BaseModel):
     point_a_px: PixelPointResponse
     point_b_px: PixelPointResponse
+    source_point_a_px: PixelPointResponse | None = None
+    source_point_b_px: PixelPointResponse | None = None
+    axis_point_a_px: PixelPointResponse | None = None
+    axis_point_b_px: PixelPointResponse | None = None
     quality: float
     metric_raw: float | None
     threshold_mode_used: Literal["adaptive", "binary", "otsu"]
+    foreground_polarity_used: Literal["dark_on_light", "light_on_dark"]
+    direction_angle_deg: float | None = None
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    selection_mode: str | None = None
     detail: str = ""
 
 
@@ -239,6 +256,14 @@ class RunTelemetryPointResponse(BaseModel):
     point_b_px: list[int] | None = None
     point_a_preview_px: list[int] | None = None
     point_b_preview_px: list[int] | None = None
+    source_point_a_px: list[int] | None = None
+    source_point_b_px: list[int] | None = None
+    axis_point_a_px: list[int] | None = None
+    axis_point_b_px: list[int] | None = None
+    source_point_a_preview_px: list[int] | None = None
+    source_point_b_preview_px: list[int] | None = None
+    axis_point_a_preview_px: list[int] | None = None
+    axis_point_b_preview_px: list[int] | None = None
     tracking_mode: str | None = None
     tracking_state: str | None = None
     selection_mode: str | None = None
@@ -256,7 +281,12 @@ class RunTelemetryPointResponse(BaseModel):
     threshold_value: float | None = None
     endpoint_jump_px: float | None = None
     midpoint_drift_px: float | None = None
+    midpoint_along_shift_px: float | None = None
+    midpoint_lateral_drift_px: float | None = None
+    span_change_px: float | None = None
     span_change_ratio: float | None = None
+    max_frame_span_jump_px: float | None = None
+    max_soft_frame_span_jump_px: float | None = None
     consecutive_misses: int | None = None
     frame_read_ms: float | None = None
     temp_read_ms: float | None = None
@@ -500,7 +530,10 @@ def _point_in_metric_box(box: MetricBoxRequest, x: int, y: int) -> bool:
     translated_y = y - box.center_y
     local_x = translated_x * cos_theta + translated_y * sin_theta
     local_y = -translated_x * sin_theta + translated_y * cos_theta
-    return abs(local_x) <= box.width / 2 and abs(local_y) <= box.height / 2
+    return (
+        abs(local_x) <= box.width / 2 + METRIC_BOX_POINT_FLOAT_EPSILON
+        and abs(local_y) <= box.height / 2 + METRIC_BOX_POINT_FLOAT_EPSILON
+    )
 
 
 def _metric_box_corners(box: MetricBoxRequest) -> list[tuple[float, float]]:

@@ -102,7 +102,7 @@ class LiveRunService:
                 status=RunStatus.RUNNING,
                 preview_display_max_width=int(runtime_config.live.run.preview_display_max_width),
                 preview_display_max_height=int(runtime_config.live.run.preview_display_max_height),
-                tracking_preview_min_interval_ms=max(150, int(runtime_config.live.run.preview_poll_ms or 250)),
+                tracking_preview_min_interval_ms=_tracking_preview_min_interval_ms(runtime_config.live.run),
             )
             self._active_runs[record.run_id] = active_run
             self._recent_runs[record.run_id] = active_run
@@ -168,8 +168,13 @@ class LiveRunService:
             runtime_config,
             requested_measurement_plan.measurement_profile,
         )
+        effective_runtime_config = _runtime_config_with_operator_output_power(
+            effective_runtime_config,
+            record,
+        )
         camera: object | None = None
         try:
+            self.preview_service.retire_active_stream(timeout_ms=3_000)
             camera = self.preview_service.open_camera(effective_runtime_config, profile_name="measurement")
             self._open_camera_if_supported(camera)
             applied_device_roi = _camera_applied_device_roi(camera)
@@ -193,7 +198,11 @@ class LiveRunService:
                 runtime_config,
                 measurement_plan.measurement_profile,
             )
-            temp_controller = self._build_temp_controller(runtime_config)
+            effective_runtime_config = _runtime_config_with_operator_output_power(
+                effective_runtime_config,
+                record,
+            )
+            temp_controller = self._build_temp_controller(effective_runtime_config)
             metric_source = self._build_metric_source(
                 runtime_config=effective_runtime_config,
                 definition=measurement_plan.metric_definition,
@@ -217,7 +226,7 @@ class LiveRunService:
                 temp_controller=temp_controller,
                 metric_source=metric_source,
                 quality_threshold=runtime_config.live.vision.quality_threshold,
-                stop_on_target_reached=runtime_config.live.temp.control.completion_mode != "manual_stop_only",
+                stop_on_target_reached=_completion_mode_for_record(record, runtime_config) != "manual_stop_only",
                 stop_requested=active_run.stop_event.is_set,
                 wait_for_next_sample=active_run.stop_event.wait,
                 status_callback=lambda status_value, payload: self._update_status(
@@ -310,7 +319,19 @@ class LiveRunService:
                     close()
 
     def _append_telemetry(self, active_run: _ActiveLiveRun, row: dict[str, Any]) -> None:
-        _augment_telemetry_for_setup_preview(row, active_run.measurement_capture_plan)
+        preview_source_size: tuple[int, int] | None = None
+        preview_size: tuple[int, int] | None = None
+        with self._state_lock:
+            preview_source_size = active_run.tracking_preview_base_source_size
+            preview_image = active_run.tracking_preview_base_image
+            if preview_image is not None and getattr(preview_image, "shape", None) is not None:
+                preview_size = (int(preview_image.shape[1]), int(preview_image.shape[0]))
+        _augment_telemetry_for_setup_preview(
+            row,
+            active_run.measurement_capture_plan,
+            preview_source_size=preview_source_size,
+            preview_size=preview_size,
+        )
         with self._state_lock:
             active_run.telemetry.append(dict(row))
 
@@ -385,6 +406,8 @@ class LiveRunService:
             camera_config=runtime_config.live.camera,
             analysis_engine=runtime_config.live.analysis.engine,
             channel_name=runtime_config.live.analysis.channel_name,
+            as_fit_point_count=runtime_config.live.analysis.as_fit_point_count,
+            af_fit_point_count=runtime_config.live.analysis.af_fit_point_count,
             target_measurement_hz=runtime_config.live.run.measurement_target_hz,
         )
         try:
@@ -398,6 +421,7 @@ class LiveRunService:
                 detail=execution.detail,
                 result=execution.result,
                 events=execution.events,
+                afas_dataset=execution.afas_dataset,
                 keyframes=execution.detail.get("key_frames", []),
             )
             self.repo.save_summary(execution.summary)
@@ -463,8 +487,29 @@ def _runtime_config_with_measurement_profile(
     return replace(runtime_config, live=live_config)
 
 
+def _runtime_config_with_operator_output_power(
+    runtime_config: RuntimeConfig,
+    record: RunDraftRecord,
+) -> RuntimeConfig:
+    if record.temperature_settings is None:
+        return runtime_config
+    control = replace(
+        runtime_config.live.temp.control,
+        startup_power_percent=float(record.temperature_settings.output_power_percent),
+    )
+    temp = replace(runtime_config.live.temp, control=control)
+    live_config = replace(runtime_config.live, temp=temp)
+    return replace(runtime_config, live=live_config)
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _completion_mode_for_record(record: RunDraftRecord, runtime_config: RuntimeConfig) -> str:
+    if record.temperature_settings is not None:
+        return str(record.temperature_settings.completion_mode or "target_reached")
+    return str(runtime_config.live.temp.control.completion_mode or "target_reached")
 
 
 def _started_at_ms(events: list[dict[str, Any]], *, fallback_ms: int) -> int:
@@ -504,6 +549,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "ignore_internal_texture": definition.ignore_internal_texture,
         "min_target_area_px": definition.min_target_area_px,
         "sensitivity": definition.sensitivity,
+        "direction_angle_deg": definition.direction_angle_deg,
+        "direction_projection_mode": definition.direction_projection_mode,
     }
 
 
@@ -651,6 +698,8 @@ def _definition_in_setup_source_space(
         ignore_internal_texture=definition.ignore_internal_texture,
         min_target_area_px=int(definition.min_target_area_px),
         sensitivity=float(definition.sensitivity),
+        direction_angle_deg=definition.direction_angle_deg,
+        direction_projection_mode=definition.direction_projection_mode,
         observation_axis=definition.observation_axis,
     )
 
@@ -696,16 +745,36 @@ def _camera_applied_device_roi(camera: object) -> DeviceRoiConfig | None:
 def _augment_telemetry_for_setup_preview(
     row: dict[str, Any],
     measurement_capture_plan: dict[str, Any] | None,
+    *,
+    preview_source_size: tuple[int, int] | None = None,
+    preview_size: tuple[int, int] | None = None,
 ) -> None:
-    if row.get("point_a_preview_px") is not None or row.get("point_b_preview_px") is not None:
-        return
     origin = _effective_local_origin(measurement_capture_plan)
     if origin is None:
         return
-    point_a_preview = _translate_point_to_setup_preview(row.get("point_a_px"), origin)
-    point_b_preview = _translate_point_to_setup_preview(row.get("point_b_px"), origin)
-    row["point_a_preview_px"] = point_a_preview
-    row["point_b_preview_px"] = point_b_preview
+    if preview_source_size is None or preview_size is None:
+        return
+    for key in (
+        "point_a",
+        "point_b",
+        "source_point_a",
+        "source_point_b",
+        "axis_point_a",
+        "axis_point_b",
+    ):
+        preview_key = f"{key}_preview_px"
+        if row.get(preview_key) is not None:
+            continue
+        source_point = _translate_point_to_setup_preview(row.get(f"{key}_px"), origin)
+        if source_point is None:
+            continue
+        row[preview_key] = list(
+            _scale_point_to_preview(
+                point=(int(source_point[0]), int(source_point[1])),
+                source_size=preview_source_size,
+                preview_size=preview_size,
+            )
+        )
 
 
 def _translate_point_to_setup_preview(
@@ -740,6 +809,10 @@ def _should_cache_tracking_preview(active_run: _ActiveLiveRun, sample_timestamp_
     if active_run.last_tracking_preview_cached_at_ms <= 0:
         return True
     return sample_timestamp_ms - active_run.last_tracking_preview_cached_at_ms >= active_run.tracking_preview_min_interval_ms
+
+
+def _tracking_preview_min_interval_ms(run_config: Any) -> int:
+    return max(50, int(getattr(run_config, "preview_poll_ms", 0) or 250))
 
 
 @dataclass(slots=True)
@@ -788,11 +861,8 @@ def _composite_tracking_frame_into_setup_preview(
     source_height = max(1, int(base_preview.source_size[1]))
     preview_scale_x = base_width / source_width
     preview_scale_y = base_height / source_height
-    origin_x, origin_y = _scale_point_to_preview(
-        point=origin,
-        source_size=base_preview.source_size,
-        preview_size=(base_width, base_height),
-    )
+    origin_x = int(round(origin[0] * preview_scale_x))
+    origin_y = int(round(origin[1] * preview_scale_y))
     if origin_x >= base_width or origin_y >= base_height:
         return _tracking_preview_fallback_frame(
             base_preview=base_preview,
@@ -813,36 +883,47 @@ def _composite_tracking_frame_into_setup_preview(
         ), _TrackingPreviewPoints()
     measurement_height, measurement_width = int(measurement_image.shape[0]), int(measurement_image.shape[1])
 
-    paste_width = min(measurement_width, max(0, base_width - origin_x))
-    paste_height = min(measurement_height, max(0, base_height - origin_y))
+    paste_x = max(0, origin_x)
+    paste_y = max(0, origin_y)
+    crop_x = max(0, -origin_x)
+    crop_y = max(0, -origin_y)
+    paste_width = min(measurement_width - crop_x, max(0, base_width - paste_x))
+    paste_height = min(measurement_height - crop_y, max(0, base_height - paste_y))
     if paste_width < 1 or paste_height < 1:
         return _tracking_preview_fallback_frame(
             base_preview=base_preview,
             measurement_frame=measurement_frame,
         ), _TrackingPreviewPoints()
 
-    base_image[origin_y : origin_y + paste_height, origin_x : origin_x + paste_width] = measurement_image[
-        0:paste_height,
-        0:paste_width,
+    base_image[paste_y : paste_y + paste_height, paste_x : paste_x + paste_width] = measurement_image[
+        crop_y : crop_y + paste_height,
+        crop_x : crop_x + paste_width,
     ]
     meta = dict(measurement_frame.meta or {})
     meta["tracking_composited"] = True
+    meta["tracking_preview_already_enhanced"] = True
     meta["tracking_origin_source_px"] = [int(origin[0]), int(origin[1])]
     meta["tracking_origin_preview_px"] = [origin_x, origin_y]
+    meta["tracking_paste_origin_preview_px"] = [paste_x, paste_y]
+    meta["tracking_paste_crop_preview_px"] = [crop_x, crop_y]
+    meta["tracking_preview_width"] = base_width
+    meta["tracking_preview_height"] = base_height
     meta["tracking_preview_source_width"] = source_width
     meta["tracking_preview_source_height"] = source_height
     meta["tracking_preview_scale_x"] = float(preview_scale_x)
     meta["tracking_preview_scale_y"] = float(preview_scale_y)
     preview_points = _TrackingPreviewPoints(
-        point_a=_scale_local_point_to_preview(
+        point_a=_scale_local_point_to_setup_preview(
             point=_shape_metric_meta_point(measurement_frame.meta, "point_a_px_local"),
-            origin_preview=(origin_x, origin_y),
-            preview_scale=(preview_scale_x, preview_scale_y),
+            origin=origin,
+            source_size=base_preview.source_size,
+            preview_size=(base_width, base_height),
         ),
-        point_b=_scale_local_point_to_preview(
+        point_b=_scale_local_point_to_setup_preview(
             point=_shape_metric_meta_point(measurement_frame.meta, "point_b_px_local"),
-            origin_preview=(origin_x, origin_y),
-            preview_scale=(preview_scale_x, preview_scale_y),
+            origin=origin,
+            source_size=base_preview.source_size,
+            preview_size=(base_width, base_height),
         ),
     )
     return (
@@ -866,6 +947,7 @@ def _tracking_preview_fallback_frame(
     meta = dict(measurement_frame.meta or {})
     meta["tracking_composited"] = False
     meta["tracking_preview_fallback"] = True
+    meta["tracking_preview_already_enhanced"] = True
     meta["tracking_preview_source_width"] = int(base_preview.source_size[0])
     meta["tracking_preview_source_height"] = int(base_preview.source_size[1])
     meta["tracking_preview_scale_x"] = 1.0
@@ -941,8 +1023,12 @@ def _preview_scaled_grayscale_image(
     if callable(native_bitmap_payload):
         try:
             width, height, pixels = native_bitmap_payload(max_width=target_width, max_height=target_height)
-            if int(width) == target_width and int(height) == target_height and pixels:
-                return np.frombuffer(pixels, dtype=np.uint8).reshape((int(height), int(width)))
+            width = int(width)
+            height = int(height)
+            if width == target_width and height == target_height:
+                payload = _coerce_native_bitmap_pixels(pixels, expected_size=target_width * target_height)
+                if payload is not None:
+                    return np.frombuffer(payload, dtype=np.uint8).reshape((height, width))
         except Exception:
             pass
 
@@ -969,6 +1055,29 @@ def _preview_scaled_grayscale_image(
         Image.fromarray(array_view, mode="L").resize((target_width, target_height), resample=Image.BILINEAR),
         dtype=np.uint8,
     )
+
+
+def _coerce_native_bitmap_pixels(pixels: Any, *, expected_size: int) -> bytes | None:
+    if expected_size <= 0 or pixels is None:
+        return None
+    if isinstance(pixels, bytes):
+        payload = pixels
+    elif isinstance(pixels, bytearray):
+        payload = bytes(pixels)
+    elif isinstance(pixels, memoryview):
+        payload = pixels.tobytes()
+    elif isinstance(pixels, np.ndarray):
+        payload = np.asarray(pixels, dtype=np.uint8).reshape(-1).tobytes()
+    else:
+        try:
+            payload = bytes(pixels)
+        except Exception:
+            return None
+    if len(payload) < expected_size:
+        return None
+    if len(payload) > expected_size:
+        payload = payload[:expected_size]
+    return payload
 
 
 def _scale_point_to_preview(
@@ -999,27 +1108,56 @@ def _shape_metric_meta_point(meta: Any, key: str) -> tuple[int, int] | None:
         return None
 
 
-def _scale_local_point_to_preview(
+def _scale_local_point_to_setup_preview(
     *,
     point: tuple[int, int] | None,
-    origin_preview: tuple[int, int],
-    preview_scale: tuple[float, float],
+    origin: tuple[int, int],
+    source_size: tuple[int, int],
+    preview_size: tuple[int, int],
 ) -> list[int] | None:
     if point is None:
         return None
-    return [
-        int(round(origin_preview[0] + point[0] * preview_scale[0])),
-        int(round(origin_preview[1] + point[1] * preview_scale[1])),
-    ]
+    source_point = _translate_point_to_setup_preview(point, origin)
+    if source_point is None:
+        return None
+    return list(
+        _scale_point_to_preview(
+            point=(int(source_point[0]), int(source_point[1])),
+            source_size=source_size,
+            preview_size=preview_size,
+        )
+    )
 
 
 def _preview_point_from_tracking_frame_meta(meta: Any, point: Any) -> list[int] | None:
     if not isinstance(meta, dict):
         return None
+    if not isinstance(point, (list, tuple)) or len(point) != 2:
+        return None
+    source_origin_payload = meta.get("tracking_origin_source_px")
+    if isinstance(source_origin_payload, (list, tuple)) and len(source_origin_payload) == 2:
+        try:
+            source_width = int(meta["tracking_preview_source_width"])
+            source_height = int(meta["tracking_preview_source_height"])
+            preview_width = int(meta["tracking_preview_width"])
+            preview_height = int(meta["tracking_preview_height"])
+            source_point = (
+                int(source_origin_payload[0]) + int(point[0]),
+                int(source_origin_payload[1]) + int(point[1]),
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+        else:
+            return list(
+                _scale_point_to_preview(
+                    point=source_point,
+                    source_size=(source_width, source_height),
+                    preview_size=(preview_width, preview_height),
+                )
+            )
+
     origin_payload = meta.get("tracking_origin_preview_px")
     if not isinstance(origin_payload, (list, tuple)) or len(origin_payload) != 2:
-        return None
-    if not isinstance(point, (list, tuple)) or len(point) != 2:
         return None
     try:
         origin_x = int(origin_payload[0])

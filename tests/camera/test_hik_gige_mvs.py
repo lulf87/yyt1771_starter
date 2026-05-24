@@ -1,5 +1,6 @@
 import sys
 
+import numpy as np
 import pytest
 
 import src.camera.hik_gige_mvs as hik_gige_mvs_module
@@ -528,6 +529,8 @@ def test_import_hik_mvs_sdk_module_error_mentions_env_override_hint(
     empty_sdk_dir = tmp_path / "empty_sdk_python"
     empty_sdk_dir.mkdir()
     monkeypatch.setenv(HIK_MVS_PYTHON_PATH_ENV, str(empty_sdk_dir))
+    monkeypatch.setattr(hik_gige_mvs_module, "_auto_detect_hik_mvs_python_paths", lambda: [])
+    monkeypatch.setattr(hik_gige_mvs_module, "_auto_detect_hik_mvs_library_path", lambda: None)
     monkeypatch.delitem(sys.modules, HIK_MVS_PYTHON_MODULE, raising=False)
 
     with pytest.raises(RuntimeError, match=HIK_MVS_PYTHON_PATH_ENV):
@@ -576,6 +579,47 @@ def test_import_hik_mvs_sdk_module_supports_explicit_library_path_override(
         "/usr/local/lib/libMvCameraControl.dylib",
         str(fake_library),
     ]
+    monkeypatch.delitem(sys.modules, HIK_MVS_PYTHON_MODULE, raising=False)
+
+
+def test_import_hik_mvs_sdk_module_error_mentions_arch_mismatch_hint(
+    tmp_path: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    sdk_python_dir = tmp_path / "sdk_python"
+    sdk_python_dir.mkdir()
+    module_file = sdk_python_dir / f"{HIK_MVS_PYTHON_MODULE}.py"
+    module_file.write_text(
+        '\n'.join(
+            [
+                "import ctypes",
+                'MvCamCtrldll = ctypes.cdll.LoadLibrary("/usr/local/lib/libMvCameraControl.dylib")',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_library = tmp_path / "libMvCameraControl.dylib"
+    fake_library.write_text("fake x86_64 dylib marker\n", encoding="utf-8")
+
+    def fake_load_library(path: str):
+        raise OSError(f"incompatible architecture for {path}")
+
+    monkeypatch.setattr(hik_gige_mvs_module.ctypes.cdll, "LoadLibrary", fake_load_library)
+    monkeypatch.setattr(hik_gige_mvs_module.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(hik_gige_mvs_module, "_macos_binary_architectures", lambda path: ("x86_64",))
+    monkeypatch.setenv(HIK_MVS_PYTHON_PATH_ENV, str(sdk_python_dir))
+    monkeypatch.setenv(HIK_MVS_LIBRARY_PATH_ENV, str(fake_library))
+    monkeypatch.delitem(sys.modules, HIK_MVS_PYTHON_MODULE, raising=False)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        import_hik_mvs_sdk_module()
+
+    detail = str(exc_info.value)
+    assert "Python architecture: arm64" in detail
+    assert "HIK_MVS_LIBRARY_PATH architectures: x86_64" in detail
+    assert "use an x86_64 Python/Rosetta environment" in detail
     monkeypatch.delitem(sys.modules, HIK_MVS_PYTHON_MODULE, raising=False)
 
 
@@ -911,6 +955,7 @@ def test_default_factory_applies_target_frame_rate_and_surfaces_hardware_frame_f
     assert packet.meta["camera_frame_counter"] == 41
     assert packet.meta["camera_lost_packet_count"] == 3
     assert packet.meta["target_frame_rate_hz"] == 50.0
+    assert np.asarray(packet.image).tolist() == [[1, 2], [3, 4]]
 
 
 def test_probe_once_supports_official_hik_sdk_module_in_first_discovered_mode(

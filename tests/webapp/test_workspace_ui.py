@@ -61,6 +61,7 @@ def test_workspace_route_returns_html_for_existing_session(tmp_path: Path) -> No
     assert 'id="workspace-main"' in response.text
     assert 'id="workspace-sidepanel"' in response.text
     assert 'id="workspace-curve"' in response.text
+    assert 'id="workspace-curve-layers"' in response.text
     assert 'id="workspace-curve-title"' in response.text
     assert 'id="workspace-active-point"' in response.text
     assert 'id="workspace-afas-panel"' in response.text

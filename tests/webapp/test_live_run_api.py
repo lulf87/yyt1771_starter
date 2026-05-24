@@ -4,18 +4,23 @@ import time
 import json
 
 from fastapi.testclient import TestClient
+import numpy as np
 from openpyxl import Workbook
 import pytest
 
 from src.camera.mock_camera import MockCamera
 from src.core.config_models import DeviceRoiConfig
-from src.core.models import FramePacket, ShapeMetric
+from src.core.enums import ObservationAxis
+from src.application.runtime_config import RuntimeConfig, WebAppConfig
+from src.core.models import FramePacket, MetricBox, RectRegion, ShapeMetric
 from src.curve.afas_postprocessing_analysis import analyze_preprocessed_afas_channel
 from src.curve.afas_preprocessing import preprocess_afas_channel
 from src.temp.mock_temp import MockTempController
 from src.workflow.live_run import MockLiveMetricSource
 from src.webapp.app import create_app
 from src.webapp.deps import LivePreviewService, PreviewStateSnapshot
+from src.webapp.routes.live_run import _best_auto_detect_metric
+from src.webapp.schemas import AutoDetectDefinitionRequest
 
 
 class ReadFailingTempController(MockTempController):
@@ -84,10 +89,213 @@ def _make_rotated_roi_fixture_frame() -> FramePacket:
     return FramePacket(timestamp_ms=2_000, source="rotated_roi_fixture", image=image, frame_id=7)
 
 
+def _make_rotated_bright_sample_frame(
+    *,
+    width: int = 900,
+    height: int = 540,
+    metric_box: MetricBox,
+) -> FramePacket:
+    image = np.full((height, width), 40, dtype=np.uint8)
+    angle_rad = math.radians(float(metric_box.angle_deg))
+    for local_x in range(-250, 251):
+        for local_y in range(-45, 46):
+            world_x = int(round(metric_box.center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(metric_box.center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 220
+    return FramePacket(timestamp_ms=2_100, source="rotated_bright_sample_fixture", image=image, frame_id=8)
+
+
+def _make_rotated_dark_sample_frame(
+    *,
+    width: int = 900,
+    height: int = 540,
+    metric_box: MetricBox,
+) -> FramePacket:
+    image = np.full((height, width), 240, dtype=np.uint8)
+    angle_rad = math.radians(float(metric_box.angle_deg))
+    for local_x in range(-250, 251):
+        for local_y in range(-45, 46):
+            world_x = int(round(metric_box.center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(metric_box.center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 35
+    return FramePacket(timestamp_ms=2_110, source="rotated_dark_sample_fixture", image=image, frame_id=9)
+
+
+def _make_rotated_dark_wire_frame(
+    *,
+    width: int = 900,
+    height: int = 1000,
+    metric_box: MetricBox,
+    wire_span_px: int = 250,
+    wire_width_px: int = 5,
+) -> FramePacket:
+    image = np.full((height, width), 240, dtype=np.uint8)
+    angle_rad = math.radians(float(metric_box.angle_deg))
+    half_span = max(1, int(wire_span_px) // 2)
+    half_width = max(1, int(wire_width_px) // 2)
+    for local_x in range(-half_span, half_span + 1):
+        for local_y in range(-half_width, half_width + 1):
+            world_x = int(round(metric_box.center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(metric_box.center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < width and 0 <= world_y < height:
+                image[world_y][world_x] = 35
+    return FramePacket(timestamp_ms=2_120, source="rotated_dark_wire_fixture", image=image, frame_id=10)
+
+
+def _point_local_x(box: MetricBox, point: tuple[int, int]) -> float:
+    angle_rad = math.radians(float(box.angle_deg))
+    return (float(point[0]) - float(box.center_x)) * math.cos(angle_rad) + (
+        float(point[1]) - float(box.center_y)
+    ) * math.sin(angle_rad)
+
+
+def _point_inside_metric_box(box: dict[str, float], point: dict[str, int]) -> bool:
+    angle_rad = math.radians(float(box["angle_deg"]))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = float(point["x"]) - float(box["center_x"])
+    translated_y = float(point["y"]) - float(box["center_y"])
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    return abs(local_x) <= float(box["width"]) / 2.0 and abs(local_y) <= float(box["height"]) / 2.0
+
+
+def test_auto_detect_rotated_roi_prefers_sample_edges_over_full_metric_box() -> None:
+    metric_box = MetricBox(center_x=450, center_y=270, width=700, height=240, angle_deg=-10.0)
+    frame = _make_rotated_bright_sample_frame(metric_box=metric_box)
+    payload = AutoDetectDefinitionRequest(
+        analysis_roi={"x": 60, "y": 80, "width": 780, "height": 380},
+        metric_box={
+            "center_x": metric_box.center_x,
+            "center_y": metric_box.center_y,
+            "width": metric_box.width,
+            "height": metric_box.height,
+            "angle_deg": metric_box.angle_deg,
+        },
+        observation_axis="long_axis",
+        foreground_polarity="light_on_dark",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+        sensitivity=50.0,
+    )
+    runtime_config = RuntimeConfig(
+        profile="test",
+        platform="mac",
+        mode="test",
+        webapp=WebAppConfig(host="127.0.0.1", port=0),
+        adapters={},
+    )
+    runtime_config.live.vision.edge_threshold = 20.0
+    runtime_config.live.vision.quality_threshold = 0.75
+
+    metric, _threshold_mode, _foreground_polarity = _best_auto_detect_metric(
+        frame=frame,
+        payload=payload,
+        runtime_config=runtime_config,
+    )
+
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert metric.metric_raw < metric_box.width * 0.8
+    assert abs(_point_local_x(metric_box, metric.point_a_px)) < metric_box.width * 0.45
+    assert abs(_point_local_x(metric_box, metric.point_b_px)) < metric_box.width * 0.45
+
+
+def test_auto_detect_keeps_requested_dark_polarity_when_target_is_specific() -> None:
+    metric_box = MetricBox(center_x=450, center_y=270, width=700, height=240, angle_deg=12.0)
+    frame = _make_rotated_dark_sample_frame(metric_box=metric_box)
+    payload = AutoDetectDefinitionRequest(
+        analysis_roi={"x": 60, "y": 80, "width": 780, "height": 380},
+        metric_box={
+            "center_x": metric_box.center_x,
+            "center_y": metric_box.center_y,
+            "width": metric_box.width,
+            "height": metric_box.height,
+            "angle_deg": metric_box.angle_deg,
+        },
+        observation_axis="long_axis",
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+        sensitivity=50.0,
+    )
+    runtime_config = RuntimeConfig(
+        profile="test",
+        platform="mac",
+        mode="test",
+        webapp=WebAppConfig(host="127.0.0.1", port=0),
+        adapters={},
+    )
+    runtime_config.live.vision.edge_threshold = 20.0
+    runtime_config.live.vision.quality_threshold = 0.75
+
+    metric, _threshold_mode, foreground_polarity = _best_auto_detect_metric(
+        frame=frame,
+        payload=payload,
+        runtime_config=runtime_config,
+    )
+
+    assert foreground_polarity == "dark_on_light"
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert metric.metric_raw < metric_box.width * 0.8
+
+
+def test_directional_auto_detect_keeps_requested_dark_polarity_when_alternate_finds_background() -> None:
+    metric_box = MetricBox(center_x=450, center_y=500, width=620, height=220, angle_deg=60.0)
+    frame = _make_rotated_dark_wire_frame(metric_box=metric_box)
+    payload = AutoDetectDefinitionRequest(
+        analysis_roi={"x": 199, "y": 176, "width": 502, "height": 648},
+        metric_box={
+            "center_x": metric_box.center_x,
+            "center_y": metric_box.center_y,
+            "width": metric_box.width,
+            "height": metric_box.height,
+            "angle_deg": metric_box.angle_deg,
+        },
+        observation_axis="long_axis",
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=20,
+        sensitivity=50.0,
+        direction_angle_deg=metric_box.angle_deg,
+    )
+    runtime_config = RuntimeConfig(
+        profile="test",
+        platform="mac",
+        mode="test",
+        webapp=WebAppConfig(host="127.0.0.1", port=0),
+        adapters={},
+    )
+    runtime_config.live.vision.edge_threshold = 20.0
+    runtime_config.live.vision.quality_threshold = 0.75
+
+    metric, _threshold_mode, foreground_polarity = _best_auto_detect_metric(
+        frame=frame,
+        payload=payload,
+        runtime_config=runtime_config,
+    )
+
+    assert foreground_polarity == "dark_on_light"
+    assert metric.metric_raw is not None
+    assert metric.point_a_px is not None
+    assert metric.point_b_px is not None
+    assert metric.metric_raw < metric_box.width * 0.8
+
+
 def _make_app(tmp_path: Path):
     app = create_app(profile="dev_mock")
     app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
     app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.runtime_config.live.run.capture_interval_ms = 33
+    app.state.runtime_config.live.run.measurement_target_hz = 30.0
     _configure_mock_afas_curve_sample(app, tmp_path)
     app.state.live_run_service = app.state.application_container.build_live_run_service(
         preview_service=app.state.live_preview_service
@@ -139,14 +347,18 @@ def _confirm_temperature_settings(
     *,
     target_temperature_celsius: float = 45.0,
     output_power_percent: float = 100.0,
+    completion_mode: str | None = None,
 ) -> dict[str, object]:
+    payload = {
+        "target_temperature_celsius": target_temperature_celsius,
+        "control_mode": "manual",
+        "output_power_percent": output_power_percent,
+    }
+    if completion_mode is not None:
+        payload["completion_mode"] = completion_mode
     response = client.put(
         f"/api/runs/{run_id}/temperature-settings",
-        json={
-            "target_temperature_celsius": target_temperature_celsius,
-            "control_mode": "manual",
-            "output_power_percent": output_power_percent,
-        },
+        json=payload,
     )
     assert response.status_code == 200
     return response.json()
@@ -274,7 +486,12 @@ def test_get_run_returns_saved_draft_without_definition(tmp_path: Path) -> None:
     assert payload["capture_mode"] == "idle"
     assert payload["rates"]["measurement_sample_hz"] is None
     assert payload["rates"]["artifact_capture_hz"] is None
-    assert payload["measurement_profile"]["acquisition_roi"] is None
+    assert payload["measurement_profile"]["acquisition_roi"] == {
+        "x": 512,
+        "y": 342,
+        "width": 2048,
+        "height": 1364,
+    }
     assert payload["measurement_profile"]["exposure_us"] == 10000
     assert payload["preview"] == {
         "stream_active": False,
@@ -311,6 +528,7 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
             "min_target_area_px": 200,
+            "direction_angle_deg": 12.0,
         },
     )
 
@@ -323,6 +541,8 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
     assert payload["temperature_settings"] is None
     assert payload["temperature_settings_confirmed"] is False
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
+    assert payload["definition"]["direction_angle_deg"] == 12.0
+    assert payload["definition"]["direction_projection_mode"] == "auto"
     assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
 
@@ -374,6 +594,33 @@ def test_put_definition_accepts_tight_rotated_window_near_roi_boundary(tmp_path:
     assert response.json()["status"] == "definition_editing"
 
 
+def test_put_definition_accepts_preview_rounded_rotated_edge_point(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 342, "y": 232, "width": 1364, "height": 900},
+            "metric_box": {"center_x": 1024, "center_y": 683, "width": 1255, "height": 652, "angle_deg": 12.0},
+            "point_a_px": {"x": 665, "y": 605},
+            "point_b_px": {"x": 1639, "y": 814},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "otsu",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+            "sensitivity": 50,
+            "direction_angle_deg": 12.0,
+            "direction_projection_mode": "max_chord",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["definition_complete"] is True
+
+
 def test_put_temperature_settings_confirms_bundle_and_advances_ready_status(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     created = client.post("/api/runs", json={"preset": "balloon"})
@@ -389,6 +636,7 @@ def test_put_temperature_settings_confirms_bundle_and_advances_ready_status(tmp_
             "target_temperature_celsius": 37.5,
             "control_mode": "manual",
             "output_power_percent": 68.0,
+            "completion_mode": "manual_stop_only",
         },
     )
 
@@ -399,7 +647,9 @@ def test_put_temperature_settings_confirms_bundle_and_advances_ready_status(tmp_
     assert payload["temperature_settings"]["target_temperature_celsius"] == 37.5
     assert payload["temperature_settings"]["control_mode"] == "manual"
     assert payload["temperature_settings"]["output_power_percent"] == 68.0
+    assert payload["temperature_settings"]["completion_mode"] == "manual_stop_only"
     assert payload["temperature_settings"]["confirmed_target_temperature_celsius"] == 37.5
+    assert payload["temperature_settings"]["confirmed_output_power_percent"] == 68.0
     assert payload["temperature_settings"]["confirmed_at_ms"] > 0
     assert payload["temperature_settings"]["source"]
 
@@ -414,8 +664,8 @@ def test_preview_frame_returns_png_and_marks_definition_editing_with_frozen_fram
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
-    assert response.headers["x-frame-source-width"] == "96"
-    assert response.headers["x-frame-source-height"] == "64"
+    assert response.headers["x-frame-source-width"] == "1120"
+    assert response.headers["x-frame-source-height"] == "620"
     assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
     assert detail_response.status_code == 200
     assert detail_response.json()["status"] == "definition_editing"
@@ -500,6 +750,33 @@ def test_preview_frame_tracking_query_uses_cached_measurement_frame_without_mark
     assert detail_response.json()["status"] == "created"
     assert detail_response.json()["preview"]["frozen_frame_available"] is False
     assert detail_response.json()["editor"] == {"state": "empty"}
+
+
+def test_tracking_preview_frame_preserves_setup_source_dimensions_from_frame_meta(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    app.state.live_preview_service.cache_tracking_frame(
+        run_id=run_id,
+        frame=FramePacket(
+            timestamp_ms=1234,
+            source="measurement_camera",
+            image=[[0, 32], [64, 96]],
+            frame_id=9,
+            meta={
+                "tracking_preview_source_width": 96,
+                "tracking_preview_source_height": 64,
+            },
+        ),
+    )
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame?tracking=1")
+
+    assert response.status_code == 200
+    assert response.headers["x-frame-width"] == "2"
+    assert response.headers["x-frame-height"] == "2"
+    assert response.headers["x-frame-source-width"] == "96"
+    assert response.headers["x-frame-source-height"] == "64"
 
 
 def test_preview_stream_returns_multipart_jpeg_and_marks_preview_ready(tmp_path: Path) -> None:
@@ -795,6 +1072,255 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
     assert payload["quality"] > 0.75
     assert payload["metric_raw"] is not None
     assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
+    assert payload["foreground_polarity_used"] in {"dark_on_light", "light_on_dark"}
+
+
+def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is_provided(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "guidewire"})
+    run_id = created.json()["run_id"]
+    image = [[240 for _ in range(32)] for _ in range(32)]
+    for y in range(6, 24):
+        for x in range(13, 17):
+            image[y][x] = 24
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=image, frame_id=12)
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 32, "height": 32},
+            "direction_angle_deg": 90.0,
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["direction_angle_deg"] == 90.0
+    assert payload["direction_projection_mode"] == "mask_projection"
+    assert payload["selection_mode"] == "directional_contour_boundary_span"
+    assert 13 <= payload["point_a_px"]["x"] <= 16
+    assert 13 <= payload["point_b_px"]["x"] <= 16
+    assert payload["point_a_px"]["y"] < payload["point_b_px"]["y"]
+    assert payload["axis_point_a_px"] is None
+    assert payload["axis_point_b_px"] is None
+    assert payload["source_point_a_px"] is None
+    assert payload["source_point_b_px"] is None
+    assert payload["metric_raw"] == pytest.approx(19.0, abs=1.0)
+
+
+def test_auto_detect_definition_directional_contour_can_flip_from_border_hugging_requested_polarity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[240] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            self.config = config
+
+        def extract(self, frame):
+            del frame
+            if self.config.foreground_polarity == "light_on_dark" and self.config.threshold_mode == "binary":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="directional_contour_span",
+                    metric_raw=120.0,
+                    quality=0.95,
+                    point_a_px=(20, 0),
+                    point_b_px=(80, 99),
+                    meta={
+                        "component_area": 2_000,
+                        "selection_mode": "directional_contour_max_chord",
+                    },
+                )
+            if self.config.foreground_polarity == "dark_on_light" and self.config.threshold_mode == "binary":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="directional_contour_span",
+                    metric_raw=80.0,
+                    quality=0.80,
+                    point_a_px=(40, 20),
+                    point_b_px=(65, 80),
+                    meta={
+                        "component_area": 1_200,
+                        "selection_mode": "directional_contour_max_chord",
+                    },
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=None,
+                quality=0.0,
+                meta={"reason": "target_component_not_found"},
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "direction_angle_deg": 70.0,
+            "foreground_polarity": "light_on_dark",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["foreground_polarity_used"] == "dark_on_light"
+    assert payload["threshold_mode_used"] == "binary"
+    assert payload["point_a_px"] == {"x": 40, "y": 20}
+    assert "selected dark_on_light polarity" in payload["detail"]
+
+
+def test_auto_detect_definition_directional_contour_keeps_requested_threshold_when_specific(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[240] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            self.config = config
+
+        def extract(self, frame):
+            del frame
+            if self.config.threshold_mode == "adaptive":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="directional_contour_span",
+                    metric_raw=80.0,
+                    quality=0.80,
+                    point_a_px=(20, 40),
+                    point_b_px=(90, 40),
+                    meta={
+                        "component_area": 1_200,
+                        "selection_mode": "directional_contour_max_chord",
+                    },
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=94.0,
+                quality=0.95,
+                point_a_px=(3, 40),
+                point_b_px=(97, 40),
+                meta={
+                    "component_area": 1_200,
+                    "selection_mode": "directional_contour_max_chord",
+                },
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "direction_angle_deg": 0.0,
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["threshold_mode_used"] == "adaptive"
+    assert payload["point_a_px"] == {"x": 20, "y": 40}
+    assert payload["point_b_px"] == {"x": 90, "y": 40}
+
+
+def test_auto_detect_definition_directional_contour_maps_sensitivity_to_bridge_kernel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    seen_kernels: list[int] = []
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[240] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            self.config = config
+            seen_kernels.append(int(config.component_bridge_kernel))
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=80.0,
+                quality=0.8,
+                point_a_px=(40, 20),
+                point_b_px=(65, 80),
+                meta={
+                    "component_area": 1_200,
+                    "selection_mode": "directional_contour_max_chord",
+                },
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    kernels_by_sensitivity: dict[int, set[int]] = {}
+    for sensitivity in [1, 50, 100]:
+        start_index = len(seen_kernels)
+        response = client.post(
+            f"/api/runs/{run_id}/definition/auto",
+            json={
+                "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+                "direction_angle_deg": 70.0,
+                "foreground_polarity": "dark_on_light",
+                "threshold_mode": "binary",
+                "ignore_internal_texture": True,
+                "min_target_area_px": 12,
+                "sensitivity": sensitivity,
+            },
+        )
+        assert response.status_code == 200
+        kernels_by_sensitivity[sensitivity] = set(seen_kernels[start_index:])
+
+    assert kernels_by_sensitivity[1] == {3}
+    assert kernels_by_sensitivity[50] == {11}
+    assert kernels_by_sensitivity[100] == {39}
 
 
 def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_aligned_roi(tmp_path: Path) -> None:
@@ -820,6 +1346,15 @@ def test_auto_detect_definition_accepts_metric_box_that_slightly_exceeds_axis_al
     assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
     assert payload["metric_raw"] is not None
     assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
+    assert payload["foreground_polarity_used"] in {"dark_on_light", "light_on_dark"}
+    assert _point_inside_metric_box(
+        {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+        payload["point_a_px"],
+    )
+    assert _point_inside_metric_box(
+        {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+        payload["point_b_px"],
+    )
 
 
 def test_auto_detect_definition_accepts_tight_rotated_metric_box_near_roi_boundary(tmp_path: Path) -> None:
@@ -852,6 +1387,179 @@ def test_auto_detect_definition_accepts_tight_rotated_metric_box_near_roi_bounda
     assert payload["point_a_px"]["x"] != payload["point_b_px"]["x"] or payload["point_a_px"]["y"] != payload["point_b_px"]["y"]
     assert payload["metric_raw"] is not None
     assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
+    assert payload["foreground_polarity_used"] in {"dark_on_light", "light_on_dark"}
+    assert _point_inside_metric_box(
+        {"center_x": 48, "center_y": 32, "width": 18, "height": 40, "angle_deg": 82.0},
+        payload["point_a_px"],
+    )
+    assert _point_inside_metric_box(
+        {"center_x": 48, "center_y": 32, "width": 18, "height": 40, "angle_deg": 82.0},
+        payload["point_b_px"],
+    )
+
+
+def test_auto_detect_definition_respects_long_axis_observation_direction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    detector_calls: list[dict[str, object]] = []
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self._kwargs = kwargs
+            detector_calls.append(kwargs)
+
+        def extract(self, frame):
+            del frame
+            if self._kwargs["threshold_mode"] != "binary":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=None,
+                    quality=0.0,
+                    meta={"reason": "no_valid_component"},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=23.0,
+                quality=0.95,
+                point_a_px=(20, 32),
+                point_b_px=(43, 32),
+                meta={"selection_mode": "roi_local_horizontal_boundary"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 20,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["point_a_px"]["y"] == payload["point_b_px"]["y"]
+    assert payload["point_a_px"]["x"] < payload["point_b_px"]["x"]
+    assert detector_calls
+    assert detector_calls[0]["selection_strategy"] == "roi_local_horizontal_boundary"
+    assert detector_calls[0]["roi_box"].angle_deg == 0.0
+
+
+def test_auto_detect_definition_respects_rotated_long_axis_observation_direction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    detector_calls: list[dict[str, object]] = []
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self._kwargs = kwargs
+            detector_calls.append(kwargs)
+
+        def extract(self, frame):
+            del frame
+            if self._kwargs["threshold_mode"] != "binary":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=None,
+                    quality=0.0,
+                    meta={"reason": "no_valid_component"},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=85.44,
+                quality=0.92,
+                point_a_px=(137, 48),
+                point_b_px=(91, 120),
+                meta={"selection_mode": "roi_local_horizontal_boundary"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 240, "height": 160},
+            "metric_box": {"center_x": 120, "center_y": 80, "width": 140, "height": 70, "angle_deg": -32.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["point_a_px"] == {"x": 137, "y": 48}
+    assert payload["point_b_px"] == {"x": 91, "y": 120}
+    assert payload["metric_raw"] == pytest.approx(85.44, abs=1.0)
+    assert detector_calls
+    assert detector_calls[0]["selection_strategy"] == "roi_local_horizontal_boundary"
+    assert detector_calls[0]["roi_box"].angle_deg == -32.0
+
+
+def test_start_live_run_passes_persisted_long_axis_definition_into_metric_source(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    captured: dict[str, object] = {}
+
+    def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
+        captured["metric_definition"] = definition
+        return MockLiveMetricSource(
+            definition=definition,
+            target_temperature_celsius=target_temperature_celsius,
+        )
+
+    app.state.live_run_service._build_metric_source = wrapped_build_metric_source
+    client = TestClient(app)
+    run_id = _create_ready_run(
+        client,
+        definition_payload={
+            "analysis_roi": {"x": 0, "y": 0, "width": 240, "height": 160},
+            "metric_box": {"center_x": 120, "center_y": 80, "width": 140, "height": 70, "angle_deg": -32.0},
+            "point_a_px": {"x": 137, "y": 48},
+            "point_b_px": {"x": 91, "y": 120},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+        },
+    )
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    deadline = time.time() + 3.0
+    while "metric_definition" not in captured and time.time() < deadline:
+        time.sleep(0.05)
+
+    assert start_response.status_code == 200
+    assert "metric_definition" in captured
+    metric_definition = captured["metric_definition"]
+    assert metric_definition.observation_axis == ObservationAxis.LONG_AXIS
+    assert metric_definition.metric_box.angle_deg == -32.0
 
 
 def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -879,10 +1587,10 @@ def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_pat
                 return ShapeMetric(
                     timestamp_ms=1_000,
                     metric_name="two_point_distance",
-                    metric_raw=120.0,
+                    metric_raw=84.0,
                     quality=0.91,
                     point_a_px=(8, 20),
-                    point_b_px=(128, 20),
+                    point_b_px=(92, 20),
                     meta={"selection_mode": "roi_local_horizontal_boundary"},
                 )
             return ShapeMetric(
@@ -911,8 +1619,311 @@ def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_pat
     assert response.status_code == 200
     payload = response.json()
     assert payload["threshold_mode_used"] == "otsu"
+    assert payload["foreground_polarity_used"] == "dark_on_light"
     assert payload["quality"] == pytest.approx(0.91)
     assert "selected otsu thresholding" in payload["detail"]
+
+
+def test_auto_detect_definition_prefers_interior_endpoint_over_single_roi_edge_touch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self.threshold_mode = kwargs["threshold_mode"]
+
+        def extract(self, frame):
+            del frame
+            if self.threshold_mode == "adaptive":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=258.0,
+                    quality=0.89,
+                    point_a_px=(291, 298),
+                    point_b_px=(549, 298),
+                    meta={"selection_mode": "roi_local_horizontal_boundary", "component_area": 31925},
+                )
+            if self.threshold_mode == "otsu":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=278.0,
+                    quality=0.92,
+                    point_a_px=(289, 298),
+                    point_b_px=(567, 298),
+                    meta={"selection_mode": "roi_local_horizontal_boundary", "component_area": 50758},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=None,
+                quality=0.0,
+                meta={"reason": "no_valid_component"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 240, "y": 165, "width": 328, "height": 266},
+            "metric_box": {"center_x": 404, "center_y": 298, "width": 328, "height": 266, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["threshold_mode_used"] == "adaptive"
+    assert payload["point_b_px"] == {"x": 549, "y": 298}
+
+
+def test_auto_detect_definition_accepts_edge_endpoint_for_clearly_fuller_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self.threshold_mode = kwargs["threshold_mode"]
+
+        def extract(self, frame):
+            del frame
+            if self.threshold_mode == "adaptive":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=790.0,
+                    quality=0.86,
+                    point_a_px=(702, 940),
+                    point_b_px=(1492, 923),
+                    meta={"selection_mode": "roi_local_horizontal_boundary", "component_area": 385399},
+                )
+            if self.threshold_mode == "otsu":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=1038.0,
+                    quality=0.97,
+                    point_a_px=(656, 690),
+                    point_b_px=(1694, 698),
+                    meta={"selection_mode": "roi_local_horizontal_boundary", "component_area": 552370},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=None,
+                quality=0.0,
+                meta={"reason": "no_valid_component"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 590, "y": 419, "width": 1104, "height": 628},
+            "metric_box": {"center_x": 1142, "center_y": 733, "width": 1104, "height": 628, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["threshold_mode_used"] == "otsu"
+    assert payload["point_b_px"] == {"x": 1694, "y": 698}
+
+
+def test_auto_detect_definition_uses_fixed_working_scale_for_roi_local_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    captured_kwargs: list[dict[str, object]] = []
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            captured_kwargs.append(kwargs)
+            self.threshold_mode = kwargs["threshold_mode"]
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=258.0,
+                quality=0.89,
+                point_a_px=(291, 298),
+                point_b_px=(549, 298),
+                meta={"selection_mode": "roi_local_horizontal_boundary", "component_area": 31925},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 956, "y": 655, "width": 1231, "height": 904},
+            "metric_box": {"center_x": 1572, "center_y": 1107, "width": 1231, "height": 904, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "sensitivity": 100,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_kwargs
+    assert all(kwargs["working_max_width"] == 384 for kwargs in captured_kwargs)
+    assert all(kwargs["working_max_height"] == 240 for kwargs in captured_kwargs)
+
+
+def test_auto_detect_definition_can_flip_foreground_polarity_for_higher_confidence_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self.foreground_polarity = kwargs["foreground_polarity"]
+            self.threshold_mode = kwargs["threshold_mode"]
+
+        def extract(self, frame):
+            del frame
+            if self.foreground_polarity == "light_on_dark" and self.threshold_mode == "binary":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=96.0,
+                    quality=0.94,
+                    point_a_px=(12, 20),
+                    point_b_px=(108, 27),
+                    meta={"selection_mode": "roi_local_horizontal_boundary"},
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=18.0,
+                quality=0.12,
+                point_a_px=(48, 20),
+                point_b_px=(60, 20),
+                meta={"selection_mode": "roi_local_horizontal_boundary"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 128, "height": 64},
+            "metric_box": {"center_x": 64, "center_y": 32, "width": 96, "height": 28, "angle_deg": 4.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 20,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["foreground_polarity_used"] == "light_on_dark"
+    assert payload["threshold_mode_used"] == "binary"
+    assert "selected light_on_dark polarity and binary thresholding" in payload["detail"]
+
+
+def test_auto_detect_definition_prefers_specific_component_over_roi_filling_background(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            self.foreground_polarity = kwargs["foreground_polarity"]
+
+        def extract(self, frame):
+            del frame
+            if self.foreground_polarity == "light_on_dark":
+                return ShapeMetric(
+                    timestamp_ms=1_000,
+                    metric_name="two_point_distance",
+                    metric_raw=127.0,
+                    quality=0.99,
+                    point_a_px=(0, 32),
+                    point_b_px=(127, 32),
+                    meta={
+                        "selection_mode": "roi_local_horizontal_boundary",
+                        "component_area": 128 * 64,
+                    },
+                )
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=88.0,
+                quality=0.84,
+                point_a_px=(14, 32),
+                point_b_px=(102, 32),
+                meta={
+                    "selection_mode": "roi_local_horizontal_boundary",
+                    "component_area": 1400,
+                },
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 128, "height": 64},
+            "metric_box": {"center_x": 64, "center_y": 32, "width": 96, "height": 28, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 20,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["foreground_polarity_used"] == "dark_on_light"
+    assert payload["point_a_px"] == {"x": 14, "y": 32}
+    assert payload["point_b_px"] == {"x": 102, "y": 32}
 
 
 def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path: Path) -> None:
@@ -1179,10 +2190,10 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
 
     assert start_response.status_code == 200
     assert captured["measurement_roi"] == {
-        "x": 876,
-        "y": 588,
-        "width": 144,
-        "height": 88,
+        "x": 868,
+        "y": 568,
+        "width": 160,
+        "height": 128,
     }
     metric_definition = captured["metric_definition"]
     assert metric_definition.analysis_roi.x == 36
@@ -1207,13 +2218,13 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
     }
     assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
         "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
-        "requested_effective_acquisition_roi": {"x": 876, "y": 588, "width": 144, "height": 88},
+        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
         "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
         "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
         "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
-        "requested_local_origin_in_setup_preview_px": {"x": 876, "y": 588},
+        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
-        "setup_to_requested_local_translation_px": {"dx": -876, "dy": -588},
+        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
 
 
@@ -1276,10 +2287,10 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
         "height": 128,
     }
     assert captured["measurement_roi"] == {
-        "x": 876,
-        "y": 588,
-        "width": 144,
-        "height": 88,
+        "x": 868,
+        "y": 568,
+        "width": 160,
+        "height": 128,
     }
     assert result_response.status_code == 200
     result_payload = result_response.json()
@@ -1290,13 +2301,13 @@ def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_a
     session_dir = tmp_path / "artifacts" / run_id
     assert json.loads((session_dir / "measurement_capture_plan.json").read_text(encoding="utf-8")) == {
         "effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
-        "requested_effective_acquisition_roi": {"x": 876, "y": 588, "width": 144, "height": 88},
+        "requested_effective_acquisition_roi": {"x": 868, "y": 568, "width": 160, "height": 128},
         "applied_effective_acquisition_roi": {"x": 864, "y": 568, "width": 160, "height": 128},
         "setup_preview_sensor_roi": {"x": 0, "y": 0, "width": 0, "height": 0},
         "effective_local_origin_in_setup_preview_px": {"x": 864, "y": 568},
-        "requested_local_origin_in_setup_preview_px": {"x": 876, "y": 588},
+        "requested_local_origin_in_setup_preview_px": {"x": 868, "y": 568},
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
-        "setup_to_requested_local_translation_px": {"dx": -876, "dy": -588},
+        "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
 
 
@@ -1479,6 +2490,7 @@ def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path)
     running_detail = client.get(f"/api/runs/{run_id}")
     stop_response = client.post(f"/api/runs/{run_id}/stop")
     aborted_detail = _wait_for_run_status(client, run_id, "aborted")
+    analysis_response = client.post(f"/api/session/{run_id}/afas/analysis", json={})
 
     assert start_response.status_code == 200
     assert running_detail.status_code == 200
@@ -1486,6 +2498,44 @@ def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path)
     assert stop_response.status_code == 200
     assert stop_response.json()["status"] == "stopping"
     assert aborted_detail["status"] == "aborted"
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["active_channel"] == "Space1"
+
+
+def test_run_temperature_settings_can_select_manual_stop_for_one_run(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.live.temp.control.completion_mode = "target_reached"
+    app.state.runtime_config.live.temp.control.mock_ramp_step_celsius = 100.0
+    app.state.runtime_config.live.run.capture_interval_ms = 50
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    response = client.put(f"/api/runs/{run_id}/definition", json=_mock_definition_payload())
+    assert response.status_code == 200
+    temp_response = _confirm_temperature_settings(
+        client,
+        run_id,
+        target_temperature_celsius=35.0,
+        completion_mode="manual_stop_only",
+    )
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 35.0},
+    )
+    time.sleep(0.25)
+    running_detail = client.get(f"/api/runs/{run_id}")
+    stop_response = client.post(f"/api/runs/{run_id}/stop")
+    aborted_detail = _wait_for_run_status(client, run_id, "aborted")
+    analysis_response = client.post(f"/api/session/{run_id}/afas/analysis", json={})
+
+    assert temp_response["temperature_settings"]["completion_mode"] == "manual_stop_only"
+    assert start_response.status_code == 200
+    assert running_detail.status_code == 200
+    assert running_detail.json()["status"] == "running"
+    assert stop_response.status_code == 200
+    assert stop_response.json()["status"] == "stopping"
+    assert aborted_detail["status"] == "aborted"
+    assert analysis_response.status_code == 200
 
 
 def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_path: Path) -> None:
@@ -1512,6 +2562,63 @@ def test_start_live_run_marks_failed_when_temp_read_breaks_during_running(tmp_pa
     assert result_response.status_code == 200
     assert result_response.json()["state"] == "failed"
     assert result_response.json()["result_status"] == "unavailable"
+
+
+def test_sample_limit_failed_run_still_returns_analyzable_result(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    service = app.state.live_run_service
+    app.state.runtime_config.live.run.manual_stop_max_samples = 30
+    app.state.runtime_config.live.run.measurement_target_hz = 1000.0
+    app.state.runtime_config.live.run.capture_interval_ms = 1
+    service._temp_controller_factory = lambda: MockTempController(start_celsius=-5.0, ramp_step_celsius=0.5)
+
+    class IndexedCurveMetricSource:
+        def __init__(self, total_samples: int) -> None:
+            self._total_samples = max(2, int(total_samples))
+
+        def extract(self, frame, temp, *, sample_index: int, total_samples: int):
+            del frame, temp, total_samples
+            progress = min(max(float(sample_index) / float(self._total_samples - 1), 0.0), 1.0)
+            curve_progress = progress * progress * (3.0 - 2.0 * progress)
+            return ShapeMetric(
+                timestamp_ms=1_000 + int(sample_index),
+                metric_name="two_point_distance",
+                metric_raw=38.0 + 35.0 * curve_progress,
+                quality=0.99,
+                point_a_px=(12, 32),
+                point_b_px=(83, 32),
+                meta={"selection_mode": "fixture_curve"},
+            )
+
+    service._build_metric_source = lambda **kwargs: IndexedCurveMetricSource(
+        app.state.runtime_config.live.run.manual_stop_max_samples
+    )
+    client = TestClient(app)
+    run_id = _create_ready_run(client, target_temperature_celsius=45.0)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    failed_detail = _wait_for_run_status(client, run_id, "failed")
+    telemetry_response = client.get(f"/api/runs/{run_id}/telemetry")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+    analysis_response = client.post(f"/api/session/{run_id}/afas/analysis", json={})
+
+    assert start_response.status_code == 200
+    assert failed_detail["status"] == "failed"
+    assert telemetry_response.status_code == 200
+    assert len(telemetry_response.json()["curve"]) == 30
+    assert result_response.status_code == 200
+    result_payload = result_response.json()
+    assert result_payload["state"] == "failed"
+    assert result_payload["result_status"] == "ok"
+    assert result_payload["as_value"] is not None
+    assert result_payload["af_value"] is not None
+    assert result_payload["point_count"] == 30
+    assert any("terminal_failed" in warning for warning in result_payload["warnings"])
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["analysis"]["result_status"] == "ok"
 
 
 def test_start_live_run_marks_failed_when_finalize_breaks(tmp_path: Path) -> None:

@@ -138,7 +138,7 @@ class ApplicationContainer:
 
     def _should_share_temp_controller(self) -> bool:
         backend = str(self.runtime_config.live.temp.backend or self.runtime_config.adapters.get("temp", "") or "")
-        return backend == "mock"
+        return backend in {"mock", "lu92xx_modbus_rtu"}
 
     def _is_shared_temp_controller(self, controller: object) -> bool:
         return self._should_share_temp_controller() and controller is self._shared_temp_controller

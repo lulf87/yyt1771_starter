@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 import numpy as np
+from scipy import ndimage
 
 from src.core.models import MetricBox, PixelPoint, RectRegion
 
@@ -220,12 +221,9 @@ def _cleanup_mask(
     kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
     cleaned = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1 if min_dimension <= 24 else 2)
     if ignore_internal_texture:
-        filled = cleaned.copy()
-        height, width = cleaned.shape[:2]
-        flood_mask = np.zeros((height + 2, width + 2), dtype=np.uint8)
-        cv2.floodFill(filled, flood_mask, (0, 0), 255)
-        holes = cv2.bitwise_not(filled)
-        cleaned = cv2.bitwise_or(cleaned, holes)
+        # Fill only enclosed holes. A border-seeded flood fill can misclassify
+        # the entire ROI as foreground when the target touches the ROI edge.
+        cleaned = ndimage.binary_fill_holes(cleaned > 0).astype(np.uint8) * 255
     return cleaned
 
 
@@ -243,6 +241,8 @@ def _select_component_mask(
     image_h, image_w = mask.shape[:2]
     best_mask: np.ndarray | None = None
     best_key: tuple[float, float, int, int, float] | tuple[float, int] | None = None
+    roi_local_masks: list[np.ndarray] = []
+    max_reasonable_area = int(max(1, image_h * image_w) * 0.85)
 
     for contour in contours:
         component_mask = np.zeros_like(mask)
@@ -254,9 +254,19 @@ def _select_component_mask(
             candidate_key = _roi_component_selection_key(component_mask)
         else:
             candidate_key = (float(component_area), int(round(cv2.contourArea(contour))))
+            if component_area < max_reasonable_area:
+                border_touch_count, border_pixel_ratio = _component_border_stats(component_mask)
+                if border_touch_count == 0 or border_pixel_ratio <= 0.01:
+                    roi_local_masks.append(component_mask)
         if best_key is None or candidate_key > best_key:
             best_key = candidate_key
             best_mask = component_mask
+    if selection_strategy == "roi_local_horizontal_boundary" and roi_local_masks:
+        union_mask = np.zeros_like(mask)
+        for component_mask in roi_local_masks:
+            union_mask = cv2.bitwise_or(union_mask, component_mask)
+        if bool(union_mask.any()):
+            return union_mask
     return best_mask
 
 

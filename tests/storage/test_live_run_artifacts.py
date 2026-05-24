@@ -1,3 +1,5 @@
+import numpy as np
+
 from src.storage.session_artifacts import SessionArtifactStore
 
 
@@ -54,6 +56,16 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
                 "tracking_quality": 0.97,
                 "point_a_px": [13, 24],
                 "point_b_px": [81, 24],
+                "point_a_preview_px": [113, 144],
+                "point_b_preview_px": [181, 144],
+                "source_point_a_px": [10, 30],
+                "source_point_b_px": [84, 18],
+                "axis_point_a_px": [13, 24],
+                "axis_point_b_px": [81, 24],
+                "source_point_a_preview_px": [110, 150],
+                "source_point_b_preview_px": [184, 138],
+                "axis_point_a_preview_px": [113, 144],
+                "axis_point_b_preview_px": [181, 144],
                 "tracking_mode": "prior_gated_reacquire",
                 "tracking_state": "holding_last_good",
                 "selection_mode": "tracking_prior_hold",
@@ -64,7 +76,11 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
                 "threshold_value": 120.0,
                 "endpoint_jump_px": 15.0,
                 "midpoint_drift_px": 9.0,
+                "midpoint_along_shift_px": 7.0,
+                "midpoint_lateral_drift_px": 2.0,
+                "span_change_px": 5.5,
                 "span_change_ratio": 0.08,
+                "max_frame_span_jump_px": 6.0,
                 "consecutive_misses": 1,
             },
         ],
@@ -151,6 +167,16 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     assert telemetry[-1]["camera_resulting_fps"] == 14.86
     assert telemetry[-1]["point_a_px"] == [13, 24]
     assert telemetry[-1]["point_b_px"] == [81, 24]
+    assert telemetry[-1]["point_a_preview_px"] == [113, 144]
+    assert telemetry[-1]["point_b_preview_px"] == [181, 144]
+    assert telemetry[-1]["source_point_a_px"] == [10, 30]
+    assert telemetry[-1]["source_point_b_px"] == [84, 18]
+    assert telemetry[-1]["axis_point_a_px"] == [13, 24]
+    assert telemetry[-1]["axis_point_b_px"] == [81, 24]
+    assert telemetry[-1]["source_point_a_preview_px"] == [110, 150]
+    assert telemetry[-1]["source_point_b_preview_px"] == [184, 138]
+    assert telemetry[-1]["axis_point_a_preview_px"] == [113, 144]
+    assert telemetry[-1]["axis_point_b_preview_px"] == [181, 144]
     assert telemetry[-1]["tracking_mode"] == "prior_gated_reacquire"
     assert telemetry[-1]["tracking_state"] == "holding_last_good"
     assert telemetry[-1]["selection_mode"] == "tracking_prior_hold"
@@ -161,7 +187,11 @@ def test_save_live_bundle_writes_expected_files_and_readers(tmp_path) -> None:
     assert telemetry[-1]["threshold_value"] == 120.0
     assert telemetry[-1]["endpoint_jump_px"] == 15.0
     assert telemetry[-1]["midpoint_drift_px"] == 9.0
+    assert telemetry[-1]["midpoint_along_shift_px"] == 7.0
+    assert telemetry[-1]["midpoint_lateral_drift_px"] == 2.0
+    assert telemetry[-1]["span_change_px"] == 5.5
     assert telemetry[-1]["span_change_ratio"] == 0.08
+    assert telemetry[-1]["max_frame_span_jump_px"] == 6.0
     assert telemetry[-1]["consecutive_misses"] == 1
     assert store.get_result("run-001")["warnings"] == [
         "measurement cadence below target: achieved 5.00 Hz < target 50.00 Hz"
@@ -239,4 +269,62 @@ def test_save_live_bundle_serializes_keyframe_images_in_detail_payload(tmp_path)
     detail = store.get_detail("run-serializable")
     assert detail is not None
     assert detail["key_frames"][0]["label"] == "first"
+    assert detail["key_frames"][0]["image"] == [[0, 64], [128, 255]]
+
+
+def test_save_live_bundle_serializes_numpy_keyframe_images_in_detail_payload(tmp_path) -> None:
+    store = SessionArtifactStore(tmp_path / "artifacts")
+    keyframe = {
+        "label": "first",
+        "timestamp_ms": 1000,
+        "image": np.array([[0, 64], [128, 255]], dtype=np.uint8),
+        "feature_point_px": [1, 1],
+        "metric_raw": 71.0,
+    }
+
+    store.save_live_bundle(
+        "run-numpy-keyframe",
+        definition={"point_a_px": {"x": 1, "y": 2}},
+        telemetry=[],
+        detail={
+            "session_id": "run-numpy-keyframe",
+            "source": "live_run",
+            "points": [],
+            "key_frames": [keyframe],
+            "point_count": 0,
+            "af95": None,
+        },
+        result={
+            "session_id": "run-numpy-keyframe",
+            "state": "completed",
+            "analysis_engine": "afas",
+            "channel_name": "Space1",
+            "result_status": "ok",
+            "result_reason": None,
+            "result_detail": "",
+            "af95": 74.0,
+            "as_value": 41.2,
+            "af_value": 57.8,
+            "point_count": 0,
+            "capture_mode": "post_run_review",
+            "rates": {},
+            "measurement_profile": {},
+            "warnings": [],
+            "artifacts": {
+                "definition": "definition.json",
+                "telemetry": "telemetry.csv",
+                "events": "events.jsonl",
+                "detail": "detail.json",
+                "result": "result.json",
+                "afas_dataset": "afas_dataset.json",
+                "keyframes": ["keyframes/first.png"],
+            },
+        },
+        events=[],
+        afas_dataset={"schema_version": "afas_postprocessing_dataset.v1", "session_id": "run-numpy-keyframe"},
+        keyframes=[keyframe],
+    )
+
+    detail = store.get_detail("run-numpy-keyframe")
+    assert detail is not None
     assert detail["key_frames"][0]["image"] == [[0, 64], [128, 255]]

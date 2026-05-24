@@ -6,14 +6,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from openpyxl import load_workbook
 
-if TYPE_CHECKING:
-    from src.application.runtime_config import RuntimeConfig
-
 _SPACE_CHANNEL_PATTERN = re.compile(r"^Space(\d+)$", re.IGNORECASE)
+
+
+class _RuntimeConfigLike(Protocol):
+    replay: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +41,7 @@ class MockAfasCurvePlayback:
 
 
 def resolve_mock_afas_curve_playback(
-    runtime_config: "RuntimeConfig",
+    runtime_config: _RuntimeConfigLike,
     *,
     channel_name: str,
 ) -> MockAfasCurvePlayback | None:

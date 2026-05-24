@@ -1,24 +1,24 @@
-profile: dev_lab
+profile: dev_offline_capture
 platform: mac
-mode: lab
+mode: offline
 webapp:
   host: 127.0.0.1
-  port: 8000
+  port: 8002
 adapters:
-  camera: hik_gige_mvs
-  temp: mock
+  camera: offline_capture
+  temp: offline_capture
   plc: mock
 camera:
-  transport: gige_vision
-  sdk: hik_mvs
-  probe_mode: protocol_any
-  allowed_models: []
-  serial_number: ""
-  ip: ""
+  offline_capture:
+    capture_dir: examples/runtime/camera_captures/20260522-183158-dev_lab
+    fixtures:
+      - key: 20260522-183158-dev_lab
+        label: Offline capture 20260522 18:31
+        capture_dir: examples/runtime/camera_captures/20260522-183158-dev_lab
   trigger_mode: free_run
   pixel_format: mono8
-  exposure_us: 10000
-  gain_db: 0.0
+  exposure_us: 50000
+  gain_db: 12.0
   timeout_ms: 1000
   setup_preview:
     trigger_mode: free_run
@@ -38,25 +38,25 @@ camera:
     gain_db: 12.0
     timeout_ms: 1000
     device_roi:
-      x: 512
-      y: 342
+      x: 0
+      y: 0
       width: 2048
       height: 1364
 temp:
-  backend: mock
+  backend: offline_capture
   control:
     completion_mode: manual_stop_only
-    mock_ramp_step_celsius: 0.5
+    startup_power_percent: 100.0
 run:
-  preview_poll_ms: 50
-  capture_interval_ms: 50
-  preview_target_fps: 20
-  measurement_target_hz: 20
-  artifact_capture_hz: 20
+  preview_poll_ms: 100
+  capture_interval_ms: 100
+  preview_target_fps: 10
+  measurement_target_hz: 10
+  artifact_capture_hz: 10
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
   invalid_tracking_grace_samples: 5
 storage:
-  sqlite_path: examples/runtime/dev_lab.sqlite3
+  sqlite_path: examples/runtime/dev_offline_capture.sqlite3
   artifact_dir: examples/runtime/artifacts
