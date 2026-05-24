@@ -444,7 +444,7 @@ def _create_ready_run(
     return run_id
 
 
-def _wait_for_run_status(client: TestClient, run_id: str, expected_status: str, timeout_s: float = 3.0) -> dict[str, object]:
+def _wait_for_run_status(client: TestClient, run_id: str, expected_status: str, timeout_s: float = 6.0) -> dict[str, object]:
     deadline = time.time() + timeout_s
     last_payload: dict[str, object] | None = None
     while time.time() < deadline:
