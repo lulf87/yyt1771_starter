@@ -146,3 +146,23 @@ def test_precheck_api_reports_offline_capture_alignment_as_ready(tmp_path: Path)
     assert "origin=(0, 0)" in items["real_offline_pixel_alignment"]["detail"]
     assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
     assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_backend"]["status"] == "ok"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
+    assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
