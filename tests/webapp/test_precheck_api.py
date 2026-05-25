@@ -197,6 +197,7 @@ def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
     assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
     assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
     assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
+    assert "direction_projection_mode=max_chord" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
 
 
@@ -218,6 +219,7 @@ def test_precheck_api_reports_real_offline_contract_scope_without_device_access(
     assert "vision=dark_on_light/adaptive edge=10.0 min_area=200 quality=0.75 internal_texture=False" in detail
     assert "tracking=continue_on_invalid grace=5 debug_locked_points=False" in detail
     assert "ab_points=formal target-contour point_a_px/point_b_px" in detail
+    assert "direction_projection_mode=max_chord" in detail
 
 
 def test_precheck_api_reports_lab_camera_mock_temp_alignment_as_ready_without_device_access(

@@ -37,6 +37,11 @@ ALIGNMENT_TRACKING_POLICY = {
     "invalid_tracking_grace_samples": 5,
     "debug_locked_points_tracking": False,
 }
+ALIGNMENT_AB_SELECTION = {
+    "formal_point_source": "target_contour_boundary",
+    "formal_point_fields": ("point_a_px", "point_b_px"),
+    "direction_projection_mode": "max_chord",
+}
 
 
 def build_system_precheck(
@@ -287,7 +292,10 @@ def _check_active_profile_pixel_alignment(
     )
     vision_detail = _format_vision_detail(vision)
     tracking_detail = _format_tracking_detail(tracking_policy)
-    ab_detail = ", ab_points=formal target-contour point_a_px/point_b_px"
+    ab_detail = (
+        ", ab_points=formal target-contour point_a_px/point_b_px"
+        f" direction_projection_mode={ALIGNMENT_AB_SELECTION['direction_projection_mode']}"
+    )
     return {
         "name": "real_offline_pixel_alignment",
         "status": "ok",

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def normalize_camera_runtime_error(exc: BaseException) -> str:
     """Return a stable, actionable message for camera runtime failures."""
-    raw_detail = str(exc).strip() or exc.__class__.__name__
+    raw_detail = _exception_chain_detail(exc)
     detail = raw_detail.lower()
     if "open device" in detail and "0x80000203" in detail:
         return (
@@ -32,7 +32,25 @@ def normalize_camera_runtime_error(exc: BaseException) -> str:
             "This is usually an SDK/runtime initialization problem or a stale camera process. "
             f"Raw SDK detail: {raw_detail}"
         )
+    if "failed to open hik gige / mvs camera" in detail:
+        return (
+            "Hik MVS camera did not reach an opened state. "
+            "Check camera power, network/IP visibility, SDK driver state, and whether another camera client "
+            f"still holds exclusive access. Raw SDK detail: {raw_detail}"
+        )
     return raw_detail
+
+
+def _exception_chain_detail(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        part = str(current).strip() or current.__class__.__name__
+        parts.append(part)
+        current = current.__cause__ or current.__context__
+    return " | caused by: ".join(parts)
 
 
 __all__ = ["normalize_camera_runtime_error"]

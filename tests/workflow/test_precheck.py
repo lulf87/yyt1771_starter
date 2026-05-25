@@ -141,6 +141,7 @@ def test_build_system_precheck_reports_prod_win_alignment_without_device_access(
     assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
     assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
     assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
+    assert "direction_projection_mode=max_chord" in items["real_offline_pixel_alignment"]["detail"]
     assert items["camera_sdk_runtime"]["status"] == "ok"
 
 
