@@ -54,6 +54,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Operator/request contour settings must not bypass the offline truth | Locked profiles now validate the request or saved `MeasurementDefinition` contour fields before save-definition, preset auto-detect, and live-run start. The locked auto-detect path uses only the offline-truth contour candidate (`dark_on_light`, `adaptive`, `ignore_internal_texture=false`, `min_target_area_px=200`) instead of searching alternate threshold/polarity combinations. | No-hardware runtime guard verified |
 | Operator/request A/B selection mode must not bypass the offline truth | Locked profiles now reject `direction_projection_mode=auto` and `direction_projection_mode=mask_projection` before preset auto-detect, save-definition, live-run start, Web live-probe, and CLI definition probe frame access. The Web default now sends `max_chord`, the precheck detail exposes `direction_projection_mode=max_chord`, and the standard offline-material sample audit overrides the historical reference definition's old `mask_projection` value to verify the current formal A/B rule. | No-hardware runtime guard verified |
 | Desktop migration entry points must not reintroduce stale A/B semantics | `DesktopWorkbenchController.save_definition()` now uses the same real/offline alignment and definition guards as the Web save-definition path. Locked desktop profiles reject stale `MeasurementDefinition` values such as `direction_projection_mode=mask_projection` before the draft can be saved. | No-hardware runtime guard verified |
+| Setup preview must not open a locked-profile camera after the profile contract drifts | `LivePreviewService.fetch_frame()` and `LivePreviewService.start_stream()` now call the real/offline alignment guard before returning cached frames, reusing active frames, or opening a setup-preview camera. If a locked profile drifts from the offline truth, preset preview is blocked before hardware access. | No-hardware runtime guard verified |
 | Metric source creation must not bypass the offline truth | `src.application.device_factory.build_metric_source()` now applies the same locked-profile alignment and definition guards before creating `PriorTrackingMetricSource` or `LockedDefinitionMetricSource`. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before live tracking can start. | No-hardware runtime guard verified |
 | Measurement capture planning must not bypass the offline truth | `src.application.device_factory.build_measurement_capture_plan()` now applies the same locked-profile alignment and definition guards before deriving measurement acquisition ROI, source-local pixel mapping, or shifted definitions. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before capture planning can start. | No-hardware runtime guard verified |
 | New operator definitions must default to the offline-truth A/B mode | `MeasurementDefinition`, Web request/response schemas, Web preset default resolution, real/offline probe payload loading, and desktop bootstrap smoke definitions now default to `direction_projection_mode=max_chord`. Legacy `auto` and `mask_projection` values remain recognized so locked-profile guards can reject stale requests explicitly, but omitted current fields no longer re-enter the old A/B semantics. | No-hardware runtime guard verified |
@@ -299,6 +300,32 @@ Result: `28 passed`.
 Result: `141 passed, 1 warning`.
 
 ```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_live_preview_service.py::test_fetch_frame_blocks_locked_profile_alignment_drift_before_opening_camera \
+  tests/application/test_live_preview_service.py::test_start_stream_blocks_locked_profile_alignment_drift_before_opening_camera -q
+```
+
+Result: `2 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest tests/application/test_live_preview_service.py -q
+```
+
+Result: `19 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_live_preview_service.py \
+  tests/application/test_device_factory.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/webapp/test_live_run_api.py \
+  tests/webapp/test_precheck_api.py -q
+```
+
+Result: `156 passed, 1 warning`.
+
+```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.real_offline_alignment --all-profiles
 ```
 
@@ -498,6 +525,14 @@ Observed in the real browser:
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_capture_plan_guard_20260526.png`
   and
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_capture_plan_guard_live_run_20260526.png`
+- on `http://127.0.0.1:8025/` with `dev_offline_capture`, the browser
+  verified the guarded setup-preview path still starts normally for the
+  accepted offline material. The visible page reported source frame
+  `2048x1364`, display frame `816x543`, preview cadence about `5.2 fps`, and
+  measurement target `10.0 Hz`; after freeze and ROI drawing, A/B state was
+  `已自动检测` and the visible A/B points were on the target contour.
+- browser screenshot saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_preview_guard_20260526.png`
 
 ## Remaining Hardware Validation
 

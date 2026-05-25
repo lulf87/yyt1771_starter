@@ -9,6 +9,7 @@ import time
 
 from src.application.device_factory import open_camera
 from src.application.frame_pixel_contract import validate_frame_pixel_contract
+from src.application.real_offline_alignment_guard import assert_real_offline_alignment_ready
 from src.application.runtime_config import RuntimeConfig
 from src.core.models import FramePacket
 
@@ -64,6 +65,7 @@ class LivePreviewService:
         run_id: str = "",
         prefer_cached: bool = False,
     ) -> FramePacket:
+        _assert_preview_alignment_ready(runtime_config, context="preview_fetch_frame")
         cached_frame = self._latest_frame_for_run(run_id) if prefer_cached else None
         if cached_frame is not None:
             return validate_frame_pixel_contract(
@@ -98,6 +100,7 @@ class LivePreviewService:
         *,
         run_id: str,
     ) -> tuple[object, FramePacket]:
+        _assert_preview_alignment_ready(runtime_config, context="preview_stream_start")
         with self._stream_transition_lock:
             active_stream = self._handoff_active_stream(run_id=run_id)
             if active_stream is not None:
@@ -532,6 +535,12 @@ def _fresh_capture_warmup_frame_count(runtime_config: RuntimeConfig) -> int:
     if camera_backend == "hik_gige_mvs":
         return 2
     return 0
+
+
+def _assert_preview_alignment_ready(runtime_config: RuntimeConfig, *, context: str) -> None:
+    if not str(getattr(runtime_config, "profile", "") or ""):
+        return
+    assert_real_offline_alignment_ready(runtime_config, context=context)
 
 
 def _frame_signature(frame: FramePacket) -> tuple[object, ...]:

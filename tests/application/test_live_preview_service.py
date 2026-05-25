@@ -6,6 +6,7 @@ import pytest
 
 from src.application.frame_pixel_contract import FramePixelContractError
 from src.application.live_preview_service import LivePreviewService, compute_preview_interval_ms
+from src.application.real_offline_alignment_guard import RealOfflineAlignmentGuardError
 from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
 
@@ -428,6 +429,30 @@ def test_fetch_frame_rejects_locked_profile_preview_pixels_that_differ_from_offl
         service.fetch_frame(runtime_config, run_id="run-wrong-size", prefer_cached=False)
 
     assert camera.closed is True
+
+
+def test_fetch_frame_blocks_locked_profile_alignment_drift_before_opening_camera() -> None:
+    service = LivePreviewService()
+    runtime_config = load_runtime_config("dev_lab")
+    runtime_config.live.run.preview_display_max_width = 800
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": (_ for _ in ()).throw(
+        AssertionError("camera should not open when preview alignment drifts")
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="preview_fetch_frame"):
+        service.fetch_frame(runtime_config, run_id="run-preview-guard", prefer_cached=False)
+
+
+def test_start_stream_blocks_locked_profile_alignment_drift_before_opening_camera() -> None:
+    service = LivePreviewService()
+    runtime_config = load_runtime_config("dev_lab")
+    runtime_config.live.run.preview_display_max_width = 800
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": (_ for _ in ()).throw(
+        AssertionError("camera should not open when preview alignment drifts")
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="preview_stream_start"):
+        service.start_stream(runtime_config, run_id="run-preview-stream-guard")
 
 
 def test_fetch_frame_rejects_locked_profile_preview_roi_that_differs_from_offline_material() -> None:
