@@ -110,6 +110,8 @@ def build_measurement_capture_plan(
     runtime_config: RuntimeConfig,
     definition: MeasurementDefinition,
 ) -> MeasurementCapturePlan:
+    assert_real_offline_alignment_ready(runtime_config, context="build_measurement_capture_plan")
+    assert_real_offline_definition_ready(runtime_config, definition, context="build_measurement_capture_plan")
     measurement_profile = camera_profile_for_mode(runtime_config.live.camera, "measurement")
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
     setup_preview_roi = _setup_preview_sensor_roi(runtime_config)

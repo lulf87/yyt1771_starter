@@ -526,10 +526,10 @@ def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_d
         point_b_px=PixelPoint(x=1625, y=745),
         foreground_polarity="dark_on_light",
         threshold_mode="adaptive",
-        ignore_internal_texture=True,
+        ignore_internal_texture=False,
         min_target_area_px=200,
         direction_angle_deg=30.0,
-        direction_projection_mode="mask_projection",
+        direction_projection_mode="max_chord",
     )
 
     real_plan = build_measurement_capture_plan(
@@ -554,6 +554,25 @@ def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_d
         real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
         == offline_plan.measurement_profile.device_roi.y
     )
+
+
+def test_build_measurement_capture_plan_blocks_locked_profile_stale_definition_before_pixel_planning() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=30.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="build_measurement_capture_plan"):
+        build_measurement_capture_plan(runtime_config=runtime_config, definition=definition)
 
 
 @pytest.mark.parametrize("angle_deg", list(range(0, 360, 30)))

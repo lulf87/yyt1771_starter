@@ -55,6 +55,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Operator/request A/B selection mode must not bypass the offline truth | Locked profiles now reject `direction_projection_mode=auto` and `direction_projection_mode=mask_projection` before preset auto-detect, save-definition, live-run start, Web live-probe, and CLI definition probe frame access. The Web default now sends `max_chord`, the precheck detail exposes `direction_projection_mode=max_chord`, and the standard offline-material sample audit overrides the historical reference definition's old `mask_projection` value to verify the current formal A/B rule. | No-hardware runtime guard verified |
 | Desktop migration entry points must not reintroduce stale A/B semantics | `DesktopWorkbenchController.save_definition()` now uses the same real/offline alignment and definition guards as the Web save-definition path. Locked desktop profiles reject stale `MeasurementDefinition` values such as `direction_projection_mode=mask_projection` before the draft can be saved. | No-hardware runtime guard verified |
 | Metric source creation must not bypass the offline truth | `src.application.device_factory.build_metric_source()` now applies the same locked-profile alignment and definition guards before creating `PriorTrackingMetricSource` or `LockedDefinitionMetricSource`. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before live tracking can start. | No-hardware runtime guard verified |
+| Measurement capture planning must not bypass the offline truth | `src.application.device_factory.build_measurement_capture_plan()` now applies the same locked-profile alignment and definition guards before deriving measurement acquisition ROI, source-local pixel mapping, or shifted definitions. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before capture planning can start. | No-hardware runtime guard verified |
 | New operator definitions must default to the offline-truth A/B mode | `MeasurementDefinition`, Web request/response schemas, Web preset default resolution, real/offline probe payload loading, and desktop bootstrap smoke definitions now default to `direction_projection_mode=max_chord`. Legacy `auto` and `mask_projection` values remain recognized so locked-profile guards can reject stale requests explicitly, but omitted current fields no longer re-enter the old A/B semantics. | No-hardware runtime guard verified |
 | Low-level contour extraction defaults must not reintroduce stale behavior | `DirectionalContourConfig` now defaults to the offline-truth contour/A-B contract: `threshold_mode=adaptive`, `foreground_polarity=dark_on_light`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `projection_mode=max_chord`. Explicit `auto` / `mask_projection` remains available only as an explicit legacy/test path. | No-hardware vision guard verified |
 | Browser operator defaults must start from the offline truth | The home page detection controls now default to the offline-truth contour settings. In particular, `live-ignore-internal-texture` is not checked by default, so a normal operator ROI recompute does not immediately violate the locked-profile contour guard. | Browser shell verified |
@@ -273,6 +274,49 @@ Result: `210 passed, 1 warning`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_device_factory.py::test_build_measurement_capture_plan_blocks_locked_profile_stale_definition_before_pixel_planning -q
+```
+
+Initial result before the guard was added: failed because `build_measurement_capture_plan()`
+did not raise `RealOfflineAlignmentGuardError`. Result after the guard:
+`1 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest tests/application/test_device_factory.py -q
+```
+
+Result: `28 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_device_factory.py \
+  tests/application/test_live_run_service.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/webapp/test_live_run_api.py -q
+```
+
+Result: `141 passed, 1 warning`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.real_offline_alignment --all-profiles
+```
+
+Result summary: `status=ok`, `profiles_checked=3`, `hardware_access=not_attempted`.
+All locked profiles (`dev_lab`, `dev_lab_camera_mock_temp`, `prod_win`) retained
+`2048 x 1364` source pixels, offline-truth contour settings, and
+`direction_projection_mode=max_chord`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m compileall src tests
+node --check src/webapp/static/app.js
+git diff --check
+```
+
+Result: passed.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
   tests/application/test_camera_errors.py \
   tests/webapp/test_live_run_api.py::test_preview_frame_fetch_normalizes_hik_access_denied_error \
   tests/webapp/test_live_run_api.py::test_preview_stream_start_normalizes_hik_access_denied_error \
@@ -442,6 +486,18 @@ Observed in the real browser:
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_default_max_chord_smoke_20260526.png`
 - low-level contour default browser screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_low_level_contour_defaults_20260526.png`
+- on `http://127.0.0.1:8024/` with `dev_offline_capture`, the browser
+  viewport showed source frame `2048x1364`, display frame `816x543`, preview
+  cadence about `5.0 fps`, and measurement target `10.0 Hz`. After freezing
+  the preview and drawing a wide horizontal ROI over the offline target, the
+  visible overlay showed A/B points on the target contour and the A/B state was
+  `已自动检测`. The same browser run confirmed live testing still starts with
+  the guarded capture plan path; after several seconds it showed a temperature
+  x-axis live curve, `点数=218+`, and `离群点=0` before manual stop.
+- browser screenshots saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_capture_plan_guard_20260526.png`
+  and
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_capture_plan_guard_live_run_20260526.png`
 
 ## Remaining Hardware Validation
 

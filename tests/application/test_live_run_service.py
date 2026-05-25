@@ -424,7 +424,7 @@ def test_augment_telemetry_for_setup_preview_preserves_existing_preview_points()
 
 def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_frame_preview() -> None:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="unit_lab_camera_mock_temp",
         platform="mac",
         mode="lab",
         webapp=WebAppConfig(host="127.0.0.1", port=8000),
