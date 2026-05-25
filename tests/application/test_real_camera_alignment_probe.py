@@ -69,6 +69,8 @@ def test_probe_real_camera_alignment_checks_setup_and_measurement_profiles() -> 
 
     assert payload["status"] == "ok"
     assert payload["hardware_access"] == "attempted"
+    assert payload["frame_source_mode"] == "real_camera"
+    assert payload["frame_access"] == "attempted"
     assert payload["alignment_contract"]["algorithm_contract"]["ab_selection"]["formal_point_source"] == (
         "target_contour_boundary"
     )
@@ -79,6 +81,48 @@ def test_probe_real_camera_alignment_checks_setup_and_measurement_profiles() -> 
     ]
     assert opened_profiles == ["setup_preview", "measurement"]
     assert closed_profiles == ["setup_preview", "measurement"]
+
+
+def test_probe_real_camera_alignment_marks_offline_capture_as_no_hardware_access() -> None:
+    runtime_config = load_runtime_config("dev_offline_capture")
+    opened_profiles: list[str] = []
+
+    class FakeCamera:
+        def __init__(self, profile_name: str) -> None:
+            self.profile_name = profile_name
+
+        def read_frame(self) -> FramePacket:
+            opened_profiles.append(self.profile_name)
+            profile = getattr(runtime_config.live.camera, self.profile_name)
+            return FramePacket(
+                timestamp_ms=1_000 if self.profile_name == "setup_preview" else 2_000,
+                source=f"offline_capture:{self.profile_name}",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1 if self.profile_name == "setup_preview" else 2,
+                meta={
+                    "device_roi": {
+                        "x": profile.device_roi.x,
+                        "y": profile.device_roi.y,
+                        "width": profile.device_roi.width,
+                        "height": profile.device_roi.height,
+                    }
+                },
+            )
+
+        def close(self) -> None:
+            pass
+
+    payload = probe_real_camera_alignment(
+        runtime_config,
+        camera_opener=lambda _runtime_config, profile_name: FakeCamera(profile_name),
+        alignment_auditor=_fake_alignment_contract,
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["frame_source_mode"] == "offline_capture"
+    assert payload["frame_access"] == "attempted"
+    assert opened_profiles == ["setup_preview", "measurement"]
 
 
 def test_probe_real_camera_alignment_runs_formal_ab_detection_when_definition_is_provided() -> None:

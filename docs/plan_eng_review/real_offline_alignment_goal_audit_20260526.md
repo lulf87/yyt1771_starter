@@ -48,6 +48,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, `direction_projection_mode=max_chord`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
 | Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
 | Connected real camera must prove contour/A-B behavior with an operator ROI | `POST /api/system/real-offline-alignment/live-probe` can now accept the current `MeasurementDefinition` payload. When provided, the probe runs the same formal `DirectionalContourMetricExtractor` with `direction_projection_mode=max_chord` on both the real setup-preview frame and the real measurement frame, returning per-profile `ab_detection` with `selection_mode`, `direction_projection_mode`, quality, metric, and formal `point_a_px / point_b_px`. | Implemented; hardware pass pending |
+| Offline material live-probe must not be mistaken for hardware validation | `probe_real_camera_alignment()` now exposes `frame_source_mode` and `frame_access` separately from `hardware_access`. When the active profile is `dev_offline_capture`, the probe may read setup/measurement offline frames and validate formal A/B, but reports `frame_source_mode=offline_capture`, `frame_access=attempted`, and `hardware_access=not_attempted`. | No-hardware boundary verified |
 | One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
 | Runtime preset and live-run paths must not bypass the alignment contract | `src.application.real_offline_alignment_guard.assert_real_offline_alignment_ready()` gates locked profiles before `definition/auto` and before `LiveRunService.start_run()`. If source pixels, contour settings, or live A/B tracking policy drift from the offline truth, preset auto-detect returns `409` before fetching a frame and live run start returns `409` before opening the camera. | No-hardware runtime guard verified |
 | Operator/request contour settings must not bypass the offline truth | Locked profiles now validate the request or saved `MeasurementDefinition` contour fields before save-definition, preset auto-detect, and live-run start. The locked auto-detect path uses only the offline-truth contour candidate (`dark_on_light`, `adaptive`, `ignore_internal_texture=false`, `min_target_area_px=200`) instead of searching alternate threshold/polarity combinations. | No-hardware runtime guard verified |
@@ -260,11 +261,30 @@ Observed in the real browser:
 - alignment audit returned `algorithm_contract.ab_selection`
 - live-probe can now accept a saved/current measurement definition and return
   per-profile `ab_detection` for setup-preview and measurement frames
+- the operator home page `探测相机` action now attaches the current source-space
+  measurement definition to `/api/system/real-offline-alignment/live-probe`
+  whenever ROI-local A/B is complete, so the browser-visible probe reports
+  pixel, contour, and formal A/B status together
 - local Web verification against `dev_offline_capture` posted a current
   measurement definition to `/api/system/real-offline-alignment/live-probe`;
   both setup-preview and measurement profiles returned
   `ab_detection.status=ok`, `selection_mode=directional_contour_max_chord`,
   `direction_projection_mode=max_chord`, and quality about `0.971`
+- updated local Web verification against `dev_offline_capture` on
+  `http://127.0.0.1:8016/?v=ui-probe-alignment` used the real operator flow:
+  freeze preview, draw ROI, wait for automatic A/B, open diagnostics, click
+  `探测相机`. The visible page showed source frame `2048x1364`, display frame
+  `816x543`, and A/B points on the target contour. The combined probe payload
+  included `real_offline_alignment_definition_attached=true` and
+  `real_offline_alignment_live_probe.status=ok`; both setup-preview and
+  measurement profiles reported `ab_detection.status=ok`,
+  `selection_mode=directional_contour_max_chord`,
+  `direction_projection_mode=max_chord`, and formal source-space A/B
+  `A=(674, 727)`, `B=(1686, 727)`.
+- after separating frame source from hardware access, the same operator flow
+  returned `frame_source_mode=offline_capture`, `frame_access=attempted`, and
+  `hardware_access=not_attempted`, confirming that offline A/B probe success is
+  no longer represented as hardware validation.
 - Swagger UI execution of `POST /api/system/real-offline-alignment/live-probe`
   returned HTTP `200` with response body `status=fail`,
   `hardware_access=attempted`, `profile=dev_lab_camera_mock_temp`,

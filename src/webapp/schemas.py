@@ -515,6 +515,8 @@ class RealCameraAlignmentProbeResponse(BaseModel):
     status: str
     profile: str
     hardware_access: Literal["attempted", "not_attempted"]
+    frame_source_mode: str = ""
+    frame_access: Literal["attempted", "not_attempted"] = "not_attempted"
     alignment_contract: dict[str, Any] | None = None
     profiles: list[RealCameraAlignmentProfileProbeResponse]
     detail: str

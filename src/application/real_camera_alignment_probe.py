@@ -42,12 +42,15 @@ def probe_real_camera_alignment(
     run only when the camera is connected and available.
     """
 
+    frame_source_mode = _frame_source_mode(runtime_config)
     alignment_contract = _offline_truth_alignment_contract(runtime_config, alignment_auditor=alignment_auditor)
     if alignment_contract["status"] != "ok":
         return {
             "status": "fail",
             "profile": str(getattr(runtime_config, "profile", "") or ""),
             "hardware_access": "not_attempted",
+            "frame_source_mode": frame_source_mode,
+            "frame_access": "not_attempted",
             "alignment_contract": alignment_contract,
             "profiles": [],
             "detail": str(alignment_contract["detail"]),
@@ -67,7 +70,9 @@ def probe_real_camera_alignment(
             return {
                 "status": "fail",
                 "profile": str(getattr(runtime_config, "profile", "") or ""),
-                "hardware_access": "attempted",
+                "hardware_access": _hardware_access_state(frame_source_mode=frame_source_mode, frame_access="attempted"),
+                "frame_source_mode": frame_source_mode,
+                "frame_access": "attempted",
                 "alignment_contract": alignment_contract,
                 "profiles": profiles,
                 "detail": result["detail"],
@@ -75,7 +80,9 @@ def probe_real_camera_alignment(
     return {
         "status": "ok",
         "profile": str(getattr(runtime_config, "profile", "") or ""),
-        "hardware_access": "attempted",
+        "hardware_access": _hardware_access_state(frame_source_mode=frame_source_mode, frame_access="attempted"),
+        "frame_source_mode": frame_source_mode,
+        "frame_access": "attempted",
         "alignment_contract": alignment_contract,
         "profiles": profiles,
         "detail": (
@@ -163,6 +170,21 @@ def _probe_camera_profile(
 
 def _open_camera_for_profile(runtime_config: Any, profile_name: str) -> object:
     return open_camera(runtime_config, profile_name=profile_name)
+
+
+def _frame_source_mode(runtime_config: Any) -> str:
+    backend = str(getattr(runtime_config, "adapters", {}).get("camera", "") or "")
+    if backend in {"hik_gige_mvs", "hik_rtsp_opencv"}:
+        return "real_camera"
+    if backend in {"offline_capture", "mock"}:
+        return backend
+    return backend or "unknown"
+
+
+def _hardware_access_state(*, frame_source_mode: str, frame_access: str) -> str:
+    if frame_access != "attempted":
+        return "not_attempted"
+    return "attempted" if frame_source_mode == "real_camera" else "not_attempted"
 
 
 def _probe_formal_ab_detection(
