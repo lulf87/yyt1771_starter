@@ -573,6 +573,17 @@ Observed in the real browser:
   `已自动检测` and the visible A/B points were on the target contour.
 - browser screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_preview_guard_20260526.png`
+- on `http://127.0.0.1:8002/` with `dev_offline_capture`, while no real
+  camera or temperature controller was connected, the browser again verified
+  the accepted offline material path. The visible page reported source frame
+  `2048x1364`, display frame `816x543`, preview cadence about `4.9 fps`, and
+  measurement target `10.0 Hz`. After freezing and drawing a horizontal ROI
+  over the target, A/B state became `已自动检测` and the visible A/B points sat
+  on the target contour. A short live run then showed the same overlay points,
+  a temperature x-axis curve, `采样数=386`, and `离群点=0` before manual stop.
+- browser screenshots saved by Playwright as
+  `offline_ab_roi_visual_20260526.png` and
+  `offline_live_run_overlay_20260526.png`.
 
 ## Remaining Hardware Validation
 
