@@ -21,6 +21,7 @@ def _fake_alignment_contract(real_profile: str) -> dict[str, object]:
             "ab_selection": {
                 "formal_point_source": "target_contour_boundary",
                 "formal_point_fields": ["point_a_px", "point_b_px"],
+                "direction_projection_mode": "max_chord",
                 "projected_points_exposed_as_formal_ab": False,
             },
         },

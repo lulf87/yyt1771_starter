@@ -258,7 +258,7 @@ const liveRunState = {
   liveTrackingTimer: null,
   latestTelemetry: null,
   liveProcessResult: null,
-  resolvedDirectionProjectionMode: "auto",
+  resolvedDirectionProjectionMode: "max_chord",
 };
 const LIVE_SETUP_RUN_STORAGE_KEY = "yyt1771-live-setup-run-id";
 const AFAS_OVERVIEW_CHANNEL_COLORS = ["#8B9DC3", "#C4A4A4", "#A4B8A4", "#D4B896", "#B4A4C4", "#9CB8C4"];
@@ -1968,7 +1968,7 @@ function convertDirectionAngleForCoordinateSpace(angleDeg, coordinateSpace = "pr
 function currentDirectionProjectionMode() {
   return isDirectionProjectionMode(liveRunState.resolvedDirectionProjectionMode)
     ? liveRunState.resolvedDirectionProjectionMode
-    : "auto";
+    : "max_chord";
 }
 
 function isDirectionProjectionMode(value) {
@@ -2563,7 +2563,7 @@ function seedLiveDefinitionDefaults(width, height) {
   liveRunState.roiConfirmed = false;
   liveRunState.confirmedRoiSignature = "";
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
@@ -2596,7 +2596,7 @@ function resetLiveDefinitionInputs() {
   liveRunState.activeTool = "";
   liveRunState.overlayDrag = null;
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   renderLivePreviewOverlay();
   renderLiveToolPrompt();
@@ -2609,7 +2609,7 @@ function clearPointInputs() {
     }
   }
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
 }
 
 function clearMetricBoxInputs() {
@@ -3622,7 +3622,7 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     liveRunState.directionProjectionOverlay = directionProjectionOverlayFromAutoPayload(payload);
     liveRunState.resolvedDirectionProjectionMode = isDirectionProjectionMode(payload.direction_projection_mode)
       ? String(payload.direction_projection_mode)
-      : "auto";
+      : "max_chord";
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);
     }
@@ -3712,7 +3712,7 @@ async function saveLiveDefinition() {
 }
 
 function updateLiveDefinitionAfterLocalEdit({ constrain = true } = {}) {
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   if (constrain) {
     ensureMetricBoxWithinAnalysisRoi();
   }

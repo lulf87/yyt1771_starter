@@ -43,6 +43,7 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
     assert payload["algorithm_contract"]["ab_selection"] == {
         "formal_point_source": "target_contour_boundary",
         "formal_point_fields": ["point_a_px", "point_b_px"],
+        "direction_projection_mode": "max_chord",
         "projected_points_exposed_as_formal_ab": False,
         "angle_audit_selection_modes": ["directional_contour_max_chord"],
         "angles_checked": 12,
@@ -158,6 +159,7 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
         == {
             "formal_point_source": "target_contour_boundary",
             "formal_point_fields": ["point_a_px", "point_b_px"],
+            "direction_projection_mode": "max_chord",
             "projected_points_exposed_as_formal_ab": False,
             "angle_audit_selection_modes": ["directional_contour_max_chord"],
             "angles_checked": 12,
@@ -214,3 +216,4 @@ def test_run_alignment_audit_confirms_standard_offline_material_samples_when_ava
     ]
     assert all(item["point_a_px"] for item in material["sample_results"])
     assert all(item["point_b_px"] for item in material["sample_results"])
+    assert material["sample_results"][0]["selection_mode"] == "directional_contour_max_chord"

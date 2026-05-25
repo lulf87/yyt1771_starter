@@ -326,6 +326,7 @@ def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path
     assert payload["algorithm_contract"]["ab_selection"] == {
         "formal_point_source": "target_contour_boundary",
         "formal_point_fields": ["point_a_px", "point_b_px"],
+        "direction_projection_mode": "max_chord",
         "projected_points_exposed_as_formal_ab": False,
         "angle_audit_selection_modes": ["directional_contour_max_chord"],
         "angles_checked": 12,
@@ -398,6 +399,7 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
                     "ab_selection": {
                         "formal_point_source": "target_contour_boundary",
                         "formal_point_fields": ["point_a_px", "point_b_px"],
+                        "direction_projection_mode": "max_chord",
                         "projected_points_exposed_as_formal_ab": False,
                     },
                 },

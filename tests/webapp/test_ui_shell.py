@@ -66,6 +66,19 @@ def test_static_app_js_resizes_rotated_roi_in_roi_local_axes() -> None:
     assert "Math.abs(point.y - drag.fixedCorner.y)" not in pointer_move_body
 
 
+def test_static_app_js_defaults_formal_ab_selection_to_max_chord() -> None:
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+
+    body = _js_function_body(app_js, "currentDirectionProjectionMode")
+    auto_detect_body = _js_function_body(app_js, "autoDetectLiveDefinition")
+
+    assert 'resolvedDirectionProjectionMode: "max_chord"' in app_js
+    assert 'liveRunState.resolvedDirectionProjectionMode = "auto";' not in app_js
+    assert ': "max_chord";' in body
+    assert 'payload.direction_projection_mode' in auto_detect_body
+    assert ': "max_chord";' in auto_detect_body
+
+
 def test_static_app_js_rotates_roi_without_resizing() -> None:
     app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
 

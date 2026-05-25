@@ -48,10 +48,40 @@ def test_contour_request_guard_blocks_locked_profile_request_drift() -> None:
         "threshold_mode": "adaptive",
         "ignore_internal_texture": False,
         "min_target_area_px": 200,
+        "direction_projection_mode": "max_chord",
     }
 
     with pytest.raises(RealOfflineAlignmentGuardError, match="request contour settings"):
         assert_real_offline_contour_request_ready(runtime_config, request, context="unit_test")
+
+
+def test_contour_request_guard_blocks_locked_profile_ab_selection_drift() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+
+    request = {
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "ignore_internal_texture": False,
+        "min_target_area_px": 200,
+        "direction_projection_mode": "mask_projection",
+    }
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="request A/B selection mode"):
+        assert_real_offline_contour_request_ready(runtime_config, request, context="unit_test")
+
+
+def test_contour_request_guard_allows_locked_profile_offline_truth_ab_selection() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+
+    request = {
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "ignore_internal_texture": False,
+        "min_target_area_px": 200,
+        "direction_projection_mode": "max_chord",
+    }
+
+    assert_real_offline_contour_request_ready(runtime_config, request, context="unit_test")
 
 
 def test_definition_guard_blocks_locked_profile_definition_drift() -> None:
@@ -66,7 +96,27 @@ def test_definition_guard_blocks_locked_profile_definition_drift() -> None:
         threshold_mode="binary",
         ignore_internal_texture=False,
         min_target_area_px=200,
+        direction_projection_mode="max_chord",
     )
 
     with pytest.raises(RealOfflineAlignmentGuardError, match="request contour settings"):
+        assert_real_offline_definition_ready(runtime_config, definition, context="unit_test")
+
+
+def test_definition_guard_blocks_locked_profile_definition_ab_selection_drift() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=96, height=64),
+        metric_box=MetricBox(center_x=48, center_y=32, width=80, height=24, angle_deg=0.0),
+        point_a_px=PixelPoint(x=12, y=32),
+        point_b_px=PixelPoint(x=83, y=32),
+        observation_axis=ObservationAxis.LONG_AXIS,
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_projection_mode="auto",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="request A/B selection mode"):
         assert_real_offline_definition_ready(runtime_config, definition, context="unit_test")

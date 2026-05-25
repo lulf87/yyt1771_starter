@@ -26,6 +26,7 @@ SOURCE_HEIGHT = 1364
 OFFLINE_MATERIAL_CAPTURE_DIR = Path("examples/runtime/camera_captures/20260522-183158-dev_lab")
 OFFLINE_MATERIAL_REFERENCE_RUN_DIR = Path("examples/runtime/artifacts/run-9953bd601113")
 OFFLINE_MATERIAL_SAMPLE_FRAMES = (1, 40, 284, 285, 2281, 2282, 5436, 5437, 5807)
+FORMAL_AB_DIRECTION_PROJECTION_MODE = "max_chord"
 
 
 class RealOfflineAlignmentError(AssertionError):
@@ -177,6 +178,7 @@ def _audit_ab_selection_contract(angle_results: list[dict[str, Any]]) -> dict[st
     return {
         "formal_point_source": "target_contour_boundary",
         "formal_point_fields": ["point_a_px", "point_b_px"],
+        "direction_projection_mode": FORMAL_AB_DIRECTION_PROJECTION_MODE,
         "projected_points_exposed_as_formal_ab": False,
         "angle_audit_selection_modes": selection_modes,
         "angles_checked": len(angle_results),
@@ -234,6 +236,7 @@ def _audit_offline_material_samples(
     definition = _measurement_definition_from_payload(
         json.loads(definition_path.read_text(encoding="utf-8")),
         vision_config=offline_config.live.vision,
+        direction_projection_mode=FORMAL_AB_DIRECTION_PROJECTION_MODE,
     )
     accepted_plan = json.loads(capture_plan_path.read_text(encoding="utf-8"))
     accepted_effective_roi = DeviceRoiConfig(**accepted_plan["effective_acquisition_roi"])
@@ -473,7 +476,7 @@ def _definition_for_angle(angle_deg: int, *, vision_config: Any) -> MeasurementD
         ignore_internal_texture=bool(vision_config.ignore_internal_texture),
         min_target_area_px=int(vision_config.min_target_area_px),
         direction_angle_deg=float(angle_deg),
-        direction_projection_mode="max_chord",
+        direction_projection_mode=FORMAL_AB_DIRECTION_PROJECTION_MODE,
     )
 
 
@@ -481,6 +484,7 @@ def _measurement_definition_from_payload(
     payload: dict[str, Any],
     *,
     vision_config: Any | None = None,
+    direction_projection_mode: str | None = None,
 ) -> MeasurementDefinition:
     return MeasurementDefinition(
         analysis_roi=RectRegion(**payload["analysis_roi"]),
@@ -511,7 +515,11 @@ def _measurement_definition_from_payload(
         direction_angle_deg=(
             None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
         ),
-        direction_projection_mode=str(payload.get("direction_projection_mode", "auto")),
+        direction_projection_mode=(
+            str(payload.get("direction_projection_mode", "auto"))
+            if direction_projection_mode is None
+            else str(direction_projection_mode)
+        ),
         observation_axis=ObservationAxis(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value)),
     )
 

@@ -339,6 +339,7 @@ def _locked_alignment_definition_payload() -> dict[str, object]:
             "threshold_mode": "adaptive",
             "ignore_internal_texture": False,
             "min_target_area_px": 200,
+            "direction_projection_mode": "max_chord",
         }
     )
     return payload
@@ -1161,6 +1162,7 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
             "min_target_area_px": 150,
+            "direction_projection_mode": "max_chord",
         },
     )
 
@@ -1218,12 +1220,40 @@ def test_auto_detect_definition_blocks_locked_profile_request_contour_drift(tmp_
             "threshold_mode": "adaptive",
             "ignore_internal_texture": False,
             "min_target_area_px": 200,
+            "direction_projection_mode": "max_chord",
         },
     )
 
     assert response.status_code == 409
     assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
     assert "request contour settings" in response.json()["detail"]
+
+
+def test_auto_detect_definition_blocks_locked_profile_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+
+    def unexpected_fetch_frame(*_args, **_kwargs):
+        raise AssertionError("preview frame should not be fetched when A/B selection settings drift")
+
+    app.state.live_preview_service.fetch_frame = unexpected_fetch_frame
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "direction_projection_mode": "mask_projection",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
 
 
 def test_save_definition_blocks_locked_profile_request_contour_drift(tmp_path: Path) -> None:
@@ -1238,6 +1268,20 @@ def test_save_definition_blocks_locked_profile_request_contour_drift(tmp_path: P
     assert response.status_code == 409
     assert "save_definition blocked by real/offline alignment guard" in response.json()["detail"]
     assert "request contour settings" in response.json()["detail"]
+
+
+def test_save_definition_blocks_locked_profile_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    payload = _locked_alignment_definition_payload()
+    payload["direction_projection_mode"] = "auto"
+
+    response = client.put(f"/api/runs/{run_id}/definition", json=payload)
+
+    assert response.status_code == 409
+    assert "save_definition blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
 
 
 def test_locked_profile_auto_detect_uses_only_offline_truth_contour_candidate(
@@ -1291,6 +1335,7 @@ def test_locked_profile_auto_detect_uses_only_offline_truth_contour_candidate(
             "ignore_internal_texture": False,
             "min_target_area_px": 200,
             "sensitivity": 50,
+            "direction_projection_mode": "max_chord",
         },
     )
 
@@ -1883,6 +1928,29 @@ def test_start_live_run_blocks_locked_profile_saved_definition_contour_drift(tmp
     assert response.status_code == 409
     assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
     assert "request contour settings" in response.json()["detail"]
+
+
+def test_start_live_run_blocks_locked_profile_saved_definition_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = _create_ready_run(client, definition_payload=_locked_alignment_definition_payload())
+    record = app.state.live_run_registry.get(run_id)
+    assert record is not None and record.definition is not None
+    record.definition.direction_projection_mode = "mask_projection"
+
+    def unexpected_open_camera(*_args, **_kwargs):
+        raise AssertionError("camera should not open when saved A/B selection settings drift")
+
+    app.state.live_run_service.preview_service.open_camera = unexpected_open_camera
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+
+    assert response.status_code == 409
+    assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
 
 
 def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

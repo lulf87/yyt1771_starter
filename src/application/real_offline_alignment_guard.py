@@ -52,7 +52,7 @@ def assert_real_offline_contour_request_ready(
     *,
     context: str,
 ) -> None:
-    """Block locked profiles when operator/request contour parameters drift."""
+    """Block locked profiles when operator/request contour or A/B parameters drift."""
 
     if not is_real_offline_alignment_locked_profile(runtime_config):
         return
@@ -69,6 +69,7 @@ def assert_real_offline_contour_request_ready(
         "min_target_area_px": int(_read_field(request, "min_target_area_px")),
     }
     if actual == expected:
+        _assert_formal_ab_request_ready(request, context=context)
         return
     raise RealOfflineAlignmentGuardError(
         f"{context} blocked by real/offline alignment guard: request contour settings {actual} "
@@ -89,3 +90,14 @@ def _read_field(payload: Any, name: str) -> Any:
     if isinstance(payload, dict):
         return payload.get(name)
     return getattr(payload, name)
+
+
+def _assert_formal_ab_request_ready(request: Any, *, context: str) -> None:
+    expected_mode = "max_chord"
+    actual_mode = str(_read_field(request, "direction_projection_mode") or "auto")
+    if actual_mode == expected_mode:
+        return
+    raise RealOfflineAlignmentGuardError(
+        f"{context} blocked by real/offline alignment guard: request A/B selection mode {actual_mode!r} "
+        f"must match offline truth formal contour-boundary mode {expected_mode!r}"
+    )
