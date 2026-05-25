@@ -118,24 +118,34 @@ def test_load_runtime_config_reads_offline_capture_profile() -> None:
 def test_active_real_and_offline_profiles_keep_measurement_pixels_aligned() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     lab_config = _read_tracked_profile(repo_root, "dev_lab")
+    lab_mock_temp_config = _read_tracked_profile(repo_root, "dev_lab_camera_mock_temp")
+    prod_win_config = _read_tracked_profile(repo_root, "prod_win")
     offline_config = _read_tracked_profile(repo_root, "dev_offline_capture")
 
-    lab_setup_roi = lab_config["camera"]["setup_preview"]["device_roi"]
-    lab_measurement_roi = lab_config["camera"]["measurement"]["device_roi"]
     offline_setup_roi = offline_config["camera"]["setup_preview"]["device_roi"]
     offline_measurement_roi = offline_config["camera"]["measurement"]["device_roi"]
 
-    assert lab_setup_roi == lab_measurement_roi
+    real_configs = [lab_config, lab_mock_temp_config, prod_win_config]
+    for real_config in real_configs:
+        setup_roi = real_config["camera"]["setup_preview"]["device_roi"]
+        measurement_roi = real_config["camera"]["measurement"]["device_roi"]
+        assert setup_roi == measurement_roi
+        assert _roi_size(setup_roi) == (2048, 1364)
+        assert _roi_size(measurement_roi) == (2048, 1364)
+        assert real_config["run"]["preview_display_max_width"] == 816
+        assert real_config["run"]["preview_display_max_height"] == 544
+        assert real_config["run"]["manual_stop_max_samples"] == 0
+        assert real_config["run"]["stop_on_invalid_tracking"] is False
+        assert real_config["run"]["invalid_tracking_grace_samples"] == 5
+
     assert offline_setup_roi == offline_measurement_roi
-    assert _roi_size(lab_setup_roi) == (2048, 1364)
-    assert _roi_size(lab_measurement_roi) == (2048, 1364)
     assert _roi_size(offline_setup_roi) == (2048, 1364)
     assert _roi_size(offline_measurement_roi) == (2048, 1364)
-    assert lab_config["run"]["preview_display_max_width"] == offline_config["run"]["preview_display_max_width"] == 816
-    assert lab_config["run"]["preview_display_max_height"] == offline_config["run"]["preview_display_max_height"] == 544
-    assert lab_config["run"]["manual_stop_max_samples"] == offline_config["run"]["manual_stop_max_samples"] == 0
-    assert lab_config["run"]["stop_on_invalid_tracking"] is False
+    assert offline_config["run"]["preview_display_max_width"] == 816
+    assert offline_config["run"]["preview_display_max_height"] == 544
+    assert offline_config["run"]["manual_stop_max_samples"] == 0
     assert offline_config["run"]["stop_on_invalid_tracking"] is False
+    assert offline_config["run"]["invalid_tracking_grace_samples"] == 5
 
 
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(
@@ -579,8 +589,19 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
     assert runtime_config.live.camera.transport == "gige_vision"
     assert runtime_config.live.camera.sdk == "hik_mvs"
     assert runtime_config.live.camera.allowed_models == ["MV-CU060-10GM"]
-    assert runtime_config.live.camera.setup_preview.exposure_us == 10_000
-    assert runtime_config.live.camera.measurement.exposure_us == 10_000
+    assert runtime_config.live.camera.setup_preview.exposure_us == 50_000
+    assert runtime_config.live.camera.setup_preview.gain_db == 12.0
+    assert runtime_config.live.camera.setup_preview.device_roi.x == 512
+    assert runtime_config.live.camera.setup_preview.device_roi.y == 342
+    assert runtime_config.live.camera.setup_preview.device_roi.width == 2048
+    assert runtime_config.live.camera.setup_preview.device_roi.height == 1364
+    assert runtime_config.live.camera.measurement.exposure_us == 50_000
+    assert runtime_config.live.camera.measurement.gain_db == 12.0
+    assert runtime_config.live.camera.measurement.device_roi.x == 512
+    assert runtime_config.live.camera.measurement.device_roi.y == 342
+    assert runtime_config.live.camera.measurement.device_roi.width == 2048
+    assert runtime_config.live.camera.measurement.device_roi.height == 1364
+    assert runtime_config.live.camera.setup_preview.device_roi == runtime_config.live.camera.measurement.device_roi
     assert runtime_config.live.temp.backend == "lu92xx_modbus_rtu"
     assert runtime_config.live.temp.protocol == "modbus_rtu"
     assert runtime_config.live.temp.slave_address == 1
@@ -591,12 +612,16 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
     assert runtime_config.live.temp.control.startup_power_percent == 100.0
     assert runtime_config.live.temp.control.completion_mode == "target_reached"
     assert runtime_config.live.temp.control.mock_ramp_step_celsius == 10.0
-    assert runtime_config.live.run.manual_stop_max_samples == 10_000
-    assert runtime_config.live.run.preview_target_fps == 8.0
-    assert runtime_config.live.run.preview_display_max_width == 640
-    assert runtime_config.live.run.preview_display_max_height == 480
-    assert runtime_config.live.run.measurement_target_hz == 5.0
-    assert runtime_config.live.run.artifact_capture_hz == 5.0
+    assert runtime_config.live.run.preview_poll_ms == 50
+    assert runtime_config.live.run.capture_interval_ms == 50
+    assert runtime_config.live.run.manual_stop_max_samples == 0
+    assert runtime_config.live.run.preview_target_fps == 20.0
+    assert runtime_config.live.run.preview_display_max_width == 816
+    assert runtime_config.live.run.preview_display_max_height == 544
+    assert runtime_config.live.run.measurement_target_hz == 20.0
+    assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.stop_on_invalid_tracking is False
+    assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
 
 

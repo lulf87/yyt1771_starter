@@ -25,6 +25,22 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
     assert payload["offline_material"]["status"] in {"ok", "missing"}
 
 
+def test_run_alignment_audit_confirms_prod_win_matches_offline_truth_without_device_access() -> None:
+    payload = run_alignment_audit(real_profile="prod_win")
+
+    assert payload["status"] == "ok"
+    assert payload["real_profile"] == "prod_win"
+    assert payload["offline_profile"] == "dev_offline_capture"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
+    assert payload["pixel_contract"]["preview_display_px"] == {"width": 816, "height": 544}
+    assert payload["angles_checked"] == 12
+    assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
+    assert all(item["point_a_px"] for item in payload["angle_results"])
+    assert all(item["point_b_px"] for item in payload["angle_results"])
+    assert payload["offline_material"]["status"] in {"ok", "missing"}
+
+
 def test_run_alignment_audit_confirms_standard_offline_material_samples_when_available() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     capture_dir = repo_root / "examples/runtime/camera_captures/20260522-183158-dev_lab"

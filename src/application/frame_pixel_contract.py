@@ -6,7 +6,7 @@ from typing import Any
 
 from src.core.models import FramePacket
 
-LOCKED_ALIGNMENT_PROFILES = {"dev_lab", "dev_lab_camera_mock_temp", "dev_offline_capture"}
+LOCKED_ALIGNMENT_PROFILES = {"dev_lab", "dev_lab_camera_mock_temp", "dev_offline_capture", "prod_win"}
 
 
 class FramePixelContractError(RuntimeError):
@@ -32,7 +32,7 @@ def validate_frame_pixel_contract(
             f"Frame pixel contract mismatch in {context}: profile={profile}, "
             f"camera_profile={profile_name}, expected={expected_size[0]}x{expected_size[1]}, "
             f"actual={actual_size[0]}x{actual_size[1]}. "
-            "dev_lab/dev_offline_capture must enter preset and live run with the same local "
+            "locked real/offline profiles must enter preset and live run with the same local "
             "source pixels as the accepted offline material before contour and A/B detection."
         )
     frame.meta["pixel_contract_profile"] = str(getattr(runtime_config, "profile", "") or "")

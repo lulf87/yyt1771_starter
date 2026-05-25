@@ -17,6 +17,7 @@ from src.core.enums import ObservationAxis
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
 
 REAL_PROFILE = "dev_lab"
+REAL_ALIGNMENT_PROFILES = ("dev_lab", "dev_lab_camera_mock_temp", "prod_win")
 OFFLINE_PROFILE = "dev_offline_capture"
 ANGLES_DEG = tuple(range(0, 360, 30))
 SOURCE_WIDTH = 2048

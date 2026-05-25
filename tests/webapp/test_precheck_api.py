@@ -60,6 +60,9 @@ def test_precheck_api_reports_pinned_camera_policy_fail_for_prod_win_without_ide
     assert items["camera_probe_mode"]["status"] == "ok"
     assert items["camera_model_policy"]["status"] == "ok"
     assert items["camera_transport"]["status"] == "ok"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
     assert items["camera_identity"]["status"] == "fail"
     assert items["camera_sdk"]["status"] == "pending"
 
@@ -91,6 +94,7 @@ def test_precheck_api_protocol_any_marks_identity_as_pending(tmp_path: Path) -> 
     assert items["camera_probe_mode"]["status"] == "ok"
     assert items["camera_model_policy"]["status"] == "pending"
     assert items["camera_identity"]["status"] == "pending"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
 
 
 def test_precheck_api_reports_sdk_runtime_warn_when_import_is_not_ready(
@@ -113,6 +117,28 @@ def test_precheck_api_reports_sdk_runtime_warn_when_import_is_not_ready(
     items = {item["name"]: item for item in payload["items"]}
     assert items["camera_sdk_runtime"]["status"] == "warn"
     assert "import readiness" in items["camera_sdk_runtime"]["detail"]
+    assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_precheck_api_reports_prod_win_alignment_as_ready_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+    client.app.state.runtime_config.camera["probe_mode"] = "protocol_any"
+    client.app.state.runtime_config.camera["allowed_models"] = []
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert payload["status"] == "warn"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
 
 
@@ -194,13 +220,27 @@ def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path
     assert all(item["point_b_px"] for item in payload["angle_results"])
 
 
+def test_real_offline_alignment_api_uses_current_prod_win_profile_without_device_access(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="prod_win")
+
+    response = client.get("/api/system/real-offline-alignment")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["real_profile"] == "prod_win"
+    assert payload["offline_profile"] == "dev_offline_capture"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["angles_checked"] == 12
+
+
 def test_real_offline_alignment_api_returns_failure_payload_without_device_access(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     client = _make_client(tmp_path, profile="dev_lab")
 
-    def fail_audit() -> dict[str, object]:
+    def fail_audit(**_kwargs: object) -> dict[str, object]:
         raise RealOfflineAlignmentError("source pixels drifted")
 
     monkeypatch.setattr(profile_routes, "run_alignment_audit", fail_audit)

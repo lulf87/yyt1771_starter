@@ -60,7 +60,9 @@ def test_build_system_precheck_fails_when_pinned_gige_identity_is_missing(tmp_pa
             "allowed_models": ["MV-CU060-10GM"],
             "serial_number": "",
             "ip": "",
+            **_real_hardware_camera_roi_sections(),
         },
+        run_config=_locked_alignment_run_config(),
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -69,6 +71,7 @@ def test_build_system_precheck_fails_when_pinned_gige_identity_is_missing(tmp_pa
     assert items["camera_probe_mode"]["status"] == "ok"
     assert items["camera_model_policy"]["status"] == "ok"
     assert items["camera_transport"]["status"] == "ok"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
     assert items["camera_identity"]["status"] == "fail"
     assert items["camera_sdk"]["status"] == "pending"
 
@@ -88,13 +91,51 @@ def test_build_system_precheck_fails_when_gige_transport_is_wrong(tmp_path: Path
             "probe_mode": "pinned",
             "allowed_models": ["MV-CU060-10GM"],
             "serial_number": "MV-123",
+            **_real_hardware_camera_roi_sections(),
         },
+        run_config=_locked_alignment_run_config(),
         project_root=Path(__file__).resolve().parents[2],
     )
 
     items = {item["name"]: item for item in report["items"]}
     assert report["status"] == "fail"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
     assert items["camera_transport"]["status"] == "fail"
+
+
+def test_build_system_precheck_reports_prod_win_alignment_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+    report = build_system_precheck(
+        profile_name="prod_win",
+        storage={
+            "sqlite_path": str(tmp_path / "prod.sqlite3"),
+            "artifact_dir": str(tmp_path / "artifacts"),
+        },
+        replay={"dataset_path": "examples/replay"},
+        adapters={"camera": "hik_gige_mvs", "temp": "lu92xx_modbus_rtu", "plc": "modbus_tcp"},
+        camera={
+            "transport": "gige_vision",
+            "sdk": "hik_mvs",
+            "probe_mode": "protocol_any",
+            "allowed_models": [],
+            "serial_number": "",
+            "ip": "",
+            **_real_hardware_camera_roi_sections(),
+        },
+        run_config=_locked_alignment_run_config(),
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    items = {item["name"]: item for item in report["items"]}
+    assert report["status"] == "warn"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
+    assert items["camera_sdk_runtime"]["status"] == "ok"
 
 
 def test_build_system_precheck_protocol_any_keeps_identity_optional(
@@ -221,3 +262,15 @@ def test_build_system_precheck_fails_when_active_profile_pixels_drift(tmp_path: 
     assert report["status"] == "fail"
     assert items["real_offline_pixel_alignment"]["status"] == "fail"
     assert "preset and live run would use different source pixels" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def _real_hardware_camera_roi_sections() -> dict[str, dict[str, dict[str, int]]]:
+    device_roi = {"x": 512, "y": 342, "width": 2048, "height": 1364}
+    return {
+        "setup_preview": {"device_roi": dict(device_roi)},
+        "measurement": {"device_roi": dict(device_roi)},
+    }
+
+
+def _locked_alignment_run_config() -> dict[str, int]:
+    return {"preview_display_max_width": 816, "preview_display_max_height": 544}

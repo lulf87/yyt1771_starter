@@ -8,7 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from src.application.container import ApplicationContainer
-from src.application.real_offline_alignment import RealOfflineAlignmentError, run_alignment_audit
+from src.application.real_offline_alignment import (
+    REAL_ALIGNMENT_PROFILES,
+    REAL_PROFILE,
+    RealOfflineAlignmentError,
+    run_alignment_audit,
+)
 from src.application.runtime_config import RuntimeConfig
 from src.application.temp_serial_ports import list_serial_ports
 from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
@@ -49,9 +54,10 @@ def get_precheck(runtime_config: RuntimeConfig = Depends(get_runtime_config)) ->
 
 
 @router.get("/real-offline-alignment", response_model=RealOfflineAlignmentAuditResponse)
-def get_real_offline_alignment_audit() -> dict[str, Any]:
+def get_real_offline_alignment_audit(runtime_config: RuntimeConfig = Depends(get_runtime_config)) -> dict[str, Any]:
+    real_profile = runtime_config.profile if runtime_config.profile in REAL_ALIGNMENT_PROFILES else REAL_PROFILE
     try:
-        return run_alignment_audit()
+        return run_alignment_audit(real_profile=real_profile)
     except RealOfflineAlignmentError as exc:
         return {"status": "fail", "detail": str(exc), "hardware_access": "not_attempted"}
 

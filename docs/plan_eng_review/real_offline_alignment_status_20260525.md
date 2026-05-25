@@ -1,10 +1,12 @@
 # Real/Offline A-B Alignment Status - 2026-05-25
 
-This file records the current alignment contract for the two active operator
-states:
+This file records the current alignment contract for the active operator and
+production profiles:
 
 1. `dev_offline_capture` offline material replay
 2. `dev_lab` real camera + real temperature-controller mode
+3. `dev_lab_camera_mock_temp` real camera + simulated temperature mode
+4. `prod_win` Windows production Web workstation profile
 
 The purpose is to prevent drift between the accepted offline material path and
 the later real-device path. The offline material is the current truth source
@@ -53,8 +55,8 @@ shows the offline truth source is stale.
 
 ### 1. Pixel Geometry
 
-`dev_lab` and `dev_offline_capture` must use the same logical source pixels for
-operator setup and live run:
+`dev_lab`, `dev_lab_camera_mock_temp`, `prod_win`, and `dev_offline_capture`
+must use the same logical source pixels for operator setup and live run:
 
 ```text
 setup source size: 2048 x 1364
@@ -67,6 +69,8 @@ physical camera sensor:
 
 ```text
 dev_lab setup/measurement device_roi: x=512, y=342, width=2048, height=1364
+dev_lab_camera_mock_temp setup/measurement device_roi: x=512, y=342, width=2048, height=1364
+prod_win setup/measurement device_roi: x=512, y=342, width=2048, height=1364
 ```
 
 The offline capture already stores the cropped source pixels, so its replay ROI
@@ -131,10 +135,11 @@ The system precheck now also includes a runtime guard:
 real_offline_pixel_alignment
 ```
 
-For `dev_lab` and `dev_offline_capture`, this item fails if setup and live run
-device ROI pixels drift away from the locked offline truth contract. It also
-treats `offline_capture` as a supported active camera backend rather than a
-failed unknown backend.
+For `dev_lab`, `dev_lab_camera_mock_temp`, `prod_win`, and
+`dev_offline_capture`, this item fails if setup and live run device ROI pixels
+drift away from the locked offline truth contract. It also treats
+`offline_capture` as a supported active camera backend rather than a failed
+unknown backend.
 
 For a direct command-line audit of pixel geometry, contour selection, and formal
 A/B parity across the 12 locked ROI angles, run:
@@ -147,6 +152,16 @@ This command does not open the camera or temperature controller. It loads
 `dev_lab` and `dev_offline_capture`, compares their effective measurement
 source pixels, then runs the same metric chain on synthetic source frames at
 every 30 degrees.
+
+The same audit can be run against the Windows production baseline without
+device access:
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 - <<'PY'
+from src.application.real_offline_alignment import run_alignment_audit
+print(run_alignment_audit(real_profile="prod_win")["status"])
+PY
+```
 
 When the standard offline material and its accepted reference run are present,
 the audit also reads the actual recorded grayscale material:
@@ -171,8 +186,10 @@ diagnostics:
 GET /api/system/real-offline-alignment
 ```
 
-This endpoint also does not open the camera or temperature controller. It is a
-configuration and algorithm parity check only, and its response includes
+This endpoint also does not open the camera or temperature controller. It audits
+the current service profile when that profile is one of `dev_lab`,
+`dev_lab_camera_mock_temp`, or `prod_win`; otherwise it falls back to `dev_lab`.
+It is a configuration and algorithm parity check only, and its response includes
 `hardware_access: not_attempted` by design.
 
 The operator runtime also enforces the locked pixel contract before vision
@@ -239,6 +256,12 @@ The following checks were run with:
 Relevant passed checks:
 
 ```text
+tests/webapp/test_config_loader.py
+tests/workflow/test_precheck.py
+tests/webapp/test_precheck_api.py
+tests/application/test_real_offline_alignment.py
+35 passed
+
 tests/application/test_device_factory.py::test_real_and_offline_profiles_share_metric_pixels_across_roi_angles
 12 passed
 
@@ -246,7 +269,10 @@ tests/application/test_device_factory.py
 tests/webapp/test_config_loader.py
 tests/application/test_live_run_service.py
 tests/webapp/test_live_run_api.py
-119 passed, 1 existing warning
+tests/application/test_live_preview_service.py
+tests/workflow/test_precheck.py
+tests/webapp/test_precheck_api.py
+160 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py
@@ -265,6 +291,17 @@ Browser evidence:
 profile: dev_offline_capture
 URL: http://127.0.0.1:8002/
 Observed: offline grayscale preview stream rendered nonblank material
+
+profile: prod_win
+URL: http://127.0.0.1:8013/api/system/precheck
+Observed: real_offline_pixel_alignment=ok, origin=(512, 342), size=(2048, 1364), preview_display=816x544.
+The overall precheck status remained fail because real camera identity is blank
+while hardware is not connected/configured.
+
+profile: prod_win
+URL: http://127.0.0.1:8013/api/system/real-offline-alignment
+Observed: status=ok, real_profile=prod_win, offline_profile=dev_offline_capture,
+hardware_access=not_attempted, angles_checked=12, offline_material.status=ok.
 ```
 
 The browser check verifies the offline material path remains visible. It does

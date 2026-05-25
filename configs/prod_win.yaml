@@ -21,6 +21,28 @@ camera:
   exposure_us: 10000
   gain_db: 0.0
   timeout_ms: 1000
+  setup_preview:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
+  measurement:
+    trigger_mode: free_run
+    pixel_format: mono8
+    exposure_us: 50000
+    gain_db: 12.0
+    timeout_ms: 1000
+    device_roi:
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
 temp:
   backend: lu92xx_modbus_rtu
   protocol: modbus_rtu
@@ -58,5 +80,16 @@ temp:
 storage:
   sqlite_path: C:/yyt1771/data/prod.sqlite3
   artifact_dir: C:/yyt1771/artifacts
+run:
+  preview_poll_ms: 50
+  capture_interval_ms: 50
+  preview_target_fps: 20
+  measurement_target_hz: 20
+  artifact_capture_hz: 20
+  manual_stop_max_samples: 0
+  preview_display_max_width: 816
+  preview_display_max_height: 544
+  stop_on_invalid_tracking: false
+  invalid_tracking_grace_samples: 5
 logging:
   dir: C:/yyt1771/logs

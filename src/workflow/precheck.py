@@ -18,7 +18,9 @@ from src.workflow.camera_probe import (
 SUPPORTED_CAMERA_BACKENDS = {"mock", "hik_rtsp_opencv", "hik_gige_mvs", "offline_capture"}
 ALIGNMENT_PROFILES = {
     "dev_lab": {"origin": (512, 342), "size": (2048, 1364)},
+    "dev_lab_camera_mock_temp": {"origin": (512, 342), "size": (2048, 1364)},
     "dev_offline_capture": {"origin": (0, 0), "size": (2048, 1364)},
+    "prod_win": {"origin": (512, 342), "size": (2048, 1364)},
 }
 ALIGNMENT_PREVIEW_DISPLAY_SIZE = (816, 544)
 
