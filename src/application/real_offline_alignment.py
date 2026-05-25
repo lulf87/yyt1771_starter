@@ -69,17 +69,38 @@ def run_alignment_audit(
     }
 
 
+def run_all_alignment_audits(
+    *,
+    real_profiles: tuple[str, ...] = REAL_ALIGNMENT_PROFILES,
+    offline_profile: str = OFFLINE_PROFILE,
+    angles_deg: tuple[int, ...] = ANGLES_DEG,
+) -> dict[str, Any]:
+    """Run the no-hardware offline-truth audit for every locked real profile."""
+
+    profile_results = [
+        run_alignment_audit(real_profile=real_profile, offline_profile=offline_profile, angles_deg=angles_deg)
+        for real_profile in real_profiles
+    ]
+    return {
+        "status": "ok",
+        "offline_profile": offline_profile,
+        "profiles_checked": len(profile_results),
+        "profile_results": profile_results,
+        "hardware_access": "not_attempted",
+    }
+
+
 def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> dict[str, Any]:
     real_setup_roi = real_config.live.camera.setup_preview.device_roi
     real_measurement_roi = real_config.live.camera.measurement.device_roi
     offline_setup_roi = offline_config.live.camera.setup_preview.device_roi
     offline_measurement_roi = offline_config.live.camera.measurement.device_roi
-    _assert_equal(real_setup_roi, real_measurement_roi, "dev_lab setup and measurement ROI differ")
+    _assert_equal(real_setup_roi, real_measurement_roi, f"{real_config.profile} setup and measurement ROI differ")
     _assert_equal(offline_setup_roi, offline_measurement_roi, "dev_offline_capture setup and measurement ROI differ")
     _assert_equal(
         (real_setup_roi.width, real_setup_roi.height),
         (SOURCE_WIDTH, SOURCE_HEIGHT),
-        "dev_lab source pixels drifted",
+        f"{real_config.profile} source pixels drifted",
     )
     _assert_equal(
         (offline_setup_roi.width, offline_setup_roi.height),

@@ -54,6 +54,10 @@ invalid_tracking_grace_samples: 5
 
 When the Web service is running under `prod_win`, `GET /api/system/real-offline-alignment` must audit `prod_win` against `dev_offline_capture`, not silently report the default `dev_lab` audit.
 
+- [x] **Step 6: Add all-profile no-hardware audit helper**
+
+`run_all_alignment_audits()` must check `dev_lab`, `dev_lab_camera_mock_temp`, and `prod_win` against the accepted offline material in one command-level call.
+
 ### Task 2: Add Regression Coverage
 
 **Files:**
@@ -87,6 +91,10 @@ Assert `run_alignment_audit(real_profile="prod_win")` returns `ok`, checks all 1
 - [x] **Step 5: Update browser API assertions**
 
 Assert the real/offline alignment API uses the current `prod_win` service profile and still returns `hardware_access: not_attempted`.
+
+- [x] **Step 6: Update all-profile audit assertions**
+
+Assert the all-profile helper returns `ok`, covers all locked real profiles, and checks all 12 ROI angles per profile.
 
 ### Task 3: Update Operator Documentation
 

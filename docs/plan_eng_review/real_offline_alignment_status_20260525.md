@@ -163,6 +163,18 @@ print(run_alignment_audit(real_profile="prod_win")["status"])
 PY
 ```
 
+For a single no-hardware check covering every locked real / production profile
+(`dev_lab`, `dev_lab_camera_mock_temp`, and `prod_win`) against the same
+accepted offline material:
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 - <<'PY'
+from src.application.real_offline_alignment import run_all_alignment_audits
+payload = run_all_alignment_audits()
+print(payload["status"], payload["profiles_checked"])
+PY
+```
+
 When the standard offline material and its accepted reference run are present,
 the audit also reads the actual recorded grayscale material:
 
@@ -260,7 +272,7 @@ tests/webapp/test_config_loader.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
 tests/application/test_real_offline_alignment.py
-35 passed
+36 passed
 
 tests/application/test_device_factory.py::test_real_and_offline_profiles_share_metric_pixels_across_roi_angles
 12 passed

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.application.real_offline_alignment import run_alignment_audit
+from src.application.real_offline_alignment import REAL_ALIGNMENT_PROFILES, run_all_alignment_audits, run_alignment_audit
 
 
 def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
@@ -39,6 +39,21 @@ def test_run_alignment_audit_confirms_prod_win_matches_offline_truth_without_dev
     assert all(item["point_a_px"] for item in payload["angle_results"])
     assert all(item["point_b_px"] for item in payload["angle_results"])
     assert payload["offline_material"]["status"] in {"ok", "missing"}
+
+
+def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_device_access() -> None:
+    payload = run_all_alignment_audits()
+
+    assert payload["status"] == "ok"
+    assert payload["offline_profile"] == "dev_offline_capture"
+    assert payload["hardware_access"] == "not_attempted"
+    assert [item["real_profile"] for item in payload["profile_results"]] == list(REAL_ALIGNMENT_PROFILES)
+    assert all(item["status"] == "ok" for item in payload["profile_results"])
+    assert all(item["angles_checked"] == 12 for item in payload["profile_results"])
+    assert all(
+        item["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
+        for item in payload["profile_results"]
+    )
 
 
 def test_run_alignment_audit_confirms_standard_offline_material_samples_when_available() -> None:
