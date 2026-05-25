@@ -208,7 +208,7 @@ The operator runtime also enforces the locked pixel contract before vision
 processing:
 
 - setup preview one-shot freeze validates the actual returned frame pixels
-- setup preview stream validates every emitted frame
+- setup preview stream validates the first frame and every later emitted frame
 - live-run measurement wraps `camera.read_frame()` and validates every
   measurement frame before contour extraction
 
@@ -286,7 +286,7 @@ tests/webapp/test_live_run_api.py
 tests/application/test_live_preview_service.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
-165 passed, 1 existing warning
+167 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py

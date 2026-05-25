@@ -491,6 +491,70 @@ def test_fetch_frame_rejects_locked_profile_preview_without_roi_metadata() -> No
     assert camera.closed is True
 
 
+def test_start_stream_rejects_locked_profile_first_frame_without_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class MissingRoiStreamCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_800 + self.frame_id,
+                source="missing_roi_stream_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MissingRoiStreamCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="preview_stream_start"):
+        service.start_stream(runtime_config, run_id="run-stream-missing-roi-meta")
+
+    assert camera.closed is True
+
+
+def test_stream_reader_stops_locked_profile_when_later_frame_lacks_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class LaterMissingRoiCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            meta = {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}} if self.frame_id == 1 else {}
+            return FramePacket(
+                timestamp_ms=4_900 + self.frame_id,
+                source="later_missing_roi_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+                meta=meta,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = LaterMissingRoiCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+    active_stream, first_frame = service.start_stream(runtime_config, run_id="run-stream-later-missing-roi")
+
+    assert first_frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
+    assert service.wait_for_stream_stop(run_id="run-stream-later-missing-roi", timeout_ms=1_000) is True
+    assert "preview_stream_frame" in active_stream.reader_error
+    assert "missing device_roi metadata" in active_stream.reader_error
+    assert camera.closed is True
+
+
 def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_material() -> None:
     service = LivePreviewService()
 

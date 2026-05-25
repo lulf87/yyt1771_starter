@@ -54,6 +54,9 @@ Locked profile frames must carry applied `device_roi` metadata. Missing metadata
 is treated as a contract failure because the runtime cannot prove the source
 pixels match the accepted offline material before contour/A-B processing.
 
+The same contract must be covered for one-shot Freeze, live preview stream
+startup, later live preview stream frames, and live-run measurement frames.
+
 - [x] **Step 4: Include `prod_win` in no-device precheck alignment**
 
 `real_offline_pixel_alignment` must report `ok` only when `prod_win` setup/live pixels and preview display bounds match the offline truth contract.
