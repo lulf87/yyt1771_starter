@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from src.application import runtime_config as config_module
 from src.application.runtime_config import load_runtime_config
@@ -114,6 +115,29 @@ def test_load_runtime_config_reads_offline_capture_profile() -> None:
     assert runtime_config.live.run.stop_on_invalid_tracking is False
 
 
+def test_active_real_and_offline_profiles_keep_measurement_pixels_aligned() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    lab_config = _read_tracked_profile(repo_root, "dev_lab")
+    offline_config = _read_tracked_profile(repo_root, "dev_offline_capture")
+
+    lab_setup_roi = lab_config["camera"]["setup_preview"]["device_roi"]
+    lab_measurement_roi = lab_config["camera"]["measurement"]["device_roi"]
+    offline_setup_roi = offline_config["camera"]["setup_preview"]["device_roi"]
+    offline_measurement_roi = offline_config["camera"]["measurement"]["device_roi"]
+
+    assert lab_setup_roi == lab_measurement_roi
+    assert offline_setup_roi == offline_measurement_roi
+    assert _roi_size(lab_setup_roi) == (2048, 1364)
+    assert _roi_size(lab_measurement_roi) == (2048, 1364)
+    assert _roi_size(offline_setup_roi) == (2048, 1364)
+    assert _roi_size(offline_measurement_roi) == (2048, 1364)
+    assert lab_config["run"]["preview_display_max_width"] == offline_config["run"]["preview_display_max_width"] == 816
+    assert lab_config["run"]["preview_display_max_height"] == offline_config["run"]["preview_display_max_height"] == 544
+    assert lab_config["run"]["manual_stop_max_samples"] == offline_config["run"]["manual_stop_max_samples"] == 0
+    assert lab_config["run"]["stop_on_invalid_tracking"] is False
+    assert offline_config["run"]["stop_on_invalid_tracking"] is False
+
+
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -181,6 +205,7 @@ run:
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
+  stop_on_invalid_tracking: false
   invalid_tracking_grace_samples: 5
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
@@ -229,6 +254,7 @@ replay:
     assert runtime_config.live.run.capture_interval_ms == 50
     assert runtime_config.live.run.measurement_target_hz == 20.0
     assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.stop_on_invalid_tracking is False
     assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
 
@@ -581,3 +607,13 @@ def test_load_runtime_config_raises_clear_error_for_missing_profile() -> None:
 
 def _write_config(path: Path, content: str) -> None:
     path.write_text(content.strip() + "\n", encoding="utf-8")
+
+
+def _read_tracked_profile(repo_root: Path, profile_name: str) -> dict:
+    config = yaml.safe_load((repo_root / "configs" / f"{profile_name}.yaml").read_text(encoding="utf-8"))
+    assert isinstance(config, dict)
+    return config
+
+
+def _roi_size(roi: dict) -> tuple[int, int]:
+    return int(roi["width"]), int(roi["height"])

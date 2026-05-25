@@ -84,6 +84,7 @@ measurement device ROI: x=512, y=342, width=2048, height=1364
 preview target fps: 20
 measurement target Hz: 20
 manual_stop_max_samples: 0
+stop_on_invalid_tracking: false
 ```
 
 Current local temperature-controller highlights:
@@ -101,7 +102,7 @@ startup_power_percent: 100.0
 completion_mode: target_reached
 ```
 
-Current local run override:
+Current tracked/local run guard:
 
 ```text
 stop_on_invalid_tracking: false

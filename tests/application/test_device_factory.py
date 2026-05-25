@@ -449,3 +449,45 @@ def test_build_metric_source_uses_frame_directional_contour_for_direction_defini
     assert metric.meta["selection_mode"] == "directional_contour_max_chord"
     assert metric.meta["tracking_mode"] == "prior_gated_reacquire"
     assert metric.meta["tracking_state"] == "bootstrapped"
+
+
+def test_real_and_offline_metric_sources_match_on_same_pixel_frame() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=220, height=80, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
+    )
+    image = [[220 for _ in range(320)] for _ in range(160)]
+    for row in range(60, 100):
+        for col in range(90, 230):
+            image[row][col] = 40
+    frame = FramePacket(timestamp_ms=1_000, source="fixture", image=image, frame_id=1)
+    temp = TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture")
+
+    real_source = build_metric_source(
+        runtime_config=_lab_runtime_config(camera_backend="hik_gige_mvs"),
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+    offline_source = build_metric_source(
+        runtime_config=_lab_runtime_config(camera_backend="offline_capture"),
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+
+    real_metric = real_source.extract(frame, temp, sample_index=0, total_samples=1)
+    offline_metric = offline_source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert real_metric.meta["tracking_mode"] == "prior_gated_reacquire"
+    assert offline_metric.meta["tracking_mode"] == "prior_gated_reacquire"
+    assert real_metric.meta["selection_mode"] == offline_metric.meta["selection_mode"]
+    assert real_metric.point_a_px == offline_metric.point_a_px
+    assert real_metric.point_b_px == offline_metric.point_b_px
+    assert real_metric.metric_raw == offline_metric.metric_raw

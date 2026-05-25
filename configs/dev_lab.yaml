@@ -56,6 +56,7 @@ run:
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
+  stop_on_invalid_tracking: false
   invalid_tracking_grace_samples: 5
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3
