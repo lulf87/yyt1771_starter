@@ -57,7 +57,7 @@ class MeasurementDefinition:
     min_target_area_px: int
     sensitivity: float = 50.0
     direction_angle_deg: float | None = None
-    direction_projection_mode: str = "auto"
+    direction_projection_mode: str = "max_chord"
     observation_axis: ObservationAxis = ObservationAxis.LONG_AXIS
 
     def has_valid_roi(self) -> bool:

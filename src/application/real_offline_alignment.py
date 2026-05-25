@@ -516,7 +516,7 @@ def _measurement_definition_from_payload(
             None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
         ),
         direction_projection_mode=(
-            str(payload.get("direction_projection_mode", "auto"))
+            str(payload.get("direction_projection_mode", "max_chord"))
             if direction_projection_mode is None
             else str(direction_projection_mode)
         ),

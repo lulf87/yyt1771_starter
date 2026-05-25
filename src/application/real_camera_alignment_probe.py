@@ -433,7 +433,7 @@ def _measurement_definition_from_payload(payload: dict[str, Any]) -> Measurement
         direction_angle_deg=(
             None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
         ),
-        direction_projection_mode=str(payload.get("direction_projection_mode", "auto")),
+        direction_projection_mode=str(payload.get("direction_projection_mode", "max_chord")),
         observation_axis=ObservationAxis(str(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value))),
     )
 

@@ -921,7 +921,7 @@ def _resolve_direction_projection_mode(payload, preset: str) -> str:
 
 
 def _default_direction_projection_mode_for_preset(preset: str) -> str:
-    return "auto"
+    return "max_chord"
 
 
 def _metric_selection_mode(metric) -> str | None:

@@ -569,7 +569,7 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
     assert payload["temperature_settings_confirmed"] is False
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
     assert payload["definition"]["direction_angle_deg"] == 12.0
-    assert payload["definition"]["direction_projection_mode"] == "auto"
+    assert payload["definition"]["direction_projection_mode"] == "max_chord"
     assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
 
@@ -1374,8 +1374,8 @@ def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is
     assert response.status_code == 200
     payload = response.json()
     assert payload["direction_angle_deg"] == 90.0
-    assert payload["direction_projection_mode"] == "mask_projection"
-    assert payload["selection_mode"] == "directional_contour_boundary_span"
+    assert payload["direction_projection_mode"] == "max_chord"
+    assert payload["selection_mode"] == "directional_contour_max_chord"
     assert 13 <= payload["point_a_px"]["x"] <= 16
     assert 13 <= payload["point_b_px"]["x"] <= 16
     assert payload["point_a_px"]["y"] < payload["point_b_px"]["y"]

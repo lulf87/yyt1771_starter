@@ -265,6 +265,8 @@ def _desktop_bootstrap_definition() -> MeasurementDefinition:
         point_b_px=PixelPoint(x=83, y=32),
         foreground_polarity="dark_on_light",
         threshold_mode="adaptive",
-        ignore_internal_texture=True,
-        min_target_area_px=150,
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
     )

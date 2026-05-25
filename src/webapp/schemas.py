@@ -143,7 +143,7 @@ class MeasurementDefinitionRequest(BaseModel):
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -179,7 +179,7 @@ class AutoDetectDefinitionRequest(BaseModel):
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -204,7 +204,7 @@ class AutoDetectDefinitionResponse(BaseModel):
     threshold_mode_used: Literal["adaptive", "binary", "otsu"]
     foreground_polarity_used: Literal["dark_on_light", "light_on_dark"]
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
     selection_mode: str | None = None
     detail: str = ""
 

@@ -63,7 +63,7 @@ def test_measurement_definition_uses_semantic_two_point_fields() -> None:
     assert definition.analysis_roi.width == 400
     assert definition.metric_box.angle_deg == 12.5
     assert definition.direction_angle_deg == 12.5
-    assert definition.direction_projection_mode == "auto"
+    assert definition.direction_projection_mode == "max_chord"
     assert definition.point_a_px.x == 60
     assert definition.is_complete() is True
 
