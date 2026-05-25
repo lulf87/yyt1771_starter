@@ -451,6 +451,7 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
     requested_plan = build_measurement_capture_plan(runtime_config=runtime_config, definition=definition)
     applied_plan = apply_measurement_acquisition_roi(
         requested_plan,
+        runtime_config=runtime_config,
         definition=definition,
         applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
     )

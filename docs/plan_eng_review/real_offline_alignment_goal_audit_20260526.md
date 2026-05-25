@@ -58,6 +58,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Setup preview must not open a locked-profile camera after the profile contract drifts | `LivePreviewService.fetch_frame()` and `LivePreviewService.start_stream()` now call the real/offline alignment guard before returning cached frames, reusing active frames, or opening a setup-preview camera. If a locked profile drifts from the offline truth, preset preview is blocked before hardware access. | No-hardware runtime guard verified |
 | Metric source creation must not bypass the offline truth | `src.application.device_factory.build_metric_source()` now applies the same locked-profile alignment and definition guards before creating `PriorTrackingMetricSource` or `LockedDefinitionMetricSource`. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before live tracking can start. | No-hardware runtime guard verified |
 | Measurement capture planning must not bypass the offline truth | `src.application.device_factory.build_measurement_capture_plan()` now applies the same locked-profile alignment and definition guards before deriving measurement acquisition ROI, source-local pixel mapping, or shifted definitions. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before capture planning can start. | No-hardware runtime guard verified |
+| Applied measurement ROI translation must not bypass the offline truth | `src.application.device_factory.apply_measurement_acquisition_roi()` now requires the runtime profile and applies the same alignment and definition guards before translating the operator definition into the camera-applied ROI coordinate space. A stale definition cannot be retranslated after a valid plan has already been built. | No-hardware runtime guard verified |
 | New operator definitions must default to the offline-truth A/B mode | `MeasurementDefinition`, Web request/response schemas, Web preset default resolution, real/offline probe payload loading, and desktop bootstrap smoke definitions now default to `direction_projection_mode=max_chord`. Legacy `auto` and `mask_projection` values remain recognized so locked-profile guards can reject stale requests explicitly, but omitted current fields no longer re-enter the old A/B semantics. | No-hardware runtime guard verified |
 | Low-level contour extraction defaults must not reintroduce stale behavior | `DirectionalContourConfig` now defaults to the offline-truth contour/A-B contract: `threshold_mode=adaptive`, `foreground_polarity=dark_on_light`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `projection_mode=max_chord`. Explicit `auto` / `mask_projection` remains available only as an explicit legacy/test path. | No-hardware vision guard verified |
 | Browser operator defaults must start from the offline truth | The home page detection controls now default to the offline-truth contour settings. In particular, `live-ignore-internal-texture` is not checked by default, so a normal operator ROI recompute does not immediately violate the locked-profile contour guard. | Browser shell verified |
@@ -332,6 +333,25 @@ Result: `156 passed, 1 warning`.
 ```
 
 Result: `1 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_device_factory.py::test_apply_measurement_acquisition_roi_blocks_locked_profile_stale_definition_before_retranslation -q
+```
+
+Result: `1 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_device_factory.py \
+  tests/application/test_live_run_service.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/webapp/test_live_run_api.py \
+  tests/webapp/test_precheck_api.py -q
+```
+
+Result: `163 passed, 1 warning`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \

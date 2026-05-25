@@ -209,9 +209,12 @@ def build_measurement_capture_plan(
 def apply_measurement_acquisition_roi(
     plan: MeasurementCapturePlan,
     *,
+    runtime_config: RuntimeConfig,
     definition: MeasurementDefinition,
     applied_device_roi: DeviceRoiConfig,
 ) -> MeasurementCapturePlan:
+    assert_real_offline_alignment_ready(runtime_config, context="apply_measurement_acquisition_roi")
+    assert_real_offline_definition_ready(runtime_config, definition, context="apply_measurement_acquisition_roi")
     effective_profile = replace(
         plan.measurement_profile,
         device_roi=DeviceRoiConfig(

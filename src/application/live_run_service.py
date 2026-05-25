@@ -189,6 +189,7 @@ class LiveRunService:
             measurement_plan = (
                 apply_measurement_acquisition_roi(
                     requested_measurement_plan,
+                    runtime_config=runtime_config,
                     definition=runtime_definition,
                     applied_device_roi=applied_device_roi,
                 )

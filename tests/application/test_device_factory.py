@@ -166,6 +166,7 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
     applied_plan = apply_measurement_acquisition_roi(
         requested_plan,
+        runtime_config=runtime_config,
         definition=definition,
         applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
     )
@@ -197,6 +198,46 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
     assert applied_plan.metric_definition.point_a_px == PixelPoint(x=88, y=100)
     assert applied_plan.metric_definition.point_b_px == PixelPoint(x=288, y=100)
+
+
+def test_apply_measurement_acquisition_roi_blocks_locked_profile_stale_definition_before_retranslation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    good_definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=30.0,
+        direction_projection_mode="max_chord",
+    )
+    stale_definition = MeasurementDefinition(
+        analysis_roi=good_definition.analysis_roi,
+        metric_box=good_definition.metric_box,
+        point_a_px=good_definition.point_a_px,
+        point_b_px=good_definition.point_b_px,
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=30.0,
+        direction_projection_mode="mask_projection",
+    )
+    requested_plan = build_measurement_capture_plan(
+        runtime_config=runtime_config,
+        definition=good_definition,
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="apply_measurement_acquisition_roi"):
+        apply_measurement_acquisition_roi(
+            requested_plan,
+            runtime_config=runtime_config,
+            definition=stale_definition,
+            applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
+        )
 
 
 def test_build_measurement_capture_plan_preserves_tall_analysis_roi_as_capture_region() -> None:
