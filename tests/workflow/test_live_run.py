@@ -743,7 +743,7 @@ def test_locked_definition_metric_source_uses_directional_contour_when_direction
     assert config.analysis_roi == definition.analysis_roi
     assert config.direction_angle_deg == 90.0
     assert config.metric_box == definition.metric_box
-    assert config.projection_mode == "auto"
+    assert config.projection_mode == "max_chord"
     assert config.processing_max_side_px >= 384
     assert config.threshold_mode == "binary"
     assert metric.metric_name == "directional_contour_span"

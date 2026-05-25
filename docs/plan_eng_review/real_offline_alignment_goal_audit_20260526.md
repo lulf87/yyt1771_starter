@@ -56,6 +56,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Desktop migration entry points must not reintroduce stale A/B semantics | `DesktopWorkbenchController.save_definition()` now uses the same real/offline alignment and definition guards as the Web save-definition path. Locked desktop profiles reject stale `MeasurementDefinition` values such as `direction_projection_mode=mask_projection` before the draft can be saved. | No-hardware runtime guard verified |
 | Metric source creation must not bypass the offline truth | `src.application.device_factory.build_metric_source()` now applies the same locked-profile alignment and definition guards before creating `PriorTrackingMetricSource` or `LockedDefinitionMetricSource`. A direct factory call with stale contour settings or `direction_projection_mode=mask_projection` is rejected before live tracking can start. | No-hardware runtime guard verified |
 | New operator definitions must default to the offline-truth A/B mode | `MeasurementDefinition`, Web request/response schemas, Web preset default resolution, real/offline probe payload loading, and desktop bootstrap smoke definitions now default to `direction_projection_mode=max_chord`. Legacy `auto` and `mask_projection` values remain recognized so locked-profile guards can reject stale requests explicitly, but omitted current fields no longer re-enter the old A/B semantics. | No-hardware runtime guard verified |
+| Low-level contour extraction defaults must not reintroduce stale behavior | `DirectionalContourConfig` now defaults to the offline-truth contour/A-B contract: `threshold_mode=adaptive`, `foreground_polarity=dark_on_light`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `projection_mode=max_chord`. Explicit `auto` / `mask_projection` remains available only as an explicit legacy/test path. | No-hardware vision guard verified |
 | Browser operator defaults must start from the offline truth | The home page detection controls now default to the offline-truth contour settings. In particular, `live-ignore-internal-texture` is not checked by default, so a normal operator ROI recompute does not immediately violate the locked-profile contour guard. | Browser shell verified |
 | The no-hardware 12-angle audit must use the same contour settings as the offline truth | The synthetic angle audit now builds its `MeasurementDefinition` contour fields from `dev_offline_capture` runtime vision settings and exposes `contour_settings` per angle. This prevents the real/offline audit from proving A/B parity with stale historical definition parameters. | No-hardware contract verified |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
@@ -250,6 +251,28 @@ Result: `151 passed, 1 warning`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/vision/test_contour_direction.py \
+  tests/workflow/test_live_run.py -q
+```
+
+Result: `77 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/vision/test_contour_direction.py \
+  tests/workflow/test_live_run.py \
+  tests/application/test_device_factory.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/webapp/test_live_run_api.py \
+  tests/webapp/test_ui_shell.py \
+  tests/desktop_app/test_controller.py -q
+```
+
+Result: `210 passed, 1 warning`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
   tests/application/test_camera_errors.py \
   tests/webapp/test_live_run_api.py::test_preview_frame_fetch_normalizes_hik_access_denied_error \
   tests/webapp/test_live_run_api.py::test_preview_stream_start_normalizes_hik_access_denied_error \
@@ -394,6 +417,14 @@ Observed in the real browser:
   formal A/B source points on the offline target contour. This verifies the
   browser/API default no longer falls back to old `auto/mask_projection`
   semantics.
+- on `http://127.0.0.1:8022/` with `dev_offline_capture`, after aligning
+  low-level `DirectionalContourConfig` defaults to the offline truth, the
+  browser viewport showed source frame `2048x1364`, display frame `816x543`,
+  preview cadence about `4.0 fps`, and measurement target `10.0 Hz`. A browser
+  `fetch()` call to `/api/runs/{run_id}/definition/auto` returned
+  `direction_projection_mode=max_chord`,
+  `selection_mode=directional_contour_max_chord`, quality about `0.976`, and
+  source A/B points on the target contour.
 - screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_no_hardware_swagger_20260526.png`
 - updated screenshot saved to
@@ -409,6 +440,8 @@ Observed in the real browser:
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_ab_roi_after_metric_source_guard_20260526.png`
 - max-chord default browser screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_default_max_chord_smoke_20260526.png`
+- low-level contour default browser screenshot saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/offline_low_level_contour_defaults_20260526.png`
 
 ## Remaining Hardware Validation
 

@@ -45,6 +45,19 @@ def test_directional_contour_extracts_boundary_ab_from_main_component() -> None:
     assert result.component_area >= 20
 
 
+def test_directional_contour_config_defaults_match_offline_truth_ab_contract() -> None:
+    config = DirectionalContourConfig(
+        analysis_roi=RectRegion(x=0, y=0, width=2048, height=1364),
+        direction_angle_deg=0.0,
+    )
+
+    assert config.foreground_polarity == "dark_on_light"
+    assert config.threshold_mode == "adaptive"
+    assert config.ignore_internal_texture is False
+    assert config.min_target_area_px == 200
+    assert config.projection_mode == "max_chord"
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20

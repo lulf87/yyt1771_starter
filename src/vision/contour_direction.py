@@ -22,12 +22,12 @@ class DirectionalContourConfig:
     foreground_polarity: str = "dark_on_light"
     threshold_mode: str = "adaptive"
     threshold_value: float | None = None
-    min_target_area_px: int = 80
+    min_target_area_px: int = 200
     sensitivity: float = 50.0
-    ignore_internal_texture: bool = True
+    ignore_internal_texture: bool = False
     component_bridge_kernel: int = 11
     open_kernel: int = 1
-    projection_mode: str = "auto"
+    projection_mode: str = "max_chord"
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
     processing_max_side_px: int = 384
@@ -157,7 +157,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
     boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
     contour_xy = _component_contour_xy(cv2, boundary_mask, processing_roi)
-    projection_mode = str(config.projection_mode or "auto")
+    projection_mode = str(config.projection_mode or "max_chord")
     if projection_mode == "auto":
         projection_mode = choose_component_direction_projection_mode(
             boundary_mask,
