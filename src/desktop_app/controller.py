@@ -12,6 +12,10 @@ from src.application.live_preview_service import compute_preview_interval_ms
 from src.application.live_preview_service import LivePreviewService, PreviewStateSnapshot
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.live_run_service import LiveRunService
+from src.application.real_offline_alignment_guard import (
+    assert_real_offline_alignment_ready,
+    assert_real_offline_definition_ready,
+)
 from src.application.runtime_config import RuntimeConfig, load_runtime_config
 from src.core.enums import RunStatus
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
@@ -71,6 +75,12 @@ class DesktopWorkbenchController:
         return self.registry.get(run_id)
 
     def save_definition(self, run_id: str, definition: MeasurementDefinition) -> RunDraftRecord:
+        assert_real_offline_alignment_ready(self.context.runtime_config, context="desktop_save_definition")
+        assert_real_offline_definition_ready(
+            self.context.runtime_config,
+            definition,
+            context="desktop_save_definition",
+        )
         return self.registry.save_definition(run_id, definition)
 
     def fetch_preview_frame(self, run_id: str, *, cached: bool = False) -> FramePacket:

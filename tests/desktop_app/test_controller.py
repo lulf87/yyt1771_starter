@@ -1,6 +1,9 @@
 import time
 from pathlib import Path
 
+import pytest
+
+from src.application.real_offline_alignment_guard import RealOfflineAlignmentGuardError
 from src.core.enums import RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion
 from src.desktop_app.controller import DesktopWorkbenchController, build_desktop_app_context
@@ -62,6 +65,28 @@ def test_desktop_workbench_controller_runs_minimum_mock_flow(tmp_path: Path) -> 
     assert result is not None
     assert detail is not None
     assert telemetry is not None
+
+
+def test_desktop_workbench_controller_blocks_locked_profile_stale_definition() -> None:
+    context = build_desktop_app_context(profile="dev_lab_camera_mock_temp")
+    controller = DesktopWorkbenchController(context)
+    run = controller.create_run(preset="balloon")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=500, y=540, width=1000, height=260),
+        metric_box=MetricBox(center_x=1000, center_y=670, width=900, height=200, angle_deg=0.0),
+        point_a_px=PixelPoint(x=600, y=680),
+        point_b_px=PixelPoint(x=1400, y=680),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        sensitivity=50.0,
+        direction_angle_deg=0.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="desktop_save_definition"):
+        controller.save_definition(run.run_id, definition)
 
 
 def test_desktop_workbench_controller_exposes_cached_preview_frame_and_smoke_summary(tmp_path: Path) -> None:
