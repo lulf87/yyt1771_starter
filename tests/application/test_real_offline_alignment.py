@@ -40,6 +40,14 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
         "invalid_tracking_grace_samples": 5,
         "debug_locked_points_tracking": False,
     }
+    assert payload["algorithm_contract"]["ab_selection"] == {
+        "formal_point_source": "target_contour_boundary",
+        "formal_point_fields": ["point_a_px", "point_b_px"],
+        "projected_points_exposed_as_formal_ab": False,
+        "angle_audit_selection_modes": ["directional_contour_max_chord"],
+        "angles_checked": 12,
+        "angle_step_deg": 30,
+    }
     assert payload["angles_checked"] == 12
     assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
     assert all(
@@ -122,6 +130,18 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
             "stop_on_invalid_tracking": False,
             "invalid_tracking_grace_samples": 5,
             "debug_locked_points_tracking": False,
+        }
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["algorithm_contract"]["ab_selection"]
+        == {
+            "formal_point_source": "target_contour_boundary",
+            "formal_point_fields": ["point_a_px", "point_b_px"],
+            "projected_points_exposed_as_formal_ab": False,
+            "angle_audit_selection_modes": ["directional_contour_max_chord"],
+            "angles_checked": 12,
+            "angle_step_deg": 30,
         }
         for item in payload["profile_results"]
     )

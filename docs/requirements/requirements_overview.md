@@ -178,6 +178,7 @@ Use this when you need:
 - the locked rule that ROI is now both the setup search region and the live deformation capture region
 - the locked rule that auto-detected `A-B` must be found along the ROI-local horizontal axis, not world-axis horizontal/vertical and not arbitrary diagonals
 - the locked rule that formal `A-B` points are the target object's real contour/boundary points, not projected/source-vs-axis duplicate points, and that live curves, telemetry, and analysis must all derive from that same point pair
+- the locked rule that accepted offline material is the truth source for real profiles: setup/live source pixels, acquisition parameters, Web display bounds, contour detection settings, live tracking policy, and formal `point_a_px / point_b_px` semantics must stay aligned before real hardware validation is claimed
 - the locked rule that any committed ROI geometry or sensitivity change must trigger recapture plus point recomputation
 - the locked trigger granularity that recapture + recompute fires on committed edits or explicit recompute, not on every intermediate drag sample
 - the locked requirement for a rotation handle on ROI, a visible ROI angle field, a current-temperature display, a bundled temperature-settings confirm action, and live A/B refresh during test

@@ -222,6 +222,12 @@ def _check_active_profile_pixel_alignment(
             ),
         }
     vision = _vision_settings(vision_config)
+    if vision is None:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": f"{profile_name} must provide vision settings for real/offline contour-detection alignment",
+        }
     if vision is not None and vision != ALIGNMENT_VISION:
         return {
             "name": "real_offline_pixel_alignment",
@@ -232,6 +238,12 @@ def _check_active_profile_pixel_alignment(
             ),
         }
     tracking_policy = _tracking_policy(run_config)
+    if tracking_policy is None:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": f"{profile_name} must provide tracking policy for real/offline live A/B alignment",
+        }
     if tracking_policy is not None and tracking_policy != ALIGNMENT_TRACKING_POLICY:
         return {
             "name": "real_offline_pixel_alignment",
@@ -242,6 +254,12 @@ def _check_active_profile_pixel_alignment(
             ),
         }
     preview_size = _preview_display_size(run_config)
+    if preview_size is None:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": f"{profile_name} must provide preview display bounds for real/offline pixel alignment",
+        }
     if preview_size is not None and preview_size != ALIGNMENT_PREVIEW_DISPLAY_SIZE:
         return {
             "name": "real_offline_pixel_alignment",
@@ -251,21 +269,21 @@ def _check_active_profile_pixel_alignment(
                 f"{ALIGNMENT_PREVIEW_DISPLAY_SIZE} real/offline display contract"
             ),
         }
-    preview_detail = (
-        f", preview_display={preview_size[0]}x{preview_size[1]}"
-        if preview_size is not None
-        else ", preview_display not provided to precheck"
-    )
+    preview_detail = f", preview_display={preview_size[0]}x{preview_size[1]}"
     acquisition_detail = (
         f", acquisition={setup_acquisition['pixel_format']}/"
         f"{setup_acquisition['exposure_us']}us/{setup_acquisition['gain_db']}dB"
     )
+    vision_detail = _format_vision_detail(vision)
+    tracking_detail = _format_tracking_detail(tracking_policy)
+    ab_detail = ", ab_points=formal target-contour point_a_px/point_b_px"
     return {
         "name": "real_offline_pixel_alignment",
         "status": "ok",
         "detail": (
-            f"{profile_name} setup/live source pixels match the offline truth contract: "
+            f"{profile_name} setup/live source pixels and algorithm settings match the offline truth contract: "
             f"origin={origin}, size={size}{preview_detail}{acquisition_detail}"
+            f"{vision_detail}{tracking_detail}{ab_detail}"
         ),
     }
 
@@ -329,6 +347,29 @@ def _tracking_policy(run_config: Any | None) -> dict[str, Any] | None:
         }
     except (TypeError, ValueError):
         return None
+
+
+def _format_vision_detail(vision: dict[str, Any] | None) -> str:
+    if vision is None:
+        return ", vision not provided to precheck"
+    return (
+        f", vision={vision['foreground_polarity']}/{vision['threshold_mode']}"
+        f" edge={vision['edge_threshold']}"
+        f" min_area={vision['min_target_area_px']}"
+        f" quality={vision['quality_threshold']}"
+        f" internal_texture={vision['ignore_internal_texture']}"
+    )
+
+
+def _format_tracking_detail(tracking_policy: dict[str, Any] | None) -> str:
+    if tracking_policy is None:
+        return ", tracking policy not provided to precheck"
+    stop_mode = "stop_on_invalid" if tracking_policy["stop_on_invalid_tracking"] else "continue_on_invalid"
+    return (
+        f", tracking={stop_mode}"
+        f" grace={tracking_policy['invalid_tracking_grace_samples']}"
+        f" debug_locked_points={tracking_policy['debug_locked_points_tracking']}"
+    )
 
 
 def _preview_display_size(run_config: Any | None) -> tuple[int, int] | None:

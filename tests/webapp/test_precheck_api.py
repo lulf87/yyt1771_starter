@@ -194,7 +194,30 @@ def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
     assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
     assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
     assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
+    assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
+    assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
+    assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_precheck_api_reports_real_offline_contract_scope_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    detail = items["real_offline_pixel_alignment"]["detail"]
+    assert "source pixels and algorithm settings match" in detail
+    assert "acquisition=mono8/50000us/12.0dB" in detail
+    assert "vision=dark_on_light/adaptive edge=10.0 min_area=200 quality=0.75 internal_texture=False" in detail
+    assert "tracking=continue_on_invalid grace=5 debug_locked_points=False" in detail
+    assert "ab_points=formal target-contour point_a_px/point_b_px" in detail
 
 
 def test_precheck_api_reports_lab_camera_mock_temp_alignment_as_ready_without_device_access(
@@ -214,6 +237,9 @@ def test_precheck_api_reports_lab_camera_mock_temp_alignment_as_ready_without_de
     assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
     assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
     assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
+    assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
+    assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
+    assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
 
 
 def test_precheck_api_fails_when_locked_profile_acquisition_drifts_from_offline_truth(
@@ -296,6 +322,14 @@ def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path
         "stop_on_invalid_tracking": False,
         "invalid_tracking_grace_samples": 5,
         "debug_locked_points_tracking": False,
+    }
+    assert payload["algorithm_contract"]["ab_selection"] == {
+        "formal_point_source": "target_contour_boundary",
+        "formal_point_fields": ["point_a_px", "point_b_px"],
+        "projected_points_exposed_as_formal_ab": False,
+        "angle_audit_selection_modes": ["directional_contour_max_chord"],
+        "angles_checked": 12,
+        "angle_step_deg": 30,
     }
     assert payload["offline_material"]["status"] in {"ok", "missing"}
     if payload["offline_material"]["status"] == "ok":

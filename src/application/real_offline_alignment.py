@@ -53,6 +53,7 @@ def run_alignment_audit(
         _audit_angle(real_config=real_config, offline_config=offline_config, angle_deg=angle_deg)
         for angle_deg in angles_deg
     ]
+    algorithm_contract["ab_selection"] = _audit_ab_selection_contract(angle_results)
     offline_material = _audit_offline_material_samples(
         real_config=real_config,
         offline_config=offline_config,
@@ -165,6 +166,21 @@ def _audit_algorithm_contract(*, real_config: Any, offline_config: Any) -> dict[
     return {
         "vision": real_vision,
         "tracking_policy": real_tracking_policy,
+    }
+
+
+def _audit_ab_selection_contract(angle_results: list[dict[str, Any]]) -> dict[str, Any]:
+    selection_modes = sorted({str(item.get("selection_mode", "")) for item in angle_results})
+    _assert_equal(selection_modes, ["directional_contour_max_chord"], "angle audit A/B selection mode drifted")
+    if not all(item.get("point_a_px") and item.get("point_b_px") for item in angle_results):
+        raise RealOfflineAlignmentError("angle audit did not produce formal A/B points for every checked angle")
+    return {
+        "formal_point_source": "target_contour_boundary",
+        "formal_point_fields": ["point_a_px", "point_b_px"],
+        "projected_points_exposed_as_formal_ab": False,
+        "angle_audit_selection_modes": selection_modes,
+        "angles_checked": len(angle_results),
+        "angle_step_deg": 30,
     }
 
 

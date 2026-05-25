@@ -236,3 +236,8 @@ Validation boundary:
 7. Keep `prod_win` aligned to the offline truth contract, but do not claim it
    is hardware-verified until it passes Windows-side camera, LU92XX, Web, ROI,
    A/B, live run, stop, and analysis validation.
+8. Treat offline truth alignment as a full measurement-chain contract, not only
+   a resolution check. Locked real profiles must continue to match
+   `dev_offline_capture` for setup/live source pixels, acquisition parameters,
+   preview display bounds, contour-detection settings, tracking policy, and
+   formal contour-boundary `point_a_px / point_b_px` semantics.
