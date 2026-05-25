@@ -46,7 +46,8 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Preset and live-run source pixels must both be `2048 x 1364` | Alignment audit reports `source_size_px={"width": 2048, "height": 1364}` for all locked real profiles. Browser `/api/system/real-offline-alignment` returned the same value for `dev_lab_camera_mock_temp`. | No-hardware contract verified |
 | Contour detection must match the offline truth | `algorithm_contract.vision` locks `foreground_polarity=dark_on_light`, `threshold_mode=adaptive`, `edge_threshold=10.0`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `quality_threshold=0.75`. Precheck now fails if the locked profile does not provide or match this vision contract. | No-hardware contract verified |
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
-| Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
+| Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
+| One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
 | Hik SDK `ret=0x80000203` open-device errors must be actionable | Commit `0d317dd Normalize Hik camera runtime errors` adds operator-facing normalization for `Failed to open device via Hik MVS SDK (ret=0x80000203)`. Targeted tests cover preview fetch, preview stream start, and failed live run normalization. | Verified in tests |
 
@@ -104,6 +105,24 @@ Result: `4 passed`.
 Result: `5 passed`.
 
 ```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/webapp/test_precheck_api.py::test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload -q
+```
+
+Result: `7 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/webapp/test_precheck_api.py::test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload \
+  tests/application/test_real_offline_alignment.py \
+  tests/workflow/test_precheck.py -q
+```
+
+Result: `23 passed`.
+
+```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 \
   -m src.application.real_camera_alignment_probe \
   --profile dev_lab_camera_mock_temp
@@ -112,7 +131,11 @@ Result: `5 passed`.
 Result: exited `1` because no camera is connected. The JSON response was
 structured as `status=fail`, `hardware_access=attempted`, expected source size
 `2048 x 1364`, expected device ROI `x=512, y=342, width=2048, height=1364`,
-and detail `No Hik cameras were discovered by the MVS SDK`.
+and detail `No Hik cameras were discovered by the MVS SDK`. Before attempting
+hardware, the same JSON included `alignment_contract.status=ok`,
+`alignment_contract.pixel_contract.source_size_px=2048 x 1364`,
+`alignment_contract.algorithm_contract.vision=dark_on_light/adaptive`, and
+`alignment_contract.algorithm_contract.ab_selection.formal_point_source=target_contour_boundary`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
@@ -176,8 +199,15 @@ Observed in the real browser:
   expected size `2048 x 1364`, expected device ROI
   `x=512, y=342, width=2048, height=1364`, and detail
   `No Hik cameras were discovered by the MVS SDK`
+- the same browser response included `alignment_contract.pixel_contract`,
+  `alignment_contract.algorithm_contract.vision`, and
+  `alignment_contract.algorithm_contract.ab_selection`; visible values included
+  `dark_on_light`, `adaptive`, `target_contour_boundary`, `point_a_px`, and
+  `point_b_px`
 - screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_no_hardware_swagger_20260526.png`
+- updated screenshot saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_alignment_contract_20260526.png`
 
 ## Remaining Hardware Validation
 

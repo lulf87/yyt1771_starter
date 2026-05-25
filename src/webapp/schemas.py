@@ -513,7 +513,8 @@ class RealCameraAlignmentProfileProbeResponse(BaseModel):
 class RealCameraAlignmentProbeResponse(BaseModel):
     status: str
     profile: str
-    hardware_access: Literal["attempted"]
+    hardware_access: Literal["attempted", "not_attempted"]
+    alignment_contract: dict[str, Any] | None = None
     profiles: list[RealCameraAlignmentProfileProbeResponse]
     detail: str
 

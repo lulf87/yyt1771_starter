@@ -388,6 +388,24 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
             "status": "ok",
             "profile": runtime_config.profile,
             "hardware_access": "attempted",
+            "alignment_contract": {
+                "status": "ok",
+                "real_profile": runtime_config.profile,
+                "offline_profile": "dev_offline_capture",
+                "pixel_contract": {"source_size_px": {"width": 2048, "height": 1364}},
+                "algorithm_contract": {
+                    "vision": {"foreground_polarity": "dark_on_light", "threshold_mode": "adaptive"},
+                    "ab_selection": {
+                        "formal_point_source": "target_contour_boundary",
+                        "formal_point_fields": ["point_a_px", "point_b_px"],
+                        "projected_points_exposed_as_formal_ab": False,
+                    },
+                },
+                "angles_checked": 12,
+                "angle_step_deg": 30,
+                "hardware_access": "not_attempted",
+                "detail": "Real/offline pixel, contour, and formal A-B contracts match before live camera access.",
+            },
             "profiles": [
                 {
                     "profile_name": "setup_preview",
@@ -428,6 +446,9 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
     assert payload["status"] == "ok"
     assert payload["profile"] == "dev_lab_camera_mock_temp"
     assert payload["hardware_access"] == "attempted"
+    assert payload["alignment_contract"]["algorithm_contract"]["ab_selection"]["formal_point_source"] == (
+        "target_contour_boundary"
+    )
     assert [item["profile_name"] for item in payload["profiles"]] == ["setup_preview", "measurement"]
     assert payload["profiles"][0]["actual_size_px"] == {"width": 2048, "height": 1364}
     assert payload["profiles"][1]["actual_size_px"] == {"width": 2048, "height": 1364}

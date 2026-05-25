@@ -16,6 +16,13 @@ from src.application.frame_pixel_contract import (
     frame_image_size,
     validate_frame_pixel_contract,
 )
+from src.application.real_offline_alignment import (
+    OFFLINE_PROFILE,
+    REAL_ALIGNMENT_PROFILES,
+    REAL_PROFILE,
+    RealOfflineAlignmentError,
+    run_alignment_audit,
+)
 from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
 
@@ -24,6 +31,7 @@ def probe_real_camera_alignment(
     runtime_config: Any,
     *,
     camera_opener: Callable[[Any, str], object] | None = None,
+    alignment_auditor: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Capture setup and measurement frames and compare them to offline truth.
 
@@ -31,6 +39,17 @@ def probe_real_camera_alignment(
     counterpart to the no-device `real_offline_alignment` audit and should be
     run only when the camera is connected and available.
     """
+
+    alignment_contract = _offline_truth_alignment_contract(runtime_config, alignment_auditor=alignment_auditor)
+    if alignment_contract["status"] != "ok":
+        return {
+            "status": "fail",
+            "profile": str(getattr(runtime_config, "profile", "") or ""),
+            "hardware_access": "not_attempted",
+            "alignment_contract": alignment_contract,
+            "profiles": [],
+            "detail": str(alignment_contract["detail"]),
+        }
 
     opener = camera_opener or _open_camera_for_profile
     profiles: list[dict[str, Any]] = []
@@ -42,6 +61,7 @@ def probe_real_camera_alignment(
                 "status": "fail",
                 "profile": str(getattr(runtime_config, "profile", "") or ""),
                 "hardware_access": "attempted",
+                "alignment_contract": alignment_contract,
                 "profiles": profiles,
                 "detail": result["detail"],
             }
@@ -49,8 +69,12 @@ def probe_real_camera_alignment(
         "status": "ok",
         "profile": str(getattr(runtime_config, "profile", "") or ""),
         "hardware_access": "attempted",
+        "alignment_contract": alignment_contract,
         "profiles": profiles,
-        "detail": "Real camera setup_preview and measurement frames match the offline truth pixel contract.",
+        "detail": (
+            "Real camera setup_preview and measurement frames match the offline truth pixel contract, "
+            "and the profile contour / formal A-B contracts match the accepted offline material."
+        ),
     }
 
 
@@ -118,6 +142,45 @@ def _probe_camera_profile(
 
 def _open_camera_for_profile(runtime_config: Any, profile_name: str) -> object:
     return open_camera(runtime_config, profile_name=profile_name)
+
+
+def _offline_truth_alignment_contract(
+    runtime_config: Any,
+    *,
+    alignment_auditor: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    profile = str(getattr(runtime_config, "profile", "") or "")
+    real_profile = profile if profile in REAL_ALIGNMENT_PROFILES else REAL_PROFILE
+    auditor = alignment_auditor or _run_alignment_audit_for_profile
+    try:
+        payload = auditor(real_profile)
+    except RealOfflineAlignmentError as exc:
+        return {
+            "status": "fail",
+            "real_profile": real_profile,
+            "offline_profile": OFFLINE_PROFILE,
+            "pixel_contract": None,
+            "algorithm_contract": None,
+            "angles_checked": None,
+            "angle_step_deg": None,
+            "hardware_access": "not_attempted",
+            "detail": str(exc),
+        }
+    return {
+        "status": str(payload.get("status", "ok")),
+        "real_profile": str(payload.get("real_profile", real_profile) or real_profile),
+        "offline_profile": str(payload.get("offline_profile", OFFLINE_PROFILE) or OFFLINE_PROFILE),
+        "pixel_contract": payload.get("pixel_contract"),
+        "algorithm_contract": payload.get("algorithm_contract"),
+        "angles_checked": payload.get("angles_checked"),
+        "angle_step_deg": payload.get("angle_step_deg"),
+        "hardware_access": str(payload.get("hardware_access", "not_attempted") or "not_attempted"),
+        "detail": "Real/offline pixel, contour, and formal A-B contracts match before live camera access.",
+    }
+
+
+def _run_alignment_audit_for_profile(real_profile: str) -> dict[str, Any]:
+    return run_alignment_audit(real_profile=real_profile)
 
 
 def _size_payload(size: tuple[int, int] | None) -> dict[str, int] | None:

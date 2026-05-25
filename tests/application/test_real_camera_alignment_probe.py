@@ -1,9 +1,33 @@
 import numpy as np
 
 import src.application.real_camera_alignment_probe as real_camera_alignment_probe
+from src.application.real_offline_alignment import RealOfflineAlignmentError
 from src.application.real_camera_alignment_probe import probe_real_camera_alignment
 from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
+
+
+def _fake_alignment_contract(real_profile: str) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "real_profile": real_profile,
+        "offline_profile": "dev_offline_capture",
+        "pixel_contract": {"source_size_px": {"width": 2048, "height": 1364}},
+        "algorithm_contract": {
+            "vision": {
+                "foreground_polarity": "dark_on_light",
+                "threshold_mode": "adaptive",
+            },
+            "ab_selection": {
+                "formal_point_source": "target_contour_boundary",
+                "formal_point_fields": ["point_a_px", "point_b_px"],
+                "projected_points_exposed_as_formal_ab": False,
+            },
+        },
+        "angles_checked": 12,
+        "angle_step_deg": 30,
+        "hardware_access": "not_attempted",
+    }
 
 
 def test_probe_real_camera_alignment_checks_setup_and_measurement_profiles() -> None:
@@ -39,10 +63,14 @@ def test_probe_real_camera_alignment_checks_setup_and_measurement_profiles() -> 
     payload = probe_real_camera_alignment(
         runtime_config,
         camera_opener=lambda _runtime_config, profile_name: FakeCamera(profile_name),
+        alignment_auditor=_fake_alignment_contract,
     )
 
     assert payload["status"] == "ok"
     assert payload["hardware_access"] == "attempted"
+    assert payload["alignment_contract"]["algorithm_contract"]["ab_selection"]["formal_point_source"] == (
+        "target_contour_boundary"
+    )
     assert [item["profile_name"] for item in payload["profiles"]] == ["setup_preview", "measurement"]
     assert [item["actual_size_px"] for item in payload["profiles"]] == [
         {"width": 2048, "height": 1364},
@@ -83,6 +111,7 @@ def test_probe_real_camera_alignment_reports_contract_mismatch() -> None:
     payload = probe_real_camera_alignment(
         runtime_config,
         camera_opener=lambda _runtime_config, profile_name: FakeCamera(profile_name),
+        alignment_auditor=_fake_alignment_contract,
     )
 
     assert payload["status"] == "fail"
@@ -97,7 +126,11 @@ def test_probe_real_camera_alignment_normalizes_hik_open_device_error() -> None:
     def fail_open(_runtime_config, _profile_name: str) -> object:
         raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
 
-    payload = probe_real_camera_alignment(runtime_config, camera_opener=fail_open)
+    payload = probe_real_camera_alignment(
+        runtime_config,
+        camera_opener=fail_open,
+        alignment_auditor=_fake_alignment_contract,
+    )
 
     assert payload["status"] == "fail"
     assert payload["hardware_access"] == "attempted"
@@ -107,12 +140,35 @@ def test_probe_real_camera_alignment_normalizes_hik_open_device_error() -> None:
     assert "0x80000203" in payload["detail"]
 
 
+def test_probe_real_camera_alignment_does_not_open_camera_when_alignment_contract_fails() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+
+    def fail_alignment(_real_profile: str) -> dict[str, object]:
+        raise RealOfflineAlignmentError("vision settings differ from accepted offline material")
+
+    def unexpected_open(_runtime_config, _profile_name: str) -> object:
+        raise AssertionError("camera should not be opened when the offline truth contract fails")
+
+    payload = probe_real_camera_alignment(
+        runtime_config,
+        camera_opener=unexpected_open,
+        alignment_auditor=fail_alignment,
+    )
+
+    assert payload["status"] == "fail"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["profiles"] == []
+    assert payload["alignment_contract"]["status"] == "fail"
+    assert "vision settings differ" in payload["detail"]
+
+
 def test_real_camera_alignment_probe_cli_returns_zero_on_ok(monkeypatch, capsys) -> None:
     def fake_probe(runtime_config) -> dict[str, object]:
         return {
             "status": "ok",
             "profile": runtime_config.profile,
             "hardware_access": "attempted",
+            "alignment_contract": _fake_alignment_contract(runtime_config.profile),
             "profiles": [],
             "detail": "ok",
         }
@@ -133,6 +189,7 @@ def test_real_camera_alignment_probe_cli_returns_nonzero_on_fail(monkeypatch, ca
             "status": "fail",
             "profile": runtime_config.profile,
             "hardware_access": "attempted",
+            "alignment_contract": _fake_alignment_contract(runtime_config.profile),
             "profiles": [],
             "detail": "No Hik cameras were discovered by the MVS SDK",
         }
