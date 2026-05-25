@@ -219,6 +219,7 @@ The canonical engineering-review files now live in the sibling
 - [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
 - [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
 - [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
+- [real_offline_alignment_goal_audit_20260526.md](../plan_eng_review/real_offline_alignment_goal_audit_20260526.md)
 - [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
 - [live_run_bench_validation_v1.md](../plan_eng_review/live_run_bench_validation_v1.md)
 
