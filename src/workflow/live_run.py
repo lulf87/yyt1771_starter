@@ -254,6 +254,10 @@ class LockedDefinitionMetricSource:
                 ignore_internal_texture=definition.ignore_internal_texture,
                 min_target_area_px=definition.min_target_area_px,
                 sensitivity=definition.sensitivity,
+                component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
+                    definition.sensitivity,
+                    direction_angle_deg=definition.direction_angle_deg,
+                ),
                 projection_mode=definition.direction_projection_mode,
                 processing_max_side_px=_directional_processing_max_side_px(
                     working_max_width,
@@ -289,15 +293,20 @@ class LockedDefinitionMetricSource:
         *,
         sample_index: int,
         total_samples: int,
+        component_bridge_kernel: int | None = None,
     ) -> ShapeMetric:
         if self._directional_config is not None:
-            metric = DirectionalContourMetricExtractor(
-                _directional_config_with_axis_prior(
-                    self._directional_config,
-                    axis_prior_provider=self._directional_axis_prior_provider,
-                    axis_prior_tolerance_provider=self._directional_axis_prior_tolerance_provider,
+            config = _directional_config_with_axis_prior(
+                self._directional_config,
+                axis_prior_provider=self._directional_axis_prior_provider,
+                axis_prior_tolerance_provider=self._directional_axis_prior_tolerance_provider,
+            )
+            if component_bridge_kernel is not None:
+                config = _directional_config_with_component_bridge_kernel(
+                    config,
+                    component_bridge_kernel,
                 )
-            ).extract(frame)
+            metric = DirectionalContourMetricExtractor(config).extract(frame)
         else:
             assert self._extractor is not None
             metric = self._extractor.extract(frame)
@@ -317,6 +326,42 @@ def _directional_processing_max_side_px(
         if value is not None and int(value) > 0
     ]
     return min(candidates) if candidates else 384
+
+
+def _directional_odd_kernel(value: float) -> int:
+    kernel = max(1, int(round(float(value))))
+    if kernel % 2 == 0:
+        kernel += 1
+    return kernel
+
+
+def _directional_component_bridge_kernel_for_sensitivity(
+    sensitivity: float,
+    direction_angle_deg: float | None = None,
+) -> int:
+    normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
+    angle = None if direction_angle_deg is None else abs(float(direction_angle_deg) % 180.0)
+    near_vertical = angle is not None and abs(angle - 90.0) <= 15.0
+    if near_vertical:
+        if normalized <= 0.5:
+            size = 7.0 + (normalized / 0.5) * 34.0
+        else:
+            size = 41.0 + ((normalized - 0.5) / 0.5) * 22.0
+    elif normalized <= 0.5:
+        size = 3.0 + (normalized / 0.5) * 8.0
+    else:
+        size = 11.0 + ((normalized - 0.5) / 0.5) * 28.0
+    return _directional_odd_kernel(size)
+
+
+def _directional_retry_component_bridge_kernel(
+    sensitivity: float,
+    *,
+    base_kernel: int,
+) -> int:
+    normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
+    retry_kernel = _directional_odd_kernel(11.0 + normalized * 20.0)
+    return max(_directional_odd_kernel(float(base_kernel) + 2.0), retry_kernel)
 
 
 def _tracking_working_size(definition: MeasurementDefinition) -> tuple[int, int]:
@@ -354,6 +399,29 @@ def _directional_config_with_axis_prior(
         projection_mode=config.projection_mode,
         max_chord_axis_prior_point=axis_prior_point,
         max_chord_axis_prior_tolerance_px=axis_prior_tolerance_px,
+        processing_max_side_px=config.processing_max_side_px,
+    )
+
+
+def _directional_config_with_component_bridge_kernel(
+    config: DirectionalContourConfig,
+    component_bridge_kernel: int,
+) -> DirectionalContourConfig:
+    return DirectionalContourConfig(
+        analysis_roi=config.analysis_roi,
+        direction_angle_deg=config.direction_angle_deg,
+        metric_box=config.metric_box,
+        foreground_polarity=config.foreground_polarity,
+        threshold_mode=config.threshold_mode,
+        threshold_value=config.threshold_value,
+        min_target_area_px=config.min_target_area_px,
+        sensitivity=config.sensitivity,
+        ignore_internal_texture=config.ignore_internal_texture,
+        component_bridge_kernel=_directional_odd_kernel(float(component_bridge_kernel)),
+        open_kernel=config.open_kernel,
+        projection_mode=config.projection_mode,
+        max_chord_axis_prior_point=config.max_chord_axis_prior_point,
+        max_chord_axis_prior_tolerance_px=config.max_chord_axis_prior_tolerance_px,
         processing_max_side_px=config.processing_max_side_px,
     )
 
@@ -399,6 +467,19 @@ class PriorTrackingMetricSource:
                 self._max_span_change_ratio,
                 DIRECTIONAL_MAX_FRAME_SPAN_CHANGE_RATIO,
             )
+        self._allows_directional_soft_endpoint_stabilization = (
+            definition.direction_angle_deg is not None
+            and definition.direction_projection_mode in {"mask_projection", "auto"}
+        )
+        self._max_stabilized_endpoint_jump_px = self._max_endpoint_jump_px
+        if self._allows_directional_soft_endpoint_stabilization:
+            self._max_stabilized_endpoint_jump_px = min(
+                self._max_endpoint_jump_px * 1.15,
+                max(
+                    self._max_endpoint_jump_px,
+                    self._last_good_span_px * self._max_span_change_ratio,
+                ),
+            )
         self._max_frame_span_jump_px = (
             max(0.0, float(max_frame_span_jump_px))
             if max_frame_span_jump_px is not None
@@ -427,7 +508,7 @@ class PriorTrackingMetricSource:
                 float(self._max_frame_span_jump_px),
                 min(
                     max_stabilized_span_jump_px,
-                    self._max_endpoint_jump_px,
+                    self._max_stabilized_endpoint_jump_px,
                 ),
             )
         self._max_consecutive_misses = max(1, int(max_consecutive_misses))
@@ -461,6 +542,25 @@ class PriorTrackingMetricSource:
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode in {"max_chord", "mask_projection", "auto"}
         )
+        self._allows_directional_component_bridge_retry = (
+            definition.direction_angle_deg is not None
+            and definition.direction_projection_mode in {"mask_projection", "auto"}
+        )
+        self._directional_base_component_bridge_kernel: int | None = None
+        self._directional_retry_component_bridge_kernel: int | None = None
+        if definition.direction_angle_deg is not None:
+            self._directional_base_component_bridge_kernel = (
+                _directional_component_bridge_kernel_for_sensitivity(
+                    definition.sensitivity,
+                    direction_angle_deg=definition.direction_angle_deg,
+                )
+            )
+            self._directional_retry_component_bridge_kernel = (
+                _directional_retry_component_bridge_kernel(
+                    definition.sensitivity,
+                    base_kernel=self._directional_base_component_bridge_kernel,
+                )
+            )
         use_axis_prior = (
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode in {"max_chord", "mask_projection", "auto"}
@@ -494,6 +594,14 @@ class PriorTrackingMetricSource:
                 observation,
                 diagnostics,
             ):
+                retry_metric = self._directional_component_bridge_retry(
+                    frame,
+                    temp,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                )
+                if retry_metric is not None:
+                    return retry_metric
                 rejection_reason = self._rejection_reason(observation, diagnostics)
                 return self._hold_last_good_metric(
                     frame,
@@ -591,6 +699,28 @@ class PriorTrackingMetricSource:
             observation.meta["tracking_state"] = tracking_state
             observation.meta.update(diagnostics)
             return observation
+        retry_metric = self._directional_component_bridge_retry(
+            frame,
+            temp,
+            sample_index=sample_index,
+            total_samples=total_samples,
+        )
+        if retry_metric is not None:
+            return retry_metric
+        if self._directional_candidate_is_stabilizable_hard_span_spike(observation, diagnostics):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_last_good_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                tracking_state=tracking_state,
+                reason="hard_span_spike_stabilized",
+            )
+            self._consecutive_misses = 0
+            return stabilized
         rejection_reason = self._rejection_reason(observation, diagnostics)
         return self._hold_last_good_metric(
             frame,
@@ -719,7 +849,11 @@ class PriorTrackingMetricSource:
         ):
             return False
         if float(endpoint_jump_px) > self._max_endpoint_jump_px:
-            return False
+            if (
+                not self._allows_directional_soft_endpoint_stabilization
+                or float(endpoint_jump_px) > self._max_stabilized_endpoint_jump_px
+            ):
+                return False
         if float(midpoint_drift_px) > self._max_midpoint_drift_px:
             return False
         lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
@@ -730,6 +864,28 @@ class PriorTrackingMetricSource:
             and float(span_change_px) > self._max_frame_span_jump_px
             and float(span_change_px) <= self._max_soft_frame_span_jump_px
         )
+
+    def _directional_candidate_is_stabilizable_hard_span_spike(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if not self._allows_directional_soft_endpoint_stabilization or not self._has_runtime_lock:
+            return False
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        if float(observation.quality or 0.0) <= 0.0:
+            return False
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        span_change_px = diagnostics.get("span_change_px")
+        lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
+        if span_change_ratio is None or span_change_px is None or lateral_drift_px is None:
+            return False
+        if float(lateral_drift_px) > self._max_midpoint_drift_px:
+            return False
+        if self._max_frame_span_jump_px is not None and float(span_change_px) <= self._max_frame_span_jump_px:
+            return False
+        return float(span_change_ratio) <= 1.50
 
     def _axis_candidate_is_stabilizable_lateral_jitter(
         self,
@@ -869,6 +1025,7 @@ class PriorTrackingMetricSource:
         diagnostics: dict[str, Any],
         tracking_state: str,
         reason: str = "span_change_stabilized",
+        use_last_good_midpoint: bool = False,
     ) -> ShapeMetric:
         point_a = _shape_metric_point(observation.point_a_px)
         point_b = _shape_metric_point(observation.point_b_px)
@@ -880,7 +1037,7 @@ class PriorTrackingMetricSource:
             min(float(self._max_frame_span_jump_px), raw_delta),
         )
         stabilized_span_px = max(0.0, self._last_good_span_px + limited_delta)
-        midpoint = _midpoint(point_a, point_b)
+        midpoint = _midpoint(self._last_good_point_a, self._last_good_point_b) if use_last_good_midpoint else _midpoint(point_a, point_b)
         direction_x, direction_y = self._direction_unit or _unit_vector(point_a, point_b)
         stabilized_a = PixelPoint(
             x=int(round(float(midpoint.x) - direction_x * stabilized_span_px / 2.0)),
@@ -920,6 +1077,53 @@ class PriorTrackingMetricSource:
             point_a_px=(stabilized_a.x, stabilized_a.y),
             point_b_px=(stabilized_b.x, stabilized_b.y),
             baseline_px=observation.baseline_px,
+            meta=meta,
+        )
+
+    def _stabilized_last_good_metric(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        tracking_state: str,
+        reason: str,
+    ) -> ShapeMetric:
+        point_a = self._last_good_point_a
+        point_b = self._last_good_point_b
+        midpoint = _midpoint(point_a, point_b)
+        meta = dict(observation.meta)
+        meta.update(
+            {
+                "source": frame.source,
+                "frame_id": frame.frame_id,
+                "selection_mode": "tracking_prior_stabilized",
+                "tracking_mode": self._tracking_mode,
+                "tracking_state": tracking_state,
+                "reason": reason,
+                "sample_index": sample_index,
+                "total_samples": total_samples,
+                "observed_metric_raw": observation.metric_raw,
+                "observed_point_a_px": observation.point_a_px,
+                "observed_point_b_px": observation.point_b_px,
+                "stabilized_span_change_px": 0.0,
+                **diagnostics,
+            }
+        )
+        return ShapeMetric(
+            timestamp_ms=temp.timestamp_ms,
+            metric_name=observation.metric_name,
+            metric_raw=self._last_good_span_px,
+            metric_norm=observation.metric_norm,
+            quality=self._hold_quality,
+            roi=observation.roi,
+            feature_point_px=(midpoint.x, midpoint.y),
+            point_a_px=(point_a.x, point_a.y),
+            point_b_px=(point_b.x, point_b.y),
+            baseline_px=self._last_good_span_px,
             meta=meta,
         )
 
@@ -1128,6 +1332,75 @@ class PriorTrackingMetricSource:
         self._last_good_point_b = point_b
         self._last_good_span_px = float(observation.metric_raw)
         self._has_runtime_lock = True
+
+    def _directional_component_bridge_retry(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+    ) -> ShapeMetric | None:
+        if not self._allows_directional_component_bridge_retry:
+            return None
+        retry_kernel = self._directional_retry_component_bridge_kernel
+        base_kernel = self._directional_base_component_bridge_kernel
+        if retry_kernel is None or base_kernel is None or retry_kernel <= base_kernel:
+            return None
+        retry_observation = self._observation_source.extract(
+            frame,
+            temp,
+            sample_index=sample_index,
+            total_samples=total_samples,
+            component_bridge_kernel=retry_kernel,
+        )
+        retry_diagnostics = self._tracking_diagnostics(retry_observation)
+        if retry_observation.metric_raw is None:
+            return None
+        if self._candidate_within_prior(retry_diagnostics):
+            tracking_state = "reacquired" if self._consecutive_misses > 0 else "accepted"
+            self._remember(retry_observation)
+            self._consecutive_misses = 0
+            retry_observation.meta["tracking_mode"] = self._tracking_mode
+            retry_observation.meta["tracking_state"] = tracking_state
+            retry_observation.meta["component_bridge_retry_kernel"] = retry_kernel
+            retry_observation.meta["component_bridge_base_kernel"] = base_kernel
+            retry_observation.meta.update(retry_diagnostics)
+            return retry_observation
+        if self._directional_candidate_is_stabilizable_span_jitter(
+            retry_observation,
+            retry_diagnostics,
+        ):
+            tracking_state = "reacquired_stabilized" if self._consecutive_misses > 0 else "accepted_stabilized"
+            stabilized = self._stabilized_directional_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=retry_observation,
+                diagnostics=retry_diagnostics,
+                tracking_state=tracking_state,
+                reason="component_bridge_retry_span_stabilized",
+            )
+            stabilized.meta["component_bridge_retry_kernel"] = retry_kernel
+            stabilized.meta["component_bridge_base_kernel"] = base_kernel
+            self._remember(stabilized)
+            self._consecutive_misses = 0
+            return stabilized
+        if self._directional_candidate_is_plausible_relocation(
+            retry_observation,
+            retry_diagnostics,
+        ):
+            tracking_state = "relocated" if self._consecutive_misses > 0 else "accepted_relocated"
+            self._remember(retry_observation)
+            self._consecutive_misses = 0
+            retry_observation.meta["tracking_mode"] = self._tracking_mode
+            retry_observation.meta["tracking_state"] = tracking_state
+            retry_observation.meta["component_bridge_retry_kernel"] = retry_kernel
+            retry_observation.meta["component_bridge_base_kernel"] = base_kernel
+            retry_observation.meta.update(retry_diagnostics)
+            return retry_observation
+        return None
 
     def _current_axis_prior_point(self) -> PixelPoint | None:
         return _midpoint(self._last_good_point_a, self._last_good_point_b)

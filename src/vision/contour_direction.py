@@ -497,12 +497,13 @@ def _max_chord_candidate_is_better(candidate: dict[str, Any], current: dict[str,
 def _max_chord_prior_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
     if current is None:
         return True
+    span_delta = float(candidate["span"]) - float(current["span"])
+    meaningful_span_delta = max(8.0, float(current["span"]) * 0.05)
+    if abs(span_delta) > meaningful_span_delta:
+        return span_delta > 0
     prior_delta = float(candidate["prior_distance"]) - float(current["prior_distance"])
     if abs(prior_delta) > 1e-9:
         return prior_delta < 0
-    span_delta = float(candidate["span"]) - float(current["span"])
-    if abs(span_delta) > 1e-9:
-        return span_delta > 0
     count_delta = int(candidate["count"]) - int(current["count"])
     if count_delta != 0:
         return count_delta > 0
@@ -922,8 +923,8 @@ def _merge_aligned_component_fragments(
     labels, num_labels = ndimage.label(foreground, structure=np.ones((3, 3), dtype=bool))
     if int(num_labels) <= 1:
         return foreground.astype(np.uint8) * 255
-    if int(num_labels) > 48:
-        return _merge_many_fragments_with_morphology(
+    if int(num_labels) > 48 or int(component_bridge_kernel) >= 31:
+        return _merge_many_fragments_with_cv_morphology(
             foreground,
             component_bridge_kernel=component_bridge_kernel,
         )
@@ -999,7 +1000,26 @@ def _merge_aligned_component_fragments(
     return merged.astype(np.uint8) * 255
 
 
-def _merge_many_fragments_with_morphology(
+def _merge_many_fragments_with_cv_morphology(
+    foreground: np.ndarray,
+    *,
+    component_bridge_kernel: int,
+) -> np.ndarray:
+    bridge_size = max(5, int(component_bridge_kernel))
+    if bridge_size % 2 == 0:
+        bridge_size += 1
+    cv2 = _try_import_cv2()
+    foreground_u8 = np.asarray(foreground, dtype=np.uint8) * 255
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (bridge_size, bridge_size))
+    closed = cv2.morphologyEx(foreground_u8, cv2.MORPH_CLOSE, close_kernel, iterations=1)
+    contours, _hierarchy = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(closed)
+    if contours:
+        cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
+    return filled
+
+
+def _merge_many_fragments_with_scipy_morphology(
     foreground: np.ndarray,
     *,
     component_bridge_kernel: int,

@@ -642,7 +642,8 @@ def _extract_directional_auto_detect_metric(
             min_target_area_px=payload.min_target_area_px,
             sensitivity=payload.sensitivity,
             component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
-                payload.sensitivity
+                payload.sensitivity,
+                direction_angle_deg=payload.direction_angle_deg,
             ),
             projection_mode=_resolve_direction_projection_mode(payload, preset),
         )
@@ -664,9 +665,19 @@ def _candidate_foreground_polarities(requested_foreground_polarity: str) -> list
     return [requested_foreground_polarity, alternate]
 
 
-def _directional_component_bridge_kernel_for_sensitivity(sensitivity: float) -> int:
+def _directional_component_bridge_kernel_for_sensitivity(
+    sensitivity: float,
+    direction_angle_deg: float | None = None,
+) -> int:
     normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
-    if normalized <= 0.5:
+    angle = None if direction_angle_deg is None else abs(float(direction_angle_deg) % 180.0)
+    near_vertical = angle is not None and abs(angle - 90.0) <= 15.0
+    if near_vertical:
+        if normalized <= 0.5:
+            size = 7.0 + (normalized / 0.5) * 34.0
+        else:
+            size = 41.0 + ((normalized - 0.5) / 0.5) * 22.0
+    elif normalized <= 0.5:
         size = 3.0 + (normalized / 0.5) * 8.0
     else:
         size = 11.0 + ((normalized - 0.5) / 0.5) * 28.0
