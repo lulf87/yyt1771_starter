@@ -234,8 +234,11 @@ class EditorStateResponse(BaseModel):
 class RunRatesResponse(BaseModel):
     camera_resulting_fps: float | None = None
     preview_display_fps: float | None = None
+    preview_target_fps: float | None = None
     measurement_sample_hz: float | None = None
+    measurement_target_hz: float | None = None
     artifact_capture_hz: float | None = None
+    artifact_target_hz: float | None = None
     dropped_frame_count: int = 0
 
 

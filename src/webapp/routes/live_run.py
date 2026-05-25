@@ -345,6 +345,28 @@ def auto_detect_measurement_definition(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Auto detection failed: {metric.meta.get('reason', 'unknown_error')}",
         )
+    metric_box = None if payload.metric_box is None else MetricBox(
+        center_x=payload.metric_box.center_x,
+        center_y=payload.metric_box.center_y,
+        width=payload.metric_box.width,
+        height=payload.metric_box.height,
+        angle_deg=payload.metric_box.angle_deg,
+    )
+    if payload.direction_angle_deg is not None and not _directional_metric_is_acceptably_specific(
+        metric,
+        RectRegion(
+            x=payload.analysis_roi.x,
+            y=payload.analysis_roi.y,
+            width=payload.analysis_roi.width,
+            height=payload.analysis_roi.height,
+        ),
+        metric_box=metric_box,
+        quality_threshold=runtime_config.live.vision.quality_threshold,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Auto detection failed: {_directional_metric_rejection_reason(metric)}",
+        )
     detail_parts: list[str] = []
     if threshold_mode_used != payload.threshold_mode and foreground_polarity_used != payload.foreground_polarity:
         detail_parts.append(
@@ -835,6 +857,12 @@ def _directional_metric_is_acceptably_specific(
     return float(metric.quality or 0.0) >= float(quality_threshold)
 
 
+def _directional_metric_rejection_reason(metric) -> str:
+    if metric is None or metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return str(getattr(metric, "meta", {}).get("reason", "unknown_error"))
+    return "ambiguous_contour_or_roi_boundary"
+
+
 def _metric_direction_angle_deg(metric) -> float | None:
     value = getattr(metric, "meta", {}).get("direction_angle_deg")
     if value is None:
@@ -1091,8 +1119,11 @@ def _build_run_detail(
         rates=RunRatesResponse(
             camera_resulting_fps=rate_payload.get("camera_resulting_fps"),
             preview_display_fps=rate_payload.get("preview_display_fps"),
+            preview_target_fps=None if runtime_config is None else runtime_config.live.run.preview_target_fps,
             measurement_sample_hz=rate_payload.get("measurement_sample_hz"),
+            measurement_target_hz=None if runtime_config is None else runtime_config.live.run.measurement_target_hz,
             artifact_capture_hz=rate_payload.get("artifact_capture_hz"),
+            artifact_target_hz=None if runtime_config is None else runtime_config.live.run.artifact_capture_hz,
             dropped_frame_count=int(rate_payload.get("dropped_frame_count", 0) or 0),
         ),
         measurement_profile=MeasurementProfileResponse(

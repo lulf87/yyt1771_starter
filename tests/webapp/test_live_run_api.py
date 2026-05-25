@@ -484,8 +484,11 @@ def test_get_run_returns_saved_draft_without_definition(tmp_path: Path) -> None:
     assert payload["definition"] is None
     assert payload["definition_complete"] is False
     assert payload["capture_mode"] == "idle"
+    assert payload["rates"]["preview_target_fps"] == 8.0
     assert payload["rates"]["measurement_sample_hz"] is None
+    assert payload["rates"]["measurement_target_hz"] == 30.0
     assert payload["rates"]["artifact_capture_hz"] is None
+    assert payload["rates"]["artifact_target_hz"] == 5.0
     assert payload["measurement_profile"]["acquisition_roi"] == {
         "x": 512,
         "y": 342,
@@ -1193,6 +1196,59 @@ def test_auto_detect_definition_directional_contour_can_flip_from_border_hugging
     assert payload["threshold_mode_used"] == "binary"
     assert payload["point_a_px"] == {"x": 40, "y": 20}
     assert "selected dark_on_light polarity" in payload["detail"]
+
+
+def test_auto_detect_definition_directional_contour_rejects_only_roi_boundary_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[128] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            self.config = config
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=96.0,
+                quality=0.97,
+                point_a_px=(0, 0),
+                point_b_px=(96, 0),
+                meta={
+                    "component_area": 1_200,
+                    "selection_mode": "directional_contour_max_chord",
+                },
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "metric_box": {"center_x": 50, "center_y": 50, "width": 100, "height": 100, "angle_deg": 0.0},
+            "direction_angle_deg": 0.0,
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "ambiguous_contour_or_roi_boundary" in response.json()["detail"]
 
 
 def test_auto_detect_definition_directional_contour_keeps_requested_threshold_when_specific(
