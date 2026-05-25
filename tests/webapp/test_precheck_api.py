@@ -386,7 +386,8 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
 ) -> None:
     client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
 
-    def fake_probe(runtime_config) -> dict[str, object]:
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        assert definition is None
         return {
             "status": "ok",
             "profile": runtime_config.profile,
@@ -422,6 +423,7 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
                     "frame_id": 1,
                     "timestamp_ms": 1000,
                     "source": "fake_setup_preview",
+                    "ab_detection": None,
                     "detail": "setup_preview frame matches offline truth pixel contract.",
                 },
                 {
@@ -435,6 +437,7 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
                     "frame_id": 2,
                     "timestamp_ms": 2000,
                     "source": "fake_measurement",
+                    "ab_detection": None,
                     "detail": "measurement frame matches offline truth pixel contract.",
                 },
             ],
@@ -456,3 +459,87 @@ def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
     assert [item["profile_name"] for item in payload["profiles"]] == ["setup_preview", "measurement"]
     assert payload["profiles"][0]["actual_size_px"] == {"width": 2048, "height": 1364}
     assert payload["profiles"][1]["actual_size_px"] == {"width": 2048, "height": 1364}
+
+
+def test_real_offline_live_probe_accepts_definition_for_formal_ab_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    captured: dict[str, object] = {}
+
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        captured["profile"] = runtime_config.profile
+        captured["definition"] = definition
+        return {
+            "status": "ok",
+            "profile": runtime_config.profile,
+            "hardware_access": "attempted",
+            "alignment_contract": {
+                "status": "ok",
+                "real_profile": runtime_config.profile,
+                "offline_profile": "dev_offline_capture",
+                "pixel_contract": {"source_size_px": {"width": 2048, "height": 1364}},
+                "algorithm_contract": {
+                    "vision": {"foreground_polarity": "dark_on_light", "threshold_mode": "adaptive"},
+                    "ab_selection": {
+                        "formal_point_source": "target_contour_boundary",
+                        "formal_point_fields": ["point_a_px", "point_b_px"],
+                        "direction_projection_mode": "max_chord",
+                        "projected_points_exposed_as_formal_ab": False,
+                    },
+                },
+            },
+            "profiles": [
+                {
+                    "profile_name": "setup_preview",
+                    "status": "ok",
+                    "expected_size_px": {"width": 2048, "height": 1364},
+                    "actual_size_px": {"width": 2048, "height": 1364},
+                    "expected_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "actual_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "acquisition": {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0},
+                    "frame_id": 1,
+                    "timestamp_ms": 1000,
+                    "source": "fake_setup_preview",
+                    "ab_detection": {
+                        "status": "ok",
+                        "selection_mode": "directional_contour_max_chord",
+                        "direction_projection_mode": "max_chord",
+                        "quality": 0.98,
+                        "metric_raw": 800.0,
+                        "point_a_px": [600, 680],
+                        "point_b_px": [1400, 680],
+                    },
+                    "detail": "setup_preview frame matches offline truth pixel and formal A/B contracts.",
+                }
+            ],
+            "detail": "ok",
+        }
+
+    monkeypatch.setattr(profile_routes, "probe_real_camera_alignment", fake_probe)
+
+    response = client.post(
+        "/api/system/real-offline-alignment/live-probe",
+        json={
+            "analysis_roi": {"x": 500, "y": 540, "width": 1000, "height": 260},
+            "metric_box": {"center_x": 1000, "center_y": 670, "width": 900, "height": 200, "angle_deg": 0.0},
+            "point_a_px": {"x": 600, "y": 680},
+            "point_b_px": {"x": 1400, "y": 680},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "sensitivity": 50.0,
+            "direction_angle_deg": 0.0,
+            "direction_projection_mode": "max_chord",
+        },
+    )
+
+    assert response.status_code == 200
+    definition = captured["definition"]
+    assert definition is not None
+    assert definition.direction_projection_mode == "max_chord"
+    assert definition.foreground_polarity == "dark_on_light"
+    assert response.json()["profiles"][0]["ab_detection"]["selection_mode"] == "directional_contour_max_chord"

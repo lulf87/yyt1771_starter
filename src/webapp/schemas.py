@@ -507,6 +507,7 @@ class RealCameraAlignmentProfileProbeResponse(BaseModel):
     frame_id: int | None = None
     timestamp_ms: int | None = None
     source: str = ""
+    ab_detection: dict[str, Any] | None = None
     detail: str
 
 

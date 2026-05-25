@@ -4,7 +4,7 @@ import src.application.real_camera_alignment_probe as real_camera_alignment_prob
 from src.application.real_offline_alignment import RealOfflineAlignmentError
 from src.application.real_camera_alignment_probe import probe_real_camera_alignment
 from src.application.runtime_config import load_runtime_config
-from src.core.models import FramePacket
+from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion
 
 
 def _fake_alignment_contract(real_profile: str) -> dict[str, object]:
@@ -79,6 +79,70 @@ def test_probe_real_camera_alignment_checks_setup_and_measurement_profiles() -> 
     ]
     assert opened_profiles == ["setup_preview", "measurement"]
     assert closed_profiles == ["setup_preview", "measurement"]
+
+
+def test_probe_real_camera_alignment_runs_formal_ab_detection_when_definition_is_provided() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    opened_profiles: list[str] = []
+
+    class FakeCamera:
+        def __init__(self, profile_name: str) -> None:
+            self.profile_name = profile_name
+
+        def read_frame(self) -> FramePacket:
+            opened_profiles.append(self.profile_name)
+            profile = getattr(runtime_config.live.camera, self.profile_name)
+            image = np.full((1364, 2048), 240, dtype=np.uint8)
+            image[650:711, 600:1401] = 20
+            return FramePacket(
+                timestamp_ms=1_000 if self.profile_name == "setup_preview" else 2_000,
+                source=f"fake_{self.profile_name}",
+                image=image,
+                frame_id=1 if self.profile_name == "setup_preview" else 2,
+                meta={
+                    "device_roi": {
+                        "x": profile.device_roi.x,
+                        "y": profile.device_roi.y,
+                        "width": profile.device_roi.width,
+                        "height": profile.device_roi.height,
+                    }
+                },
+            )
+
+        def close(self) -> None:
+            pass
+
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=500, y=540, width=1000, height=260),
+        metric_box=MetricBox(center_x=1000, center_y=670, width=900, height=200, angle_deg=0.0),
+        point_a_px=PixelPoint(x=600, y=680),
+        point_b_px=PixelPoint(x=1400, y=680),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        sensitivity=50.0,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
+    )
+
+    payload = probe_real_camera_alignment(
+        runtime_config,
+        camera_opener=lambda _runtime_config, profile_name: FakeCamera(profile_name),
+        alignment_auditor=_fake_alignment_contract,
+        definition=definition,
+    )
+
+    assert payload["status"] == "ok"
+    assert opened_profiles == ["setup_preview", "measurement"]
+    detections = [item["ab_detection"] for item in payload["profiles"]]
+    assert [item["status"] for item in detections] == ["ok", "ok"]
+    assert {item["selection_mode"] for item in detections} == {"directional_contour_max_chord"}
+    assert {item["direction_projection_mode"] for item in detections} == {"max_chord"}
+    assert all(item["quality"] >= 0.75 for item in detections)
+    assert detections[0]["point_a_px"][0] < detections[0]["point_b_px"][0]
+    assert detections[1]["point_a_px"] == detections[0]["point_a_px"]
+    assert detections[1]["point_b_px"] == detections[0]["point_b_px"]
 
 
 def test_probe_real_camera_alignment_reports_contract_mismatch() -> None:

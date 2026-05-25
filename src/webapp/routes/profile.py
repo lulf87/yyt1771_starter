@@ -17,10 +17,13 @@ from src.application.real_offline_alignment import (
 from src.application.real_camera_alignment_probe import probe_real_camera_alignment
 from src.application.runtime_config import RuntimeConfig
 from src.application.temp_serial_ports import list_serial_ports
+from src.core.enums import ObservationAxis
+from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion
 from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
 from src.webapp.schemas import (
     CameraProbeRequest,
     CameraProbeResponse,
+    MeasurementDefinitionRequest,
     PrecheckResponse,
     ProfileResponse,
     RealCameraAlignmentProbeResponse,
@@ -66,8 +69,12 @@ def get_real_offline_alignment_audit(runtime_config: RuntimeConfig = Depends(get
 
 
 @router.post("/real-offline-alignment/live-probe", response_model=RealCameraAlignmentProbeResponse)
-def post_real_camera_alignment_probe(runtime_config: RuntimeConfig = Depends(get_runtime_config)) -> dict[str, Any]:
-    return probe_real_camera_alignment(runtime_config)
+def post_real_camera_alignment_probe(
+    payload: MeasurementDefinitionRequest | None = Body(default=None),
+    runtime_config: RuntimeConfig = Depends(get_runtime_config),
+) -> dict[str, Any]:
+    definition = None if payload is None else _measurement_definition_from_payload(payload)
+    return probe_real_camera_alignment(runtime_config, definition=definition)
 
 
 @router.post("/camera/probe", response_model=CameraProbeResponse)
@@ -181,6 +188,34 @@ def post_target_temperature(
 
 def _temp_backend(container: ApplicationContainer) -> str:
     return str(container.runtime_config.live.temp.backend or container.runtime_config.adapters.get("temp", "") or "")
+
+
+def _measurement_definition_from_payload(payload: MeasurementDefinitionRequest) -> MeasurementDefinition:
+    return MeasurementDefinition(
+        analysis_roi=RectRegion(
+            x=payload.analysis_roi.x,
+            y=payload.analysis_roi.y,
+            width=payload.analysis_roi.width,
+            height=payload.analysis_roi.height,
+        ),
+        metric_box=MetricBox(
+            center_x=payload.metric_box.center_x,
+            center_y=payload.metric_box.center_y,
+            width=payload.metric_box.width,
+            height=payload.metric_box.height,
+            angle_deg=payload.metric_box.angle_deg,
+        ),
+        point_a_px=PixelPoint(x=payload.point_a_px.x, y=payload.point_a_px.y),
+        point_b_px=PixelPoint(x=payload.point_b_px.x, y=payload.point_b_px.y),
+        foreground_polarity=payload.foreground_polarity,
+        threshold_mode=payload.threshold_mode,
+        ignore_internal_texture=payload.ignore_internal_texture,
+        min_target_area_px=payload.min_target_area_px,
+        sensitivity=payload.sensitivity,
+        direction_angle_deg=payload.direction_angle_deg,
+        direction_projection_mode=payload.direction_projection_mode,
+        observation_axis=ObservationAxis(payload.observation_axis),
+    )
 
 
 def _write_and_confirm_target_temperature(controller: object, target_temperature_celsius: float) -> dict[str, object]:

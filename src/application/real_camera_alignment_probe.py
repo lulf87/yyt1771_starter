@@ -24,7 +24,8 @@ from src.application.real_offline_alignment import (
     run_alignment_audit,
 )
 from src.application.runtime_config import load_runtime_config
-from src.core.models import FramePacket
+from src.core.models import FramePacket, MeasurementDefinition
+from src.vision.contour_direction import DirectionalContourConfig, DirectionalContourMetricExtractor
 
 
 def probe_real_camera_alignment(
@@ -32,6 +33,7 @@ def probe_real_camera_alignment(
     *,
     camera_opener: Callable[[Any, str], object] | None = None,
     alignment_auditor: Callable[[str], dict[str, Any]] | None = None,
+    definition: MeasurementDefinition | None = None,
 ) -> dict[str, Any]:
     """Capture setup and measurement frames and compare them to offline truth.
 
@@ -54,7 +56,12 @@ def probe_real_camera_alignment(
     opener = camera_opener or _open_camera_for_profile
     profiles: list[dict[str, Any]] = []
     for profile_name in ("setup_preview", "measurement"):
-        result = _probe_camera_profile(runtime_config, profile_name=profile_name, camera_opener=opener)
+        result = _probe_camera_profile(
+            runtime_config,
+            profile_name=profile_name,
+            camera_opener=opener,
+            definition=definition,
+        )
         profiles.append(result)
         if result["status"] != "ok":
             return {
@@ -83,6 +90,7 @@ def _probe_camera_profile(
     *,
     profile_name: str,
     camera_opener: Callable[[Any, str], object],
+    definition: MeasurementDefinition | None,
 ) -> dict[str, Any]:
     expected_size = expected_frame_size(runtime_config, profile_name=profile_name)
     expected_roi = expected_frame_device_roi(runtime_config, profile_name=profile_name)
@@ -103,9 +111,20 @@ def _probe_camera_profile(
             context=f"real_camera_alignment_probe_{profile_name}",
         )
         actual_size = frame_image_size(frame)
+        ab_detection = _probe_formal_ab_detection(
+            runtime_config,
+            frame=frame,
+            definition=definition,
+        )
+        profile_status = "ok" if ab_detection["status"] in {"ok", "not_attempted"} else "fail"
+        profile_detail = (
+            f"{profile_name} frame matches offline truth pixel contract."
+            if profile_status == "ok"
+            else f"{profile_name} frame matches pixel contract, but formal A/B detection failed: {ab_detection['detail']}"
+        )
         return {
             "profile_name": profile_name,
-            "status": "ok",
+            "status": profile_status,
             "expected_size_px": _size_payload(expected_size),
             "actual_size_px": _size_payload(actual_size),
             "expected_device_roi": expected_roi,
@@ -114,7 +133,8 @@ def _probe_camera_profile(
             "frame_id": frame.frame_id,
             "timestamp_ms": int(frame.timestamp_ms),
             "source": str(frame.source),
-            "detail": f"{profile_name} frame matches offline truth pixel contract.",
+            "ab_detection": ab_detection,
+            "detail": profile_detail,
         }
     except Exception as exc:
         return {
@@ -128,6 +148,7 @@ def _probe_camera_profile(
             "frame_id": None,
             "timestamp_ms": None,
             "source": "",
+            "ab_detection": None,
             "detail": normalize_camera_runtime_error(exc),
         }
     finally:
@@ -142,6 +163,121 @@ def _probe_camera_profile(
 
 def _open_camera_for_profile(runtime_config: Any, profile_name: str) -> object:
     return open_camera(runtime_config, profile_name=profile_name)
+
+
+def _probe_formal_ab_detection(
+    runtime_config: Any,
+    *,
+    frame: FramePacket,
+    definition: MeasurementDefinition | None,
+) -> dict[str, Any]:
+    if definition is None:
+        return {
+            "status": "not_attempted",
+            "detail": "No measurement definition was provided for real-frame contour/A-B probing.",
+        }
+    direction_angle_deg = (
+        float(definition.metric_box.angle_deg)
+        if definition.direction_angle_deg is None
+        else float(definition.direction_angle_deg)
+    )
+    extractor = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=definition.analysis_roi,
+            direction_angle_deg=direction_angle_deg,
+            metric_box=definition.metric_box,
+            foreground_polarity=definition.foreground_polarity,
+            threshold_mode=definition.threshold_mode,
+            threshold_value=runtime_config.live.vision.edge_threshold,
+            ignore_internal_texture=definition.ignore_internal_texture,
+            min_target_area_px=definition.min_target_area_px,
+            sensitivity=definition.sensitivity,
+            component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
+                definition.sensitivity,
+                direction_angle_deg=direction_angle_deg,
+            ),
+            projection_mode=definition.direction_projection_mode,
+        )
+    )
+    metric = extractor.extract(frame)
+    selection_mode = str(metric.meta.get("selection_mode", "") or "")
+    projection_mode = str(metric.meta.get("projection_point_mode", "") or "")
+    if metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return {
+            "status": "fail",
+            "selection_mode": selection_mode or None,
+            "direction_projection_mode": projection_mode or definition.direction_projection_mode,
+            "quality": float(metric.quality),
+            "metric_raw": None,
+            "point_a_px": None,
+            "point_b_px": None,
+            "detail": f"Formal A/B detection failed: {metric.meta.get('reason', 'unknown_error')}",
+        }
+    expected_selection = "directional_contour_max_chord"
+    expected_projection = "max_chord"
+    if selection_mode != expected_selection or projection_mode != expected_projection:
+        return {
+            "status": "fail",
+            "selection_mode": selection_mode,
+            "direction_projection_mode": projection_mode,
+            "quality": float(metric.quality),
+            "metric_raw": float(metric.metric_raw),
+            "point_a_px": list(metric.point_a_px),
+            "point_b_px": list(metric.point_b_px),
+            "detail": (
+                "Formal A/B detection did not use the offline truth selection mode: "
+                f"selection_mode={selection_mode}, direction_projection_mode={projection_mode}"
+            ),
+        }
+    if float(metric.quality) < float(runtime_config.live.vision.quality_threshold):
+        return {
+            "status": "fail",
+            "selection_mode": selection_mode,
+            "direction_projection_mode": projection_mode,
+            "quality": float(metric.quality),
+            "metric_raw": float(metric.metric_raw),
+            "point_a_px": list(metric.point_a_px),
+            "point_b_px": list(metric.point_b_px),
+            "detail": (
+                f"Formal A/B detection quality {float(metric.quality):.3f} is below "
+                f"offline truth threshold {float(runtime_config.live.vision.quality_threshold):.3f}"
+            ),
+        }
+    return {
+        "status": "ok",
+        "selection_mode": selection_mode,
+        "direction_projection_mode": projection_mode,
+        "quality": float(metric.quality),
+        "metric_raw": float(metric.metric_raw),
+        "point_a_px": list(metric.point_a_px),
+        "point_b_px": list(metric.point_b_px),
+        "component_area": metric.meta.get("component_area"),
+        "threshold_value": metric.meta.get("threshold_value"),
+        "detail": "Formal A/B detection used the offline truth contour max-chord rule.",
+    }
+
+
+def _directional_component_bridge_kernel_for_sensitivity(
+    sensitivity: float,
+    *,
+    direction_angle_deg: float,
+) -> int:
+    normalized = max(0.0, min(100.0, float(sensitivity))) / 100.0
+    angle = abs(float(direction_angle_deg) % 180.0)
+    near_vertical = abs(angle - 90.0) <= 15.0
+    if near_vertical:
+        if normalized <= 0.5:
+            size = 7.0 + (normalized / 0.5) * 34.0
+        else:
+            size = 41.0 + ((normalized - 0.5) / 0.5) * 22.0
+    elif normalized <= 0.5:
+        size = 3.0 + (normalized / 0.5) * 10.0
+    else:
+        size = 13.0 + ((normalized - 0.5) / 0.5) * 14.0
+    kernel = max(1, int(round(size)))
+    if kernel % 2 == 0:
+        kernel += 1
+    return kernel
 
 
 def _offline_truth_alignment_contract(
