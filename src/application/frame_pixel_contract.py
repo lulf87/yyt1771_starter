@@ -37,7 +37,16 @@ def validate_frame_pixel_contract(
         )
     expected_roi = expected_frame_device_roi(runtime_config, profile_name=profile_name)
     actual_roi = frame_device_roi(frame)
-    if expected_roi is not None and actual_roi is not None and actual_roi != expected_roi:
+    if expected_roi is not None and actual_roi is None:
+        profile = str(getattr(runtime_config, "profile", "") or "unknown")
+        raise FramePixelContractError(
+            f"Frame pixel ROI contract mismatch in {context}: profile={profile}, "
+            f"camera_profile={profile_name}, expected_roi={format_device_roi(expected_roi)}, "
+            "actual_roi=missing device_roi metadata. "
+            "locked real/offline profiles must expose the applied camera ROI origin and size "
+            "before contour and A/B detection."
+        )
+    if expected_roi is not None and actual_roi != expected_roi:
         profile = str(getattr(runtime_config, "profile", "") or "unknown")
         raise FramePixelContractError(
             f"Frame pixel ROI contract mismatch in {context}: profile={profile}, "

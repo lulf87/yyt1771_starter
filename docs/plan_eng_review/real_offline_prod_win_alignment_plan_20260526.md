@@ -50,6 +50,10 @@ If a frame includes applied `device_roi` metadata, the runtime guard must also
 reject any preset/live frame whose applied ROI origin or size differs from the
 locked profile ROI.
 
+Locked profile frames must carry applied `device_roi` metadata. Missing metadata
+is treated as a contract failure because the runtime cannot prove the source
+pixels match the accepted offline material before contour/A-B processing.
+
 - [x] **Step 4: Include `prod_win` in no-device precheck alignment**
 
 `real_offline_pixel_alignment` must report `ok` only when `prod_win` setup/live pixels and preview display bounds match the offline truth contract.

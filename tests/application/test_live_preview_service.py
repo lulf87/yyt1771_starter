@@ -461,6 +461,36 @@ def test_fetch_frame_rejects_locked_profile_preview_roi_that_differs_from_offlin
     assert camera.closed is True
 
 
+def test_fetch_frame_rejects_locked_profile_preview_without_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class MissingRoiMetaCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_700 + self.frame_id,
+                source="missing_roi_meta_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MissingRoiMetaCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="missing device_roi metadata"):
+        service.fetch_frame(runtime_config, run_id="run-missing-roi-meta", prefer_cached=False)
+
+    assert camera.closed is True
+
+
 def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_material() -> None:
     service = LivePreviewService()
 
@@ -476,6 +506,7 @@ def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_ma
                 source="matching_size_camera",
                 image=np.zeros((1364, 2048), dtype=np.uint8),
                 frame_id=self.frame_id,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
             )
 
         def close(self) -> None:
@@ -490,4 +521,5 @@ def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_ma
     assert frame.frame_id == 3
     assert frame.meta["pixel_contract_width"] == 2048
     assert frame.meta["pixel_contract_height"] == 1364
+    assert frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
     assert camera.closed is True
