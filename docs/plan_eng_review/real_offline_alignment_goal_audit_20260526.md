@@ -47,12 +47,12 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Contour detection must match the offline truth | `algorithm_contract.vision` locks `foreground_polarity=dark_on_light`, `threshold_mode=adaptive`, `edge_threshold=10.0`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `quality_threshold=0.75`. Precheck now fails if the locked profile does not provide or match this vision contract. | No-hardware contract verified |
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, `direction_projection_mode=max_chord`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
 | Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
-| Connected real camera must prove contour/A-B behavior with an operator ROI | `POST /api/system/real-offline-alignment/live-probe` and `python -m src.application.real_camera_alignment_probe --profile dev_lab --definition-file <definition.json>` can now accept the current `MeasurementDefinition` payload. When provided, the probe runs the same formal `DirectionalContourMetricExtractor` with `direction_projection_mode=max_chord` on both the real setup-preview frame and the real measurement frame, returning per-profile `ab_detection` with `selection_mode`, `direction_projection_mode`, quality, metric, and formal `point_a_px / point_b_px`. | Implemented; hardware pass pending |
+| Connected real camera must prove contour/A-B behavior with an operator ROI | `POST /api/system/real-offline-alignment/live-probe` and `python -m src.application.real_camera_alignment_probe --profile dev_lab --definition-file <definition.json>` can now accept the current `MeasurementDefinition` payload. When provided, the probe first guards the definition against the offline-truth contour/A-B contract, then runs the same formal `DirectionalContourMetricExtractor` with `direction_projection_mode=max_chord` on both the real setup-preview frame and the real measurement frame, returning per-profile `ab_detection` with `selection_mode`, `direction_projection_mode`, quality, metric, and formal `point_a_px / point_b_px`. | Implemented; hardware pass pending |
 | Offline material live-probe must not be mistaken for hardware validation | `probe_real_camera_alignment()` now exposes `frame_source_mode` and `frame_access` separately from `hardware_access`. When the active profile is `dev_offline_capture`, the probe may read setup/measurement offline frames and validate formal A/B, but reports `frame_source_mode=offline_capture`, `frame_access=attempted`, and `hardware_access=not_attempted`. | No-hardware boundary verified |
 | One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
 | Runtime preset and live-run paths must not bypass the alignment contract | `src.application.real_offline_alignment_guard.assert_real_offline_alignment_ready()` gates locked profiles before `definition/auto` and before `LiveRunService.start_run()`. If source pixels, contour settings, or live A/B tracking policy drift from the offline truth, preset auto-detect returns `409` before fetching a frame and live run start returns `409` before opening the camera. | No-hardware runtime guard verified |
 | Operator/request contour settings must not bypass the offline truth | Locked profiles now validate the request or saved `MeasurementDefinition` contour fields before save-definition, preset auto-detect, and live-run start. The locked auto-detect path uses only the offline-truth contour candidate (`dark_on_light`, `adaptive`, `ignore_internal_texture=false`, `min_target_area_px=200`) instead of searching alternate threshold/polarity combinations. | No-hardware runtime guard verified |
-| Operator/request A/B selection mode must not bypass the offline truth | Locked profiles now reject `direction_projection_mode=auto` and `direction_projection_mode=mask_projection` before preset auto-detect, save-definition, and live-run start. The Web default now sends `max_chord`, the precheck detail exposes `direction_projection_mode=max_chord`, and the standard offline-material sample audit overrides the historical reference definition's old `mask_projection` value to verify the current formal A/B rule. | No-hardware runtime guard verified |
+| Operator/request A/B selection mode must not bypass the offline truth | Locked profiles now reject `direction_projection_mode=auto` and `direction_projection_mode=mask_projection` before preset auto-detect, save-definition, live-run start, Web live-probe, and CLI definition probe frame access. The Web default now sends `max_chord`, the precheck detail exposes `direction_projection_mode=max_chord`, and the standard offline-material sample audit overrides the historical reference definition's old `mask_projection` value to verify the current formal A/B rule. | No-hardware runtime guard verified |
 | Browser operator defaults must start from the offline truth | The home page detection controls now default to the offline-truth contour settings. In particular, `live-ignore-internal-texture` is not checked by default, so a normal operator ROI recompute does not immediately violate the locked-profile contour guard. | Browser shell verified |
 | The no-hardware 12-angle audit must use the same contour settings as the offline truth | The synthetic angle audit now builds its `MeasurementDefinition` contour fields from `dev_offline_capture` runtime vision settings and exposes `contour_settings` per angle. This prevents the real/offline audit from proving A/B parity with stale historical definition parameters. | No-hardware contract verified |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
@@ -265,16 +265,21 @@ Observed in the real browser:
   JSON, or a run artifact directory containing `definition_original.json`, with
   `--definition-file`, so connected-device validation does not depend on
   Swagger or browser-only manual calls
-- CLI smoke against `dev_offline_capture` with `--definition-file
-  examples/runtime/artifacts/run-ffe5a57585b5` returned `status=ok`,
+- CLI smoke against `dev_offline_capture` with a current offline-truth
+  definition derived from `examples/runtime/artifacts/run-ffe5a57585b5` but
+  updated to the locked contour settings (`threshold_mode=adaptive`,
+  `ignore_internal_texture=false`) returned `status=ok`,
   `hardware_access=not_attempted`, `frame_source_mode=offline_capture`, and
   both setup-preview and measurement profiles reported `2048x1364` plus
   `ab_detection.status=ok` / `direction_projection_mode=max_chord`
 - CLI smoke against the older accepted reference directory
   `examples/runtime/artifacts/run-9953bd601113` correctly failed because its
-  historical `definition_original.json` still requests `mask_projection`; this
-  proves the connected-device probe rejects stale non-`max_chord` definitions
-  instead of silently reusing old A/B semantics
+  historical `definition_original.json` still requests stale contour/A-B
+  settings (`ignore_internal_texture=true`, `direction_projection_mode=mask_projection`).
+  The failure now returns `frame_access=not_attempted` and
+  `hardware_access=not_attempted`, proving the connected-device probe rejects
+  stale definitions before reading frames instead of silently reusing old
+  semantics
 - the operator home page `探测相机` action now attaches the current source-space
   measurement definition to `/api/system/real-offline-alignment/live-probe`
   whenever ROI-local A/B is complete, so the browser-visible probe reports
@@ -324,6 +329,12 @@ Observed in the real browser:
   viewport showed source frame `2048x1364` and display frame `816x543`; the
   detection controls showed `dark_on_light`, `adaptive`, minimum area `200`,
   and the `忽略内部纹理` checkbox visually unchecked
+- on `http://127.0.0.1:8017/docs` with `dev_offline_capture`, Swagger UI
+  execution of `POST /api/system/real-offline-alignment/live-probe` using stale
+  `examples/runtime/artifacts/run-9953bd601113/definition_original.json`
+  returned HTTP `200` with response body `status=fail`,
+  `hardware_access=not_attempted`, `frame_access=not_attempted`, `profiles=[]`,
+  and the real/offline alignment guard detail before any frame access
 - on the same offline browser session, `/api/system/precheck` returned
   `real_offline_pixel_alignment=ok` with detail confirming
   `origin=(0, 0), size=(2048, 1364)`, `preview_display=816x544`,
@@ -337,6 +348,8 @@ Observed in the real browser:
 - offline browser screenshots saved by Playwright as
   `offline_truth_ui_defaults_20260526.png` and
   `offline_truth_ignore_texture_unchecked_20260526.png`
+- updated stale live-probe guard screenshot saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_guard_swagger_20260526.png`
 
 ## Remaining Hardware Validation
 

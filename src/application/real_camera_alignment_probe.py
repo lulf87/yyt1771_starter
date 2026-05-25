@@ -24,6 +24,10 @@ from src.application.real_offline_alignment import (
     RealOfflineAlignmentError,
     run_alignment_audit,
 )
+from src.application.real_offline_alignment_guard import (
+    RealOfflineAlignmentGuardError,
+    assert_real_offline_definition_ready,
+)
 from src.application.runtime_config import load_runtime_config
 from src.core.enums import ObservationAxis
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion
@@ -57,6 +61,25 @@ def probe_real_camera_alignment(
             "profiles": [],
             "detail": str(alignment_contract["detail"]),
         }
+
+    if definition is not None:
+        try:
+            assert_real_offline_definition_ready(
+                runtime_config,
+                definition,
+                context="real_camera_alignment_probe",
+            )
+        except RealOfflineAlignmentGuardError as exc:
+            return {
+                "status": "fail",
+                "profile": str(getattr(runtime_config, "profile", "") or ""),
+                "hardware_access": "not_attempted",
+                "frame_source_mode": frame_source_mode,
+                "frame_access": "not_attempted",
+                "alignment_contract": alignment_contract,
+                "profiles": [],
+                "detail": str(exc),
+            }
 
     opener = camera_opener or _open_camera_for_profile
     profiles: list[dict[str, Any]] = []

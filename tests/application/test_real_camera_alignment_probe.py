@@ -191,6 +191,41 @@ def test_probe_real_camera_alignment_runs_formal_ab_detection_when_definition_is
     assert detections[1]["point_b_px"] == detections[0]["point_b_px"]
 
 
+def test_probe_real_camera_alignment_rejects_stale_definition_before_frame_access() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=500, y=540, width=1000, height=260),
+        metric_box=MetricBox(center_x=1000, center_y=670, width=900, height=200, angle_deg=0.0),
+        point_a_px=PixelPoint(x=600, y=680),
+        point_b_px=PixelPoint(x=1400, y=680),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        sensitivity=50.0,
+        direction_angle_deg=0.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    def unexpected_open(_runtime_config, _profile_name: str) -> object:
+        raise AssertionError("camera should not be opened when the definition drifts from offline truth")
+
+    payload = probe_real_camera_alignment(
+        runtime_config,
+        camera_opener=unexpected_open,
+        alignment_auditor=_fake_alignment_contract,
+        definition=definition,
+    )
+
+    assert payload["status"] == "fail"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["frame_source_mode"] == "real_camera"
+    assert payload["frame_access"] == "not_attempted"
+    assert payload["profiles"] == []
+    assert "real_camera_alignment_probe blocked by real/offline alignment guard" in payload["detail"]
+    assert "mask_projection" in payload["detail"]
+
+
 def test_probe_real_camera_alignment_reports_contract_mismatch() -> None:
     runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
 
