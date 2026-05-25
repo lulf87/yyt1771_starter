@@ -1,3 +1,4 @@
+from dataclasses import replace
 import threading
 
 import numpy as np
@@ -13,6 +14,7 @@ from src.application.live_run_service import (
     _measurement_capture_plan_payload,
     _preview_scaled_grayscale_image,
     _preview_point_from_tracking_frame_meta,
+    _runtime_config_with_measurement_profile,
     _runtime_config_with_operator_output_power,
     _should_cache_tracking_preview,
     _tracking_preview_min_interval_ms,
@@ -646,6 +648,67 @@ def test_live_run_measurement_camera_accepts_pixels_that_match_offline_material(
     assert frame.meta["pixel_contract_width"] == 2048
     assert frame.meta["pixel_contract_height"] == 1364
     assert frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
+
+
+def test_live_run_measurement_camera_accepts_effective_applied_measurement_roi() -> None:
+    effective_roi = DeviceRoiConfig(x=832, y=560, width=360, height=184)
+    runtime_config = load_runtime_config("dev_lab")
+    effective_profile = replace(runtime_config.live.camera.measurement, device_roi=effective_roi)
+    effective_config = _runtime_config_with_measurement_profile(runtime_config, effective_profile)
+
+    class EffectiveRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="effective_roi_measurement",
+                image=np.zeros((184, 360), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 832, "y": 560, "width": 360, "height": 184}},
+            )
+
+    camera = _FramePixelContractCamera(
+        EffectiveRoiCamera(),
+        runtime_config=effective_config,
+        profile_name="measurement",
+    )
+
+    frame = camera.read_frame()
+
+    assert frame.meta["pixel_contract_width"] == 360
+    assert frame.meta["pixel_contract_height"] == 184
+    assert frame.meta["pixel_contract_device_roi"] == {"x": 832, "y": 560, "width": 360, "height": 184}
+
+
+def test_live_run_measurement_camera_rejects_stale_baseline_roi_after_effective_roi_applied() -> None:
+    effective_roi = DeviceRoiConfig(x=832, y=560, width=360, height=184)
+    runtime_config = load_runtime_config("dev_lab")
+    effective_profile = replace(runtime_config.live.camera.measurement, device_roi=effective_roi)
+    effective_config = _runtime_config_with_measurement_profile(runtime_config, effective_profile)
+
+    class StaleBaselineRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="stale_baseline_roi_measurement",
+                image=np.zeros((184, 360), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        StaleBaselineRoiCamera(),
+        runtime_config=effective_config,
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected_roi=x=832,y=560,width=360,height=184" in str(exc)
+        assert "actual_roi=x=512,y=342,width=2048,height=1364" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected stale baseline ROI contract failure")
 
 
 def test_should_cache_tracking_preview_honors_minimum_interval() -> None:

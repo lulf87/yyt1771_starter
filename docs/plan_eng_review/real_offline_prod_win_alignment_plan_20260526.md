@@ -60,6 +60,13 @@ startup, later live preview stream frames, and live-run measurement frames.
 Locked profiles must also reject unknown camera acquisition profile names
 instead of returning `None` and skipping validation.
 
+Live-run measurement must validate against the effective measurement ROI after
+camera open, not only the baseline profile ROI. If the Hik SDK reports an
+applied ROI that differs from the requested ROI, the runtime must rebuild the
+measurement profile and local definition against that applied ROI, then reject
+any later measurement frame whose pixels or `device_roi` metadata still match a
+stale baseline crop.
+
 - [x] **Step 4: Include `prod_win` in no-device precheck alignment**
 
 `real_offline_pixel_alignment` must report `ok` only when `prod_win` setup/live pixels and preview display bounds match the offline truth contract.
@@ -115,6 +122,12 @@ Assert the real/offline alignment API uses the current `prod_win` service profil
 - [x] **Step 6: Update all-profile audit assertions**
 
 Assert the all-profile helper returns `ok`, covers all locked real profiles, and checks all 12 ROI angles per profile.
+
+- [x] **Step 7: Cover live-run effective ROI validation**
+
+Assert the measurement frame contract accepts a non-baseline applied ROI after
+the runtime measurement profile is rebuilt, and rejects a stale baseline ROI in
+that effective context.
 
 ### Task 3: Update Operator Documentation
 

@@ -218,6 +218,17 @@ produce misleading A/B points or curve data. For locked profiles, an unknown
 camera acquisition profile name is also rejected instead of silently skipping
 the pixel/ROI contract.
 
+For live-run measurement, the contract follows the effective acquisition ROI
+after the Hik SDK has opened the camera and reported its applied ROI. The
+runtime first builds the requested measurement ROI from the setup definition,
+then reads the camera's applied device ROI, rebuilds the measurement definition
+in that effective local coordinate space, and only then wraps measurement
+`read_frame()` with the pixel/ROI contract. Regression coverage now proves that
+a non-baseline applied ROI such as `x=832, y=560, width=360, height=184` is
+accepted when both frame pixels and `device_roi` metadata match that effective
+ROI, while a stale baseline `x=512, y=342, width=2048, height=1364` ROI is
+rejected in the same effective context.
+
 ### 4. Run Guard Behavior
 
 Both active profiles must avoid silently stopping valid long runs because of
@@ -284,7 +295,7 @@ tests/webapp/test_live_run_api.py
 tests/application/test_live_preview_service.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
-169 passed, 1 existing warning
+171 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py
