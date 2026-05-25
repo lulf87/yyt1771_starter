@@ -168,11 +168,7 @@ For a single no-hardware check covering every locked real / production profile
 accepted offline material:
 
 ```bash
-../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 - <<'PY'
-from src.application.real_offline_alignment import run_all_alignment_audits
-payload = run_all_alignment_audits()
-print(payload["status"], payload["profiles_checked"])
-PY
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.real_offline_alignment --all-profiles
 ```
 
 When the standard offline material and its accepted reference run are present,
@@ -288,7 +284,7 @@ tests/webapp/test_live_run_api.py
 tests/application/test_live_preview_service.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
-168 passed, 1 existing warning
+169 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py

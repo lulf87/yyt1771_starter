@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+import subprocess
+import sys
 
 import pytest
 
@@ -54,6 +57,22 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
         item["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
         for item in payload["profile_results"]
     )
+
+
+def test_real_offline_alignment_cli_can_audit_all_locked_profiles_without_device_access() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "src.application.real_offline_alignment", "--all-profiles"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "ok"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["profiles_checked"] == len(REAL_ALIGNMENT_PROFILES)
+    assert [item["real_profile"] for item in payload["profile_results"]] == list(REAL_ALIGNMENT_PROFILES)
 
 
 def test_run_alignment_audit_confirms_standard_offline_material_samples_when_available() -> None:

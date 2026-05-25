@@ -72,6 +72,12 @@ When the Web service is running under `prod_win`, `GET /api/system/real-offline-
 
 `run_all_alignment_audits()` must check `dev_lab`, `dev_lab_camera_mock_temp`, and `prod_win` against the accepted offline material in one command-level call.
 
+The module CLI must expose the same all-profile audit through:
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.real_offline_alignment --all-profiles
+```
+
 ### Task 2: Add Regression Coverage
 
 **Files:**

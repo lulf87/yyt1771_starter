@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict, is_dataclass
 import json
 import math
@@ -448,9 +449,16 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Audit real-device profiles against the accepted offline material.")
+    parser.add_argument(
+        "--all-profiles",
+        action="store_true",
+        help="Audit every locked real/production profile against dev_offline_capture without opening hardware.",
+    )
+    args = parser.parse_args(argv)
     try:
-        payload = run_alignment_audit()
+        payload = run_all_alignment_audits() if args.all_profiles else run_alignment_audit()
     except RealOfflineAlignmentError as exc:
         payload = {"status": "fail", "detail": str(exc), "hardware_access": "not_attempted"}
         print(json.dumps(payload, ensure_ascii=False, indent=2))
