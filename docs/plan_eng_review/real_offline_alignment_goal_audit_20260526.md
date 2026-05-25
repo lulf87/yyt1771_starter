@@ -262,12 +262,19 @@ Observed in the real browser:
 - live-probe can now accept a saved/current measurement definition and return
   per-profile `ab_detection` for setup-preview and measurement frames
 - the terminal probe can now load the same Web setup `MeasurementDefinition`
-  JSON with `--definition-file`, so connected-device validation does not depend
-  on Swagger or browser-only manual calls
-- CLI smoke against `dev_offline_capture` with `--definition-file` returned
-  `status=ok`, `hardware_access=not_attempted`, `frame_source_mode=offline_capture`,
-  and both setup-preview and measurement profiles reported `2048x1364` plus
+  JSON, or a run artifact directory containing `definition_original.json`, with
+  `--definition-file`, so connected-device validation does not depend on
+  Swagger or browser-only manual calls
+- CLI smoke against `dev_offline_capture` with `--definition-file
+  examples/runtime/artifacts/run-ffe5a57585b5` returned `status=ok`,
+  `hardware_access=not_attempted`, `frame_source_mode=offline_capture`, and
+  both setup-preview and measurement profiles reported `2048x1364` plus
   `ab_detection.status=ok` / `direction_projection_mode=max_chord`
+- CLI smoke against the older accepted reference directory
+  `examples/runtime/artifacts/run-9953bd601113` correctly failed because its
+  historical `definition_original.json` still requests `mask_projection`; this
+  proves the connected-device probe rejects stale non-`max_chord` definitions
+  instead of silently reusing old A/B semantics
 - the operator home page `探测相机` action now attaches the current source-space
   measurement definition to `/api/system/real-offline-alignment/live-probe`
   whenever ROI-local A/B is complete, so the browser-visible probe reports
@@ -338,7 +345,7 @@ following are validated on actual hardware:
 
 1. `dev_lab` startup opens the camera without SDK/device-access error.
 2. Either `python -m src.application.real_camera_alignment_probe --profile
-   dev_lab --definition-file <definition.json>` or
+   dev_lab --definition-file <definition.json-or-run-artifact-dir>` or
    `POST /api/system/real-offline-alignment/live-probe` passes against the
    connected camera, proving real `setup_preview` and `measurement` frames both
    match `2048 x 1364` plus the configured device ROI metadata and formal A/B

@@ -359,7 +359,8 @@ def _acquisition_summary(runtime_config: Any, *, profile_name: str) -> dict[str,
 
 
 def _load_measurement_definition(path: Path) -> MeasurementDefinition:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    definition_path = _resolve_measurement_definition_path(path)
+    payload = json.loads(definition_path.read_text(encoding="utf-8"))
     if isinstance(payload, dict):
         for key in ("definition", "definition_original", "measurement_definition"):
             nested = payload.get(key)
@@ -369,6 +370,19 @@ def _load_measurement_definition(path: Path) -> MeasurementDefinition:
     if not isinstance(payload, dict):
         raise ValueError("measurement definition file must contain a JSON object")
     return _measurement_definition_from_payload(payload)
+
+
+def _resolve_measurement_definition_path(path: Path) -> Path:
+    if path.is_dir():
+        for name in ("definition_original.json", "definition.json", "definition_effective_local.json"):
+            candidate = path / name
+            if candidate.exists():
+                return candidate
+        raise FileNotFoundError(
+            f"Run artifact directory does not contain definition_original.json, definition.json, "
+            f"or definition_effective_local.json: {path}"
+        )
+    return path
 
 
 def _measurement_definition_from_payload(payload: dict[str, Any]) -> MeasurementDefinition:
@@ -417,8 +431,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--definition-file",
         type=Path,
         help=(
-            "Optional MeasurementDefinition JSON from the Web setup flow. When provided, "
-            "the probe also validates formal A/B contour detection on setup_preview and measurement frames."
+            "Optional MeasurementDefinition JSON from the Web setup flow, or a run artifact directory containing "
+            "definition_original.json. When provided, the probe also validates formal A/B contour detection on "
+            "setup_preview and measurement frames."
         ),
     )
     args = parser.parse_args(argv)

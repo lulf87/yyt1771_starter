@@ -376,6 +376,61 @@ def test_real_camera_alignment_probe_cli_loads_definition_file(tmp_path, monkeyp
     assert '"frame_source_mode": "offline_capture"' in captured.out
 
 
+def test_real_camera_alignment_probe_cli_loads_run_artifact_directory(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "run-artifact"
+    run_dir.mkdir()
+    (run_dir / "definition_original.json").write_text(
+        json.dumps(
+            {
+                "analysis_roi": {"x": 510, "y": 550, "width": 980, "height": 240},
+                "metric_box": {
+                    "center_x": 1000,
+                    "center_y": 670,
+                    "width": 880,
+                    "height": 180,
+                    "angle_deg": -13.0,
+                },
+                "point_a_px": {"x": 610, "y": 710},
+                "point_b_px": {"x": 1390, "y": 680},
+                "observation_axis": "long_axis",
+                "foreground_polarity": "dark_on_light",
+                "threshold_mode": "adaptive",
+                "ignore_internal_texture": False,
+                "min_target_area_px": 200,
+                "sensitivity": 50.0,
+                "direction_angle_deg": -13.0,
+                "direction_projection_mode": "max_chord",
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured_definition: dict[str, MeasurementDefinition | None] = {}
+
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        captured_definition["value"] = definition
+        return {
+            "status": "ok",
+            "profile": runtime_config.profile,
+            "hardware_access": "not_attempted",
+            "frame_source_mode": "offline_capture",
+            "frame_access": "attempted",
+            "alignment_contract": _fake_alignment_contract(runtime_config.profile),
+            "profiles": [],
+            "detail": "ok",
+        }
+
+    monkeypatch.setattr(real_camera_alignment_probe, "probe_real_camera_alignment", fake_probe)
+
+    exit_code = real_camera_alignment_probe.main(["--profile", "dev_offline_capture", "--definition-file", str(run_dir)])
+
+    assert exit_code == 0
+    definition = captured_definition["value"]
+    assert definition is not None
+    assert definition.analysis_roi == RectRegion(x=510, y=550, width=980, height=240)
+    assert definition.metric_box.angle_deg == -13.0
+    assert definition.direction_projection_mode == "max_chord"
+
+
 def test_real_camera_alignment_probe_cli_returns_nonzero_on_fail(monkeypatch, capsys) -> None:
     def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
         assert definition is None
