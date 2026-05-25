@@ -23,8 +23,22 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
         item["selection_mode"] == payload["angle_results"][0]["selection_mode"]
         for item in payload["angle_results"]
     )
+    assert all(item["measurement_frame_size_px"] for item in payload["angle_results"])
+    assert all(item["measurement_origin_in_setup_px"] for item in payload["angle_results"])
+    assert all(item["point_a_setup_px"] for item in payload["angle_results"])
+    assert all(item["point_b_setup_px"] for item in payload["angle_results"])
     assert all(item["point_a_px"] for item in payload["angle_results"])
     assert all(item["point_b_px"] for item in payload["angle_results"])
+    for item in payload["angle_results"]:
+        origin = item["measurement_origin_in_setup_px"]
+        assert item["point_a_setup_px"] == [
+            item["point_a_px"][0] + origin["x"],
+            item["point_a_px"][1] + origin["y"],
+        ]
+        assert item["point_b_setup_px"] == [
+            item["point_b_px"][0] + origin["x"],
+            item["point_b_px"][1] + origin["y"],
+        ]
     assert payload["offline_material"]["status"] in {"ok", "missing"}
 
 

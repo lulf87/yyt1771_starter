@@ -305,7 +305,9 @@ def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> di
         f"measurement local Y origin differs at {angle_deg} deg",
     )
 
-    image = np.full((SOURCE_HEIGHT, SOURCE_WIDTH), 240, dtype=np.uint8)
+    measurement_width = int(offline_plan.measurement_profile.device_roi.width)
+    measurement_height = int(offline_plan.measurement_profile.device_roi.height)
+    image = np.full((measurement_height, measurement_width), 240, dtype=np.uint8)
     _paint_test_line(
         image,
         (real_plan.metric_definition.point_a_px.x, real_plan.metric_definition.point_a_px.y),
@@ -336,14 +338,36 @@ def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> di
     _assert_equal(real_metric.point_a_px, offline_metric.point_a_px, f"point A differs at {angle_deg} deg")
     _assert_equal(real_metric.point_b_px, offline_metric.point_b_px, f"point B differs at {angle_deg} deg")
     _assert_equal(real_metric.metric_raw, offline_metric.metric_raw, f"metric raw differs at {angle_deg} deg")
+    origin_in_setup = {
+        "x": int(real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x),
+        "y": int(real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y),
+    }
+    point_a_setup = _local_metric_point_to_setup(real_metric.point_a_px, origin_in_setup)
+    point_b_setup = _local_metric_point_to_setup(real_metric.point_b_px, origin_in_setup)
     return {
         "angle_deg": int(angle_deg),
+        "measurement_frame_size_px": {
+            "width": measurement_width,
+            "height": measurement_height,
+        },
+        "measurement_origin_in_setup_px": origin_in_setup,
         "selection_mode": real_metric.meta.get("selection_mode"),
         "point_a_px": list(real_metric.point_a_px or ()),
         "point_b_px": list(real_metric.point_b_px or ()),
+        "point_a_setup_px": point_a_setup,
+        "point_b_setup_px": point_b_setup,
         "metric_raw": real_metric.metric_raw,
         "quality": real_metric.quality,
     }
+
+
+def _local_metric_point_to_setup(point: Any, origin_in_setup: dict[str, int]) -> list[int]:
+    if point is None:
+        return []
+    return [
+        int(point[0]) + int(origin_in_setup["x"]),
+        int(point[1]) + int(origin_in_setup["y"]),
+    ]
 
 
 def _definition_for_angle(angle_deg: int) -> MeasurementDefinition:
