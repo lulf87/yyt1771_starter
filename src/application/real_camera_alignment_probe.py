@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 import json
+from pathlib import Path
 from typing import Any
 
 from src.application.camera_errors import normalize_camera_runtime_error
@@ -24,7 +25,8 @@ from src.application.real_offline_alignment import (
     run_alignment_audit,
 )
 from src.application.runtime_config import load_runtime_config
-from src.core.models import FramePacket, MeasurementDefinition
+from src.core.enums import ObservationAxis
+from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion
 from src.vision.contour_direction import DirectionalContourConfig, DirectionalContourMetricExtractor
 
 
@@ -356,6 +358,49 @@ def _acquisition_summary(runtime_config: Any, *, profile_name: str) -> dict[str,
     }
 
 
+def _load_measurement_definition(path: Path) -> MeasurementDefinition:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        for key in ("definition", "definition_original", "measurement_definition"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                payload = nested
+                break
+    if not isinstance(payload, dict):
+        raise ValueError("measurement definition file must contain a JSON object")
+    return _measurement_definition_from_payload(payload)
+
+
+def _measurement_definition_from_payload(payload: dict[str, Any]) -> MeasurementDefinition:
+    return MeasurementDefinition(
+        analysis_roi=RectRegion(
+            x=int(payload["analysis_roi"]["x"]),
+            y=int(payload["analysis_roi"]["y"]),
+            width=int(payload["analysis_roi"]["width"]),
+            height=int(payload["analysis_roi"]["height"]),
+        ),
+        metric_box=MetricBox(
+            center_x=int(payload["metric_box"]["center_x"]),
+            center_y=int(payload["metric_box"]["center_y"]),
+            width=int(payload["metric_box"]["width"]),
+            height=int(payload["metric_box"]["height"]),
+            angle_deg=float(payload["metric_box"].get("angle_deg", 0.0)),
+        ),
+        point_a_px=PixelPoint(x=int(payload["point_a_px"]["x"]), y=int(payload["point_a_px"]["y"])),
+        point_b_px=PixelPoint(x=int(payload["point_b_px"]["x"]), y=int(payload["point_b_px"]["y"])),
+        foreground_polarity=str(payload["foreground_polarity"]),
+        threshold_mode=str(payload["threshold_mode"]),
+        ignore_internal_texture=bool(payload["ignore_internal_texture"]),
+        min_target_area_px=int(payload["min_target_area_px"]),
+        sensitivity=float(payload.get("sensitivity", 50.0)),
+        direction_angle_deg=(
+            None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
+        ),
+        direction_projection_mode=str(payload.get("direction_projection_mode", "auto")),
+        observation_axis=ObservationAxis(str(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value))),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -368,9 +413,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="dev_lab",
         help="Runtime profile used to open the real camera, for example dev_lab or prod_win.",
     )
+    parser.add_argument(
+        "--definition-file",
+        type=Path,
+        help=(
+            "Optional MeasurementDefinition JSON from the Web setup flow. When provided, "
+            "the probe also validates formal A/B contour detection on setup_preview and measurement frames."
+        ),
+    )
     args = parser.parse_args(argv)
     runtime_config = load_runtime_config(args.profile)
-    payload = probe_real_camera_alignment(runtime_config)
+    definition = None if args.definition_file is None else _load_measurement_definition(args.definition_file)
+    payload = probe_real_camera_alignment(runtime_config, definition=definition)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("status") == "ok" else 1
 

@@ -47,7 +47,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Contour detection must match the offline truth | `algorithm_contract.vision` locks `foreground_polarity=dark_on_light`, `threshold_mode=adaptive`, `edge_threshold=10.0`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `quality_threshold=0.75`. Precheck now fails if the locked profile does not provide or match this vision contract. | No-hardware contract verified |
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, `direction_projection_mode=max_chord`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
 | Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
-| Connected real camera must prove contour/A-B behavior with an operator ROI | `POST /api/system/real-offline-alignment/live-probe` can now accept the current `MeasurementDefinition` payload. When provided, the probe runs the same formal `DirectionalContourMetricExtractor` with `direction_projection_mode=max_chord` on both the real setup-preview frame and the real measurement frame, returning per-profile `ab_detection` with `selection_mode`, `direction_projection_mode`, quality, metric, and formal `point_a_px / point_b_px`. | Implemented; hardware pass pending |
+| Connected real camera must prove contour/A-B behavior with an operator ROI | `POST /api/system/real-offline-alignment/live-probe` and `python -m src.application.real_camera_alignment_probe --profile dev_lab --definition-file <definition.json>` can now accept the current `MeasurementDefinition` payload. When provided, the probe runs the same formal `DirectionalContourMetricExtractor` with `direction_projection_mode=max_chord` on both the real setup-preview frame and the real measurement frame, returning per-profile `ab_detection` with `selection_mode`, `direction_projection_mode`, quality, metric, and formal `point_a_px / point_b_px`. | Implemented; hardware pass pending |
 | Offline material live-probe must not be mistaken for hardware validation | `probe_real_camera_alignment()` now exposes `frame_source_mode` and `frame_access` separately from `hardware_access`. When the active profile is `dev_offline_capture`, the probe may read setup/measurement offline frames and validate formal A/B, but reports `frame_source_mode=offline_capture`, `frame_access=attempted`, and `hardware_access=not_attempted`. | No-hardware boundary verified |
 | One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
 | Runtime preset and live-run paths must not bypass the alignment contract | `src.application.real_offline_alignment_guard.assert_real_offline_alignment_ready()` gates locked profiles before `definition/auto` and before `LiveRunService.start_run()`. If source pixels, contour settings, or live A/B tracking policy drift from the offline truth, preset auto-detect returns `409` before fetching a frame and live run start returns `409` before opening the camera. | No-hardware runtime guard verified |
@@ -261,6 +261,13 @@ Observed in the real browser:
 - alignment audit returned `algorithm_contract.ab_selection`
 - live-probe can now accept a saved/current measurement definition and return
   per-profile `ab_detection` for setup-preview and measurement frames
+- the terminal probe can now load the same Web setup `MeasurementDefinition`
+  JSON with `--definition-file`, so connected-device validation does not depend
+  on Swagger or browser-only manual calls
+- CLI smoke against `dev_offline_capture` with `--definition-file` returned
+  `status=ok`, `hardware_access=not_attempted`, `frame_source_mode=offline_capture`,
+  and both setup-preview and measurement profiles reported `2048x1364` plus
+  `ab_detection.status=ok` / `direction_projection_mode=max_chord`
 - the operator home page `探测相机` action now attaches the current source-space
   measurement definition to `/api/system/real-offline-alignment/live-probe`
   whenever ROI-local A/B is complete, so the browser-visible probe reports
@@ -331,9 +338,11 @@ following are validated on actual hardware:
 
 1. `dev_lab` startup opens the camera without SDK/device-access error.
 2. Either `python -m src.application.real_camera_alignment_probe --profile
-   dev_lab` or `POST /api/system/real-offline-alignment/live-probe` passes
-   against the connected camera, proving real `setup_preview` and `measurement`
-   frames both match `2048 x 1364` plus the configured device ROI metadata.
+   dev_lab --definition-file <definition.json>` or
+   `POST /api/system/real-offline-alignment/live-probe` passes against the
+   connected camera, proving real `setup_preview` and `measurement` frames both
+   match `2048 x 1364` plus the configured device ROI metadata and formal A/B
+   contour detection.
 3. Real live run uses the same local source pixel size and acquisition contract
    as setup preview.
 4. Real preset A/B points visually sit on the target contour for representative

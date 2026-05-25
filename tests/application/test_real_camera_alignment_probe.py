@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 
 import src.application.real_camera_alignment_probe as real_camera_alignment_probe
@@ -272,7 +274,8 @@ def test_probe_real_camera_alignment_does_not_open_camera_when_alignment_contrac
 
 
 def test_real_camera_alignment_probe_cli_returns_zero_on_ok(monkeypatch, capsys) -> None:
-    def fake_probe(runtime_config) -> dict[str, object]:
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        assert definition is None
         return {
             "status": "ok",
             "profile": runtime_config.profile,
@@ -292,8 +295,90 @@ def test_real_camera_alignment_probe_cli_returns_zero_on_ok(monkeypatch, capsys)
     assert '"profile": "dev_lab_camera_mock_temp"' in captured.out
 
 
+def test_real_camera_alignment_probe_cli_loads_definition_file(tmp_path, monkeypatch, capsys) -> None:
+    definition_path = tmp_path / "definition.json"
+    definition_path.write_text(
+        json.dumps(
+            {
+                "definition": {
+                    "analysis_roi": {"x": 500, "y": 540, "width": 1000, "height": 260},
+                    "metric_box": {
+                        "center_x": 1000,
+                        "center_y": 670,
+                        "width": 900,
+                        "height": 200,
+                        "angle_deg": 0.0,
+                    },
+                    "point_a_px": {"x": 600, "y": 680},
+                    "point_b_px": {"x": 1400, "y": 680},
+                    "observation_axis": "long_axis",
+                    "foreground_polarity": "dark_on_light",
+                    "threshold_mode": "adaptive",
+                    "ignore_internal_texture": False,
+                    "min_target_area_px": 200,
+                    "sensitivity": 50.0,
+                    "direction_angle_deg": 0.0,
+                    "direction_projection_mode": "max_chord",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured_definition: dict[str, MeasurementDefinition | None] = {}
+
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        captured_definition["value"] = definition
+        return {
+            "status": "ok",
+            "profile": runtime_config.profile,
+            "hardware_access": "not_attempted",
+            "frame_source_mode": "offline_capture",
+            "frame_access": "attempted",
+            "alignment_contract": _fake_alignment_contract(runtime_config.profile),
+            "profiles": [
+                {
+                    "profile_name": "setup_preview",
+                    "status": "ok",
+                    "expected_size_px": {"width": 2048, "height": 1364},
+                    "actual_size_px": {"width": 2048, "height": 1364},
+                    "expected_device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364},
+                    "actual_device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364},
+                    "acquisition": {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0},
+                    "frame_id": 1,
+                    "timestamp_ms": 1000,
+                    "source": "offline_capture",
+                    "ab_detection": {
+                        "status": "ok",
+                        "selection_mode": "directional_contour_max_chord",
+                        "direction_projection_mode": "max_chord",
+                    },
+                    "detail": "ok",
+                }
+            ],
+            "detail": "ok",
+        }
+
+    monkeypatch.setattr(real_camera_alignment_probe, "probe_real_camera_alignment", fake_probe)
+
+    exit_code = real_camera_alignment_probe.main(
+        ["--profile", "dev_offline_capture", "--definition-file", str(definition_path)]
+    )
+
+    assert exit_code == 0
+    definition = captured_definition["value"]
+    assert definition is not None
+    assert definition.analysis_roi == RectRegion(x=500, y=540, width=1000, height=260)
+    assert definition.metric_box == MetricBox(center_x=1000, center_y=670, width=900, height=200, angle_deg=0.0)
+    assert definition.point_a_px == PixelPoint(x=600, y=680)
+    assert definition.point_b_px == PixelPoint(x=1400, y=680)
+    assert definition.direction_projection_mode == "max_chord"
+    captured = capsys.readouterr()
+    assert '"frame_source_mode": "offline_capture"' in captured.out
+
+
 def test_real_camera_alignment_probe_cli_returns_nonzero_on_fail(monkeypatch, capsys) -> None:
-    def fake_probe(runtime_config) -> dict[str, object]:
+    def fake_probe(runtime_config, *, definition=None) -> dict[str, object]:
+        assert definition is None
         return {
             "status": "fail",
             "profile": runtime_config.profile,
