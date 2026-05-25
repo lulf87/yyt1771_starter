@@ -39,6 +39,7 @@ class MeasurementCapturePlan:
 
 
 def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_preview") -> object:
+    assert_real_offline_alignment_ready(runtime_config, context=f"open_camera:{profile_name}")
     backend = str(runtime_config.adapters.get("camera", "") or "")
     profile = camera_profile_for_mode(runtime_config.live.camera, profile_name)
     if backend == "mock":

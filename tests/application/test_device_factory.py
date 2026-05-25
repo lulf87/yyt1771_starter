@@ -134,6 +134,14 @@ def test_open_mock_camera_uses_profile_device_roi_as_output_dimensions() -> None
     }
 
 
+def test_open_camera_blocks_locked_profile_alignment_drift_before_device_creation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    runtime_config.live.run.preview_display_max_width = 800
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="open_camera:setup_preview"):
+        open_camera(runtime_config, profile_name="setup_preview")
+
+
 def test_build_measurement_capture_plan_keeps_definition_when_measurement_roi_is_unconfigured() -> None:
     runtime_config = _lab_runtime_config(camera_backend="hik_rtsp_opencv")
     runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig()
