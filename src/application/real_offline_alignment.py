@@ -96,8 +96,22 @@ def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> d
     real_measurement_roi = real_config.live.camera.measurement.device_roi
     offline_setup_roi = offline_config.live.camera.setup_preview.device_roi
     offline_measurement_roi = offline_config.live.camera.measurement.device_roi
+    real_setup_acquisition = _acquisition_summary(real_config.live.camera.setup_preview)
+    real_measurement_acquisition = _acquisition_summary(real_config.live.camera.measurement)
+    offline_setup_acquisition = _acquisition_summary(offline_config.live.camera.setup_preview)
+    offline_measurement_acquisition = _acquisition_summary(offline_config.live.camera.measurement)
     _assert_equal(real_setup_roi, real_measurement_roi, f"{real_config.profile} setup and measurement ROI differ")
     _assert_equal(offline_setup_roi, offline_measurement_roi, "dev_offline_capture setup and measurement ROI differ")
+    _assert_equal(
+        real_setup_acquisition,
+        offline_setup_acquisition,
+        f"{real_config.profile} setup acquisition differs from accepted offline material",
+    )
+    _assert_equal(
+        real_measurement_acquisition,
+        offline_measurement_acquisition,
+        f"{real_config.profile} measurement acquisition differs from accepted offline material",
+    )
     _assert_equal(
         (real_setup_roi.width, real_setup_roi.height),
         (SOURCE_WIDTH, SOURCE_HEIGHT),
@@ -126,6 +140,8 @@ def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> d
             "width": int(real_config.live.run.preview_display_max_width),
             "height": int(real_config.live.run.preview_display_max_height),
         },
+        "setup_preview_acquisition": real_setup_acquisition,
+        "measurement_acquisition": real_measurement_acquisition,
     }
 
 
@@ -368,6 +384,14 @@ def _local_metric_point_to_setup(point: Any, origin_in_setup: dict[str, int]) ->
         int(point[0]) + int(origin_in_setup["x"]),
         int(point[1]) + int(origin_in_setup["y"]),
     ]
+
+
+def _acquisition_summary(profile: Any) -> dict[str, Any]:
+    return {
+        "pixel_format": str(profile.pixel_format),
+        "exposure_us": int(profile.exposure_us),
+        "gain_db": float(profile.gain_db),
+    }
 
 
 def _definition_for_angle(angle_deg: int) -> MeasurementDefinition:

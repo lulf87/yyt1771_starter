@@ -17,6 +17,16 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
     assert payload["hardware_access"] == "not_attempted"
     assert payload["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
     assert payload["pixel_contract"]["preview_display_px"] == {"width": 816, "height": 544}
+    assert payload["pixel_contract"]["setup_preview_acquisition"] == {
+        "pixel_format": "mono8",
+        "exposure_us": 50000,
+        "gain_db": 12.0,
+    }
+    assert payload["pixel_contract"]["measurement_acquisition"] == {
+        "pixel_format": "mono8",
+        "exposure_us": 50000,
+        "gain_db": 12.0,
+    }
     assert payload["angles_checked"] == 12
     assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
     assert all(
@@ -69,6 +79,16 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
     assert all(item["angles_checked"] == 12 for item in payload["profile_results"])
     assert all(
         item["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["pixel_contract"]["setup_preview_acquisition"]
+        == {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["pixel_contract"]["measurement_acquisition"]
+        == {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
         for item in payload["profile_results"]
     )
 

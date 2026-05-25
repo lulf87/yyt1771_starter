@@ -193,7 +193,46 @@ def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
     assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
     assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
     assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
+    assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_precheck_api_reports_lab_camera_mock_temp_alignment_as_ready_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(512, 342)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
+    assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def test_precheck_api_fails_when_locked_profile_acquisition_drifts_from_offline_truth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+    client.app.state.runtime_config.camera["setup_preview"]["exposure_us"] = 10_000
+    client.app.state.runtime_config.camera["measurement"]["exposure_us"] = 10_000
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["real_offline_pixel_alignment"]["status"] == "fail"
+    assert "setup_preview acquisition" in items["real_offline_pixel_alignment"]["detail"]
+    assert "offline truth acquisition" in items["real_offline_pixel_alignment"]["detail"]
 
 
 def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path: Path) -> None:

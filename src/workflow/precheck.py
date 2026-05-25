@@ -23,6 +23,7 @@ ALIGNMENT_PROFILES = {
     "prod_win": {"origin": (512, 342), "size": (2048, 1364)},
 }
 ALIGNMENT_PREVIEW_DISPLAY_SIZE = (816, 544)
+ALIGNMENT_ACQUISITION = {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
 
 
 def build_system_precheck(
@@ -151,6 +152,8 @@ def _check_active_profile_pixel_alignment(
         return None
     setup_roi = _device_roi_from_camera_section(camera, "setup_preview")
     measurement_roi = _device_roi_from_camera_section(camera, "measurement")
+    setup_acquisition = _acquisition_from_camera_section(camera, "setup_preview")
+    measurement_acquisition = _acquisition_from_camera_section(camera, "measurement")
     expected_origin = tuple(expected["origin"])
     expected_size = tuple(expected["size"])
     if setup_roi is None or measurement_roi is None:
@@ -179,6 +182,30 @@ def _check_active_profile_pixel_alignment(
                 f"alignment contract {expected_origin}/{expected_size}"
             ),
         }
+    if setup_acquisition is None or measurement_acquisition is None:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": f"{profile_name} must define setup_preview and measurement acquisition fields for real/offline alignment",
+        }
+    if setup_acquisition != measurement_acquisition:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": (
+                f"{profile_name} setup_preview acquisition {setup_acquisition} differs from "
+                f"measurement acquisition {measurement_acquisition}; preset and live run could threshold different pixels"
+            ),
+        }
+    if setup_acquisition != ALIGNMENT_ACQUISITION:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": (
+                f"{profile_name} setup_preview acquisition {setup_acquisition} does not match the "
+                f"offline truth acquisition {ALIGNMENT_ACQUISITION}"
+            ),
+        }
     preview_size = _preview_display_size(run_config)
     if preview_size is not None and preview_size != ALIGNMENT_PREVIEW_DISPLAY_SIZE:
         return {
@@ -194,12 +221,16 @@ def _check_active_profile_pixel_alignment(
         if preview_size is not None
         else ", preview_display not provided to precheck"
     )
+    acquisition_detail = (
+        f", acquisition={setup_acquisition['pixel_format']}/"
+        f"{setup_acquisition['exposure_us']}us/{setup_acquisition['gain_db']}dB"
+    )
     return {
         "name": "real_offline_pixel_alignment",
         "status": "ok",
         "detail": (
             f"{profile_name} setup/live source pixels match the offline truth contract: "
-            f"origin={origin}, size={size}{preview_detail}"
+            f"origin={origin}, size={size}{preview_detail}{acquisition_detail}"
         ),
     }
 
@@ -217,6 +248,20 @@ def _device_roi_from_camera_section(camera: dict[str, Any], section: str) -> dic
             "y": int(roi.get("y", 0) or 0),
             "width": int(roi.get("width", 0) or 0),
             "height": int(roi.get("height", 0) or 0),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _acquisition_from_camera_section(camera: dict[str, Any], section: str) -> dict[str, Any] | None:
+    payload = camera.get(section)
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return {
+            "pixel_format": str(payload.get("pixel_format", "") or ""),
+            "exposure_us": int(payload.get("exposure_us", 0) or 0),
+            "gain_db": float(payload.get("gain_db", 0.0) or 0.0),
         }
     except (TypeError, ValueError):
         return None
