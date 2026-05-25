@@ -546,6 +546,33 @@ def test_live_run_measurement_camera_rejects_pixels_that_differ_from_offline_mat
         raise AssertionError("expected locked live-run pixel contract failure")
 
 
+def test_live_run_measurement_camera_rejects_roi_that_differs_from_offline_material() -> None:
+    class WrongRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="wrong_roi_measurement",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        WrongRoiCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected_roi=x=512,y=342,width=2048,height=1364" in str(exc)
+        assert "actual_roi=x=0,y=0,width=2048,height=1364" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected locked live-run ROI contract failure")
+
+
 def test_live_run_measurement_camera_accepts_pixels_that_match_offline_material() -> None:
     class MatchingSizeCamera:
         def read_frame(self) -> FramePacket:

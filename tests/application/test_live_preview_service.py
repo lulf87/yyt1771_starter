@@ -430,6 +430,37 @@ def test_fetch_frame_rejects_locked_profile_preview_pixels_that_differ_from_offl
     assert camera.closed is True
 
 
+def test_fetch_frame_rejects_locked_profile_preview_roi_that_differs_from_offline_material() -> None:
+    service = LivePreviewService()
+
+    class WrongRoiCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_500 + self.frame_id,
+                source="wrong_roi_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+                meta={"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = WrongRoiCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="expected_roi=x=512,y=342,width=2048,height=1364"):
+        service.fetch_frame(runtime_config, run_id="run-wrong-roi", prefer_cached=False)
+
+    assert camera.closed is True
+
+
 def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_material() -> None:
     service = LivePreviewService()
 

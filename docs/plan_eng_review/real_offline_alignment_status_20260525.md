@@ -214,8 +214,10 @@ processing:
 
 For the locked real/offline profiles, a returned frame that is not `2048 x
 1364` fails immediately with a pixel-contract error instead of flowing into
-contour detection or formal A/B selection. This is intended to surface true
-camera SDK / ROI drift early, before it can produce misleading A/B points or
+contour detection or formal A/B selection. If the frame carries `device_roi`
+metadata, the guard also checks the applied ROI origin and size against the
+profile contract, so a real camera frame with the right dimensions but a wrong
+sensor-origin crop is rejected before it can produce misleading A/B points or
 curve data.
 
 ### 4. Run Guard Behavior
@@ -284,7 +286,7 @@ tests/webapp/test_live_run_api.py
 tests/application/test_live_preview_service.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
-160 passed, 1 existing warning
+163 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py

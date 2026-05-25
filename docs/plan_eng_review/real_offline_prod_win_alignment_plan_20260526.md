@@ -46,6 +46,10 @@ invalid_tracking_grace_samples: 5
 
 `validate_frame_pixel_contract()` must reject any `prod_win` preset/live frame whose actual image size is not `2048 x 1364`.
 
+If a frame includes applied `device_roi` metadata, the runtime guard must also
+reject any preset/live frame whose applied ROI origin or size differs from the
+locked profile ROI.
+
 - [x] **Step 4: Include `prod_win` in no-device precheck alignment**
 
 `real_offline_pixel_alignment` must report `ok` only when `prod_win` setup/live pixels and preview display bounds match the offline truth contract.
