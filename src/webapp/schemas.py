@@ -487,6 +487,7 @@ class RealOfflineAlignmentAuditResponse(BaseModel):
     real_profile: str | None = None
     offline_profile: str | None = None
     pixel_contract: dict[str, Any] | None = None
+    offline_material: dict[str, Any] | None = None
     angles_checked: int | None = None
     angle_step_deg: int | None = None
     angle_results: list[dict[str, Any]] = Field(default_factory=list)

@@ -183,6 +183,11 @@ def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path
     assert payload["hardware_access"] == "not_attempted"
     assert payload["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
     assert payload["pixel_contract"]["preview_display_px"] == {"width": 816, "height": 544}
+    assert payload["offline_material"]["status"] in {"ok", "missing"}
+    if payload["offline_material"]["status"] == "ok":
+        assert payload["offline_material"]["frame_count"] == 5807
+        assert payload["offline_material"]["source_size_px"] == {"width": 2048, "height": 1364}
+        assert payload["offline_material"]["sample_frames_checked"] == 9
     assert payload["angles_checked"] == 12
     assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
     assert all(item["point_a_px"] for item in payload["angle_results"])

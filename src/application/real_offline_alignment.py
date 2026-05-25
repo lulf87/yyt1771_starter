@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 import json
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -12,6 +13,7 @@ import numpy as np
 from src.application.device_factory import build_measurement_capture_plan, build_metric_source
 from src.application.runtime_config import load_runtime_config
 from src.core.config_models import DeviceRoiConfig
+from src.core.enums import ObservationAxis
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading
 
 REAL_PROFILE = "dev_lab"
@@ -19,6 +21,9 @@ OFFLINE_PROFILE = "dev_offline_capture"
 ANGLES_DEG = tuple(range(0, 360, 30))
 SOURCE_WIDTH = 2048
 SOURCE_HEIGHT = 1364
+OFFLINE_MATERIAL_CAPTURE_DIR = Path("examples/runtime/camera_captures/20260522-183158-dev_lab")
+OFFLINE_MATERIAL_REFERENCE_RUN_DIR = Path("examples/runtime/artifacts/run-9953bd601113")
+OFFLINE_MATERIAL_SAMPLE_FRAMES = (1, 40, 284, 285, 2281, 2282, 5436, 5437, 5807)
 
 
 class RealOfflineAlignmentError(AssertionError):
@@ -42,8 +47,14 @@ def run_alignment_audit(
     offline_config = load_runtime_config(offline_profile)
     profile_summary = _audit_profile_pixel_contract(real_config=real_config, offline_config=offline_config)
     angle_results = [
-        _audit_angle(real_config=real_config, offline_config=offline_config, angle_deg=angle_deg) for angle_deg in angles_deg
+        _audit_angle(real_config=real_config, offline_config=offline_config, angle_deg=angle_deg)
+        for angle_deg in angles_deg
     ]
+    offline_material = _audit_offline_material_samples(
+        real_config=real_config,
+        offline_config=offline_config,
+        sample_frames=OFFLINE_MATERIAL_SAMPLE_FRAMES,
+    )
     return {
         "status": "ok",
         "real_profile": real_config.profile,
@@ -52,6 +63,7 @@ def run_alignment_audit(
         "angles_checked": len(angle_results),
         "angle_step_deg": 30,
         "angle_results": angle_results,
+        "offline_material": offline_material,
         "hardware_access": "not_attempted",
     }
 
@@ -63,7 +75,11 @@ def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> d
     offline_measurement_roi = offline_config.live.camera.measurement.device_roi
     _assert_equal(real_setup_roi, real_measurement_roi, "dev_lab setup and measurement ROI differ")
     _assert_equal(offline_setup_roi, offline_measurement_roi, "dev_offline_capture setup and measurement ROI differ")
-    _assert_equal((real_setup_roi.width, real_setup_roi.height), (SOURCE_WIDTH, SOURCE_HEIGHT), "dev_lab source pixels drifted")
+    _assert_equal(
+        (real_setup_roi.width, real_setup_roi.height),
+        (SOURCE_WIDTH, SOURCE_HEIGHT),
+        "dev_lab source pixels drifted",
+    )
     _assert_equal(
         (offline_setup_roi.width, offline_setup_roi.height),
         (SOURCE_WIDTH, SOURCE_HEIGHT),
@@ -90,11 +106,161 @@ def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> d
     }
 
 
+def _audit_offline_material_samples(
+    *,
+    real_config: Any,
+    offline_config: Any,
+    sample_frames: tuple[int, ...],
+) -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parents[2]
+    capture_dir = repo_root / OFFLINE_MATERIAL_CAPTURE_DIR
+    reference_run_dir = repo_root / OFFLINE_MATERIAL_REFERENCE_RUN_DIR
+    manifest_path = capture_dir / "manifest.json"
+    definition_path = reference_run_dir / "definition_original.json"
+    capture_plan_path = reference_run_dir / "measurement_capture_plan.json"
+    required_paths = (manifest_path, definition_path, capture_plan_path)
+    missing_paths = [str(path.relative_to(repo_root)) for path in required_paths if not path.exists()]
+    if missing_paths:
+        return {
+            "status": "missing",
+            "capture_dir": str(OFFLINE_MATERIAL_CAPTURE_DIR),
+            "reference_run_dir": str(OFFLINE_MATERIAL_REFERENCE_RUN_DIR),
+            "missing": missing_paths,
+            "sample_frames_checked": 0,
+            "detail": "standard offline material is not available in this checkout",
+        }
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frames = manifest.get("frames") if isinstance(manifest, dict) else None
+    if not isinstance(frames, list) or not frames:
+        raise RealOfflineAlignmentError(f"offline material manifest has no frames: {manifest_path}")
+    frames_by_index = {int(item.get("index", 0)): item for item in frames if isinstance(item, dict)}
+    _assert_equal(int(manifest.get("frame_count", 0)), len(frames), "offline material manifest frame_count differs")
+    _assert_equal(int(manifest.get("frame_count", 0)), 5807, "offline material frame count drifted")
+
+    first_frame = frames_by_index.get(1) or frames[0]
+    _assert_equal(
+        tuple(first_frame.get("shape", ())),
+        (SOURCE_HEIGHT, SOURCE_WIDTH),
+        "offline material source shape drifted",
+    )
+    _assert_equal(str(first_frame.get("dtype", "")), "uint8", "offline material dtype drifted")
+    camera_meta = first_frame.get("camera_meta") if isinstance(first_frame, dict) else None
+    if isinstance(camera_meta, dict):
+        _assert_equal(
+            camera_meta.get("device_roi"),
+            _to_plain(real_config.live.camera.measurement.device_roi),
+            "recorded material ROI no longer matches dev_lab measurement ROI",
+        )
+
+    definition = _measurement_definition_from_payload(json.loads(definition_path.read_text(encoding="utf-8")))
+    accepted_plan = json.loads(capture_plan_path.read_text(encoding="utf-8"))
+    accepted_effective_roi = DeviceRoiConfig(**accepted_plan["effective_acquisition_roi"])
+    real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
+    offline_plan = build_measurement_capture_plan(runtime_config=offline_config, definition=definition)
+    _assert_equal(real_plan.metric_definition, offline_plan.metric_definition, "material metric definition differs")
+    _assert_equal(
+        offline_plan.measurement_profile.device_roi,
+        accepted_effective_roi,
+        "offline material effective acquisition ROI drifted",
+    )
+    _assert_equal(
+        real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x,
+        offline_plan.measurement_profile.device_roi.x,
+        "material local X origin differs",
+    )
+    _assert_equal(
+        real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y,
+        offline_plan.measurement_profile.device_roi.y,
+        "material local Y origin differs",
+    )
+
+    real_source = build_metric_source(
+        runtime_config=real_config,
+        definition=real_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    )
+    offline_source = build_metric_source(
+        runtime_config=offline_config,
+        definition=offline_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    )
+
+    sample_results: list[dict[str, Any]] = []
+    for frame_index in sample_frames:
+        item = frames_by_index.get(int(frame_index))
+        if item is None:
+            raise RealOfflineAlignmentError(f"offline material sample frame is missing: {frame_index}")
+        frame_path = capture_dir / str(item.get("npy", ""))
+        if not frame_path.exists():
+            raise RealOfflineAlignmentError(f"offline material sample file is missing: {frame_path}")
+        source_image = np.load(frame_path)
+        _assert_equal(
+            tuple(source_image.shape),
+            (SOURCE_HEIGHT, SOURCE_WIDTH),
+            f"offline material frame shape drifted at {frame_index}",
+        )
+        crop = _crop_image(source_image, offline_plan.measurement_profile.device_roi)
+        timestamp_ms = int(item.get("timestamp_ms", frame_index) or frame_index)
+        temperature_payload = item.get("temperature") if isinstance(item, dict) else None
+        temperature_c = 25.0
+        if isinstance(temperature_payload, dict) and temperature_payload.get("celsius") is not None:
+            temperature_c = float(temperature_payload["celsius"])
+        frame = FramePacket(
+            timestamp_ms=timestamp_ms,
+            source="offline_material_alignment_audit",
+            image=crop,
+            frame_id=int(frame_index),
+        )
+        temp = TempReading(timestamp_ms=timestamp_ms, celsius=temperature_c, source="offline_material_alignment_audit")
+        real_metric = real_source.extract(
+            frame,
+            temp,
+            sample_index=int(frame_index) - 1,
+            total_samples=int(manifest["frame_count"]),
+        )
+        offline_metric = offline_source.extract(
+            frame,
+            temp,
+            sample_index=int(frame_index) - 1,
+            total_samples=int(manifest["frame_count"]),
+        )
+        _assert_metric_parity(real_metric, offline_metric, f"offline material frame {frame_index}")
+        sample_results.append(
+            {
+                "frame_index": int(frame_index),
+                "temperature_celsius": temperature_c,
+                "selection_mode": real_metric.meta.get("selection_mode"),
+                "tracking_state": real_metric.meta.get("tracking_state"),
+                "point_a_px": list(real_metric.point_a_px or ()),
+                "point_b_px": list(real_metric.point_b_px or ()),
+                "metric_raw": real_metric.metric_raw,
+                "quality": real_metric.quality,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "capture_dir": str(OFFLINE_MATERIAL_CAPTURE_DIR),
+        "reference_run_dir": str(OFFLINE_MATERIAL_REFERENCE_RUN_DIR),
+        "frame_count": int(manifest["frame_count"]),
+        "source_size_px": {"width": SOURCE_WIDTH, "height": SOURCE_HEIGHT},
+        "dtype": "uint8",
+        "accepted_effective_acquisition_roi": _to_plain(accepted_effective_roi),
+        "sample_frames_checked": len(sample_results),
+        "sample_results": sample_results,
+    }
+
+
 def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> dict[str, Any]:
     definition = _definition_for_angle(angle_deg)
     real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
     offline_plan = build_measurement_capture_plan(runtime_config=offline_config, definition=definition)
-    _assert_equal(real_plan.metric_definition, offline_plan.metric_definition, f"metric definition differs at {angle_deg} deg")
+    _assert_equal(
+        real_plan.metric_definition,
+        offline_plan.metric_definition,
+        f"metric definition differs at {angle_deg} deg",
+    )
     _assert_equal(
         real_plan.measurement_profile.device_roi.width,
         offline_plan.measurement_profile.device_roi.width,
@@ -139,7 +305,11 @@ def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> di
 
     if real_metric.quality <= 0.0 or offline_metric.quality <= 0.0:
         raise RealOfflineAlignmentError(f"metric quality failed at {angle_deg} deg")
-    _assert_equal(real_metric.meta.get("selection_mode"), offline_metric.meta.get("selection_mode"), f"selection mode differs at {angle_deg} deg")
+    _assert_equal(
+        real_metric.meta.get("selection_mode"),
+        offline_metric.meta.get("selection_mode"),
+        f"selection mode differs at {angle_deg} deg",
+    )
     _assert_equal(real_metric.point_a_px, offline_metric.point_a_px, f"point A differs at {angle_deg} deg")
     _assert_equal(real_metric.point_b_px, offline_metric.point_b_px, f"point B differs at {angle_deg} deg")
     _assert_equal(real_metric.metric_raw, offline_metric.metric_raw, f"metric raw differs at {angle_deg} deg")
@@ -174,6 +344,25 @@ def _definition_for_angle(angle_deg: int) -> MeasurementDefinition:
     )
 
 
+def _measurement_definition_from_payload(payload: dict[str, Any]) -> MeasurementDefinition:
+    return MeasurementDefinition(
+        analysis_roi=RectRegion(**payload["analysis_roi"]),
+        metric_box=MetricBox(**payload["metric_box"]),
+        point_a_px=PixelPoint(**payload["point_a_px"]),
+        point_b_px=PixelPoint(**payload["point_b_px"]),
+        foreground_polarity=str(payload["foreground_polarity"]),
+        threshold_mode=str(payload["threshold_mode"]),
+        ignore_internal_texture=bool(payload["ignore_internal_texture"]),
+        min_target_area_px=int(payload["min_target_area_px"]),
+        sensitivity=float(payload.get("sensitivity", 50.0)),
+        direction_angle_deg=(
+            None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
+        ),
+        direction_projection_mode=str(payload.get("direction_projection_mode", "auto")),
+        observation_axis=ObservationAxis(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value)),
+    )
+
+
 def _paint_test_line(
     image: np.ndarray,
     start: tuple[int, int],
@@ -194,6 +383,34 @@ def _paint_test_line(
             max(0, y - radius) : min(image.shape[0], y + radius + 1),
             max(0, x - radius) : min(image.shape[1], x + radius + 1),
         ] = value
+
+
+def _crop_image(image: np.ndarray, roi: DeviceRoiConfig) -> np.ndarray:
+    x = int(roi.x)
+    y = int(roi.y)
+    width = int(roi.width)
+    height = int(roi.height)
+    return image[y : y + height, x : x + width].copy()
+
+
+def _assert_metric_parity(left: Any, right: Any, label: str) -> None:
+    _assert_equal(
+        left.meta.get("selection_mode"),
+        right.meta.get("selection_mode"),
+        f"selection mode differs for {label}",
+    )
+    _assert_equal(
+        left.meta.get("tracking_state"),
+        right.meta.get("tracking_state"),
+        f"tracking state differs for {label}",
+    )
+    _assert_equal(left.point_a_px, right.point_a_px, f"point A differs for {label}")
+    _assert_equal(left.point_b_px, right.point_b_px, f"point B differs for {label}")
+    _assert_equal(left.quality, right.quality, f"quality differs for {label}")
+    if left.metric_raw is None or right.metric_raw is None:
+        _assert_equal(left.metric_raw, right.metric_raw, f"metric raw differs for {label}")
+    elif not math.isclose(float(left.metric_raw), float(right.metric_raw), rel_tol=0.0, abs_tol=1e-9):
+        raise RealOfflineAlignmentError(f"metric raw differs for {label}: {left.metric_raw!r} != {right.metric_raw!r}")
 
 
 def _assert_equal(left: Any, right: Any, message: str) -> None:

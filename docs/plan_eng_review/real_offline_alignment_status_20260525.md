@@ -148,6 +148,22 @@ This command does not open the camera or temperature controller. It loads
 source pixels, then runs the same metric chain on synthetic source frames at
 every 30 degrees.
 
+When the standard offline material and its accepted reference run are present,
+the audit also reads the actual recorded grayscale material:
+
+```text
+examples/runtime/camera_captures/20260522-183158-dev_lab
+examples/runtime/artifacts/run-9953bd601113
+```
+
+It verifies that the recorded material still has `5807` `uint8` frames at
+`2048 x 1364`, checks that the recorded camera ROI still matches the
+`dev_lab` measurement ROI, rebuilds the accepted effective acquisition ROI
+(`x=275, y=0, width=1759, height=1289`), and then compares `dev_lab` and
+`dev_offline_capture` metrics on representative low/mid/high temperature
+sample frames from the actual material. This is still a no-hardware audit:
+the real camera and temperature controller are not opened.
+
 The same audit is exposed through the operator Web service for browser/API
 diagnostics:
 
