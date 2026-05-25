@@ -1,6 +1,10 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+import yaml
 
 from src.application.temp_serial_ports import SerialPortInfo
+from src.application import runtime_config as config_module
 from src.webapp.app import create_app
 import src.webapp.routes.profile as profile_routes
 
@@ -180,10 +184,15 @@ def test_temp_serial_ports_api_lists_ports_and_current_selection(monkeypatch) ->
     }
 
 
-def test_temp_serial_port_select_updates_runtime_config_and_reads_temperature(monkeypatch) -> None:
+def test_temp_serial_port_select_updates_runtime_config_reads_temperature_and_persists_user_override(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     app = create_app(profile="dev_mock")
     app.state.runtime_config.live.temp.backend = "lu92xx_modbus_rtu"
     app.state.runtime_config.live.temp.serial.port = "COM2"
+    user_config_dir = tmp_path / "user-configs"
+    monkeypatch.setenv(config_module.USER_CONFIG_DIR_ENV, str(user_config_dir))
     monkeypatch.setattr(
         profile_routes,
         "list_serial_ports",
@@ -205,6 +214,8 @@ def test_temp_serial_port_select_updates_runtime_config_and_reads_temperature(mo
         "timestamp_ms": 4321,
         "source": "fixture:COM5",
     }
+    override = yaml.safe_load((user_config_dir / "dev_mock.local.yaml").read_text(encoding="utf-8"))
+    assert override == {"temp": {"serial": {"port": "COM5"}}}
 
 
 def test_temp_serial_port_select_rolls_back_when_temperature_read_fails(monkeypatch) -> None:

@@ -415,6 +415,117 @@ storage:
     assert runtime_config.live.run.debug_locked_points_tracking is True
 
 
+def test_load_runtime_config_merges_user_local_override_after_repo_local(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    _write_config(
+        configs_dir / "dev_lab.yaml",
+        """
+profile: dev_lab
+platform: mac
+mode: lab
+webapp:
+  host: 127.0.0.1
+  port: 8000
+adapters:
+  camera: hik_gige_mvs
+  temp: mock
+  plc: mock
+camera:
+  transport: gige_vision
+  sdk: hik_mvs
+  probe_mode: protocol_any
+  allowed_models: []
+  serial_number: ""
+  ip: ""
+temp:
+  backend: mock
+storage:
+  sqlite_path: examples/runtime/dev_lab.sqlite3
+  artifact_dir: examples/runtime/artifacts
+logging:
+  dir: examples/runtime/logs
+""",
+    )
+    _write_config(
+        configs_dir / "dev_lab.local.yaml",
+        """
+platform: mac
+adapters:
+  temp: lu92xx_modbus_rtu
+temp:
+  backend: lu92xx_modbus_rtu
+  serial:
+    port: COM2
+storage:
+  artifact_dir: examples/runtime/repo-local-artifacts
+""",
+    )
+    user_config_dir = tmp_path / "user-configs"
+    user_config_dir.mkdir()
+    _write_config(
+        user_config_dir / "dev_lab.local.yaml",
+        """
+platform: windows
+temp:
+  serial:
+    port: COM7
+storage:
+  sqlite_path: C:/YYT1771Local/data/dev_lab.sqlite3
+  artifact_dir: C:/YYT1771Local/artifacts
+logging:
+  dir: C:/YYT1771Local/logs
+""",
+    )
+    monkeypatch.setattr(config_module, "_project_root", lambda: tmp_path)
+    monkeypatch.setenv(config_module.USER_CONFIG_DIR_ENV, str(user_config_dir))
+
+    runtime_config = load_runtime_config("dev_lab")
+
+    assert runtime_config.platform == "windows"
+    assert runtime_config.adapters["temp"] == "lu92xx_modbus_rtu"
+    assert runtime_config.live.temp.backend == "lu92xx_modbus_rtu"
+    assert runtime_config.live.temp.serial.port == "COM7"
+    assert runtime_config.storage["sqlite_path"].endswith("dev_lab.sqlite3")
+    assert runtime_config.storage["artifact_dir"].endswith("YYT1771Local/artifacts")
+    assert runtime_config.logging["dir"].endswith("YYT1771Local/logs")
+
+
+def test_write_user_local_profile_override_deep_merges_existing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_config_dir = tmp_path / "user-configs"
+    user_config_dir.mkdir()
+    _write_config(
+        user_config_dir / "dev_lab.local.yaml",
+        """
+platform: windows
+temp:
+  backend: lu92xx_modbus_rtu
+  serial:
+    baudrate: 19200
+storage:
+  artifact_dir: C:/YYT1771Local/artifacts
+""",
+    )
+    monkeypatch.setenv(config_module.USER_CONFIG_DIR_ENV, str(user_config_dir))
+
+    path = config_module.write_user_local_profile_override(
+        "dev_lab",
+        {"temp": {"serial": {"port": "COM8"}}},
+    )
+
+    assert path == user_config_dir / "dev_lab.local.yaml"
+    runtime_config = load_runtime_config("dev_lab")
+    assert runtime_config.live.temp.serial.port == "COM8"
+    assert runtime_config.live.temp.serial.baudrate == 19_200
+    assert runtime_config.storage["artifact_dir"].endswith("YYT1771Local/artifacts")
+
+
 def test_load_runtime_config_reads_prod_camera_contract() -> None:
     runtime_config = load_runtime_config("prod_win")
 
