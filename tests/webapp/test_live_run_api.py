@@ -307,6 +307,16 @@ def _make_client(tmp_path: Path) -> TestClient:
     return TestClient(_make_app(tmp_path))
 
 
+def _make_locked_alignment_app(tmp_path: Path):
+    app = create_app(profile="dev_lab_camera_mock_temp")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.live_run_service = app.state.application_container.build_live_run_service(
+        preview_service=app.state.live_preview_service
+    )
+    return app
+
+
 def _mock_definition_payload() -> dict[str, object]:
     return {
         "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
@@ -1150,6 +1160,33 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
     assert payload["foreground_polarity_used"] in {"dark_on_light", "light_on_dark"}
 
 
+def test_auto_detect_definition_blocks_locked_profile_when_alignment_contract_drifts(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    app.state.runtime_config.live.vision.threshold_mode = "binary"
+
+    def unexpected_fetch_frame(*_args, **_kwargs):
+        raise AssertionError("preview frame should not be fetched when the alignment guard fails")
+
+    app.state.live_preview_service.fetch_frame = unexpected_fetch_frame
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "contour detection could diverge" in response.json()["detail"]
+
+
 def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is_provided(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     client = TestClient(app)
@@ -1691,6 +1728,27 @@ def test_start_live_run_passes_persisted_long_axis_definition_into_metric_source
     assert metric_definition.metric_box.center_y == 80
     assert metric_definition.observation_axis == ObservationAxis.LONG_AXIS
     assert metric_definition.metric_box.angle_deg == -32.0
+
+
+def test_start_live_run_blocks_locked_profile_when_alignment_contract_drifts(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+    app.state.runtime_config.live.vision.threshold_mode = "binary"
+
+    def unexpected_open_camera(*_args, **_kwargs):
+        raise AssertionError("camera should not open when the alignment guard fails")
+
+    app.state.live_run_service.preview_service.open_camera = unexpected_open_camera
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+
+    assert response.status_code == 409
+    assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "contour detection could diverge" in response.json()["detail"]
 
 
 def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

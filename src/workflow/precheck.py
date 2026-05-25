@@ -70,6 +70,17 @@ def build_system_precheck(
     }
 
 
+def build_real_offline_alignment_item(
+    profile_name: str,
+    camera: dict[str, Any],
+    run_config: Any | None,
+    vision_config: Any | None = None,
+) -> dict[str, str] | None:
+    """Return the locked real/offline alignment precheck item for runtime gates."""
+
+    return _check_active_profile_pixel_alignment(profile_name, camera, run_config, vision_config)
+
+
 def _check_sqlite_path(sqlite_path: Any, project_root: Path) -> dict[str, str]:
     if not sqlite_path:
         return {"name": "sqlite_path", "status": "fail", "detail": "storage.sqlite_path is not configured"}

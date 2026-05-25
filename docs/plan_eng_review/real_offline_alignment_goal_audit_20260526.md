@@ -48,6 +48,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
 | Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
 | One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
+| Runtime preset and live-run paths must not bypass the alignment contract | `src.application.real_offline_alignment_guard.assert_real_offline_alignment_ready()` gates locked profiles before `definition/auto` and before `LiveRunService.start_run()`. If source pixels, contour settings, or live A/B tracking policy drift from the offline truth, preset auto-detect returns `409` before fetching a frame and live run start returns `409` before opening the camera. | No-hardware runtime guard verified |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
 | Hik SDK `ret=0x80000203` open-device errors must be actionable | Commit `0d317dd Normalize Hik camera runtime errors` adds operator-facing normalization for `Failed to open device via Hik MVS SDK (ret=0x80000203)`. Targeted tests cover preview fetch, preview stream start, and failed live run normalization. | Verified in tests |
 
@@ -121,6 +122,28 @@ Result: `7 passed`.
 ```
 
 Result: `23 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/workflow/test_precheck.py \
+  tests/webapp/test_live_run_api.py::test_auto_detect_definition_blocks_locked_profile_when_alignment_contract_drifts \
+  tests/webapp/test_live_run_api.py::test_start_live_run_blocks_locked_profile_when_alignment_contract_drifts -q
+```
+
+Result: `16 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/webapp/test_live_run_api.py::test_auto_detect_definition_returns_suggested_points_for_mock_preview \
+  tests/webapp/test_live_run_api.py::test_auto_detect_definition_uses_directional_contour_when_direction_angle_is_provided \
+  tests/webapp/test_live_run_api.py::test_start_live_run_completes_and_persists_result_bundle \
+  tests/webapp/test_live_run_api.py::test_start_live_run_uses_measurement_camera_profile \
+  tests/webapp/test_live_run_api.py::test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile \
+  tests/webapp/test_live_run_api.py::test_failed_live_run_normalizes_hik_access_denied_error -q
+```
+
+Result: `6 passed`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 \

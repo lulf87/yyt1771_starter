@@ -15,6 +15,10 @@ from PIL import Image
 from src.application.camera_errors import normalize_camera_runtime_error
 from src.application.container import ApplicationContainer
 from src.application.preview_render import PreviewBitmap, build_preview_bitmap, enhance_preview_bitmap
+from src.application.real_offline_alignment_guard import (
+    RealOfflineAlignmentGuardError,
+    assert_real_offline_alignment_ready,
+)
 from src.application.live_preview_service import compute_preview_interval_ms
 from src.core.enums import ObservationAxis, RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord, TemperatureSettingsBundle
@@ -328,6 +332,10 @@ def auto_detect_measurement_definition(
     record = registry.get(run_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
+    try:
+        assert_real_offline_alignment_ready(runtime_config, context="preset_auto_detect")
+    except RealOfflineAlignmentGuardError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     try:
         frame = preview_service.fetch_frame(runtime_config, run_id=run_id, prefer_cached=True)
