@@ -46,6 +46,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Preset and live-run source pixels must both be `2048 x 1364` | Alignment audit reports `source_size_px={"width": 2048, "height": 1364}` for all locked real profiles. Browser `/api/system/real-offline-alignment` returned the same value for `dev_lab_camera_mock_temp`. | No-hardware contract verified |
 | Contour detection must match the offline truth | `algorithm_contract.vision` locks `foreground_polarity=dark_on_light`, `threshold_mode=adaptive`, `edge_threshold=10.0`, `ignore_internal_texture=false`, `min_target_area_px=200`, and `quality_threshold=0.75`. Precheck now fails if the locked profile does not provide or match this vision contract. | No-hardware contract verified |
 | Formal A/B point selection must match the offline truth | `algorithm_contract.ab_selection` records formal A/B as `target_contour_boundary`, fields `point_a_px / point_b_px`, and `projected_points_exposed_as_formal_ab=false`. The 12-angle audit uses `directional_contour_max_chord` at 30 degree steps. | No-hardware contract verified |
+| Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()` and `POST /api/system/real-offline-alignment/live-probe` attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
 | Hik SDK `ret=0x80000203` open-device errors must be actionable | Commit `0d317dd Normalize Hik camera runtime errors` adds operator-facing normalization for `Failed to open device via Hik MVS SDK (ret=0x80000203)`. Targeted tests cover preview fetch, preview stream start, and failed live run normalization. | Verified in tests |
 
@@ -89,6 +90,30 @@ Result: `178 passed, 1 warning`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/webapp/test_precheck_api.py::test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload -q
+```
+
+Result: `4 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/application/test_device_factory.py \
+  tests/application/test_live_preview_service.py \
+  tests/application/test_live_run_service.py \
+  tests/application/test_camera_errors.py \
+  tests/webapp/test_live_run_api.py \
+  tests/webapp/test_config_loader.py \
+  tests/webapp/test_precheck_api.py \
+  tests/workflow/test_precheck.py -q
+```
+
+Result: `184 passed, 1 warning`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
   tests/application/test_camera_errors.py \
   tests/webapp/test_live_run_api.py::test_preview_frame_fetch_normalizes_hik_access_denied_error \
   tests/webapp/test_live_run_api.py::test_preview_stream_start_normalizes_hik_access_denied_error \
@@ -113,6 +138,7 @@ URL:
 
 - `http://127.0.0.1:8002/api/system/precheck`
 - `http://127.0.0.1:8002/api/system/real-offline-alignment`
+- `http://127.0.0.1:8012/docs`
 
 Observed in the real browser:
 
@@ -126,6 +152,14 @@ Observed in the real browser:
 - detail included `ab_points=formal target-contour point_a_px/point_b_px`
 - alignment audit returned `hardware_access=not_attempted`
 - alignment audit returned `algorithm_contract.ab_selection`
+- Swagger UI execution of `POST /api/system/real-offline-alignment/live-probe`
+  returned HTTP `200` with response body `status=fail`,
+  `hardware_access=attempted`, `profile=dev_lab_camera_mock_temp`,
+  expected size `2048 x 1364`, expected device ROI
+  `x=512, y=342, width=2048, height=1364`, and detail
+  `No Hik cameras were discovered by the MVS SDK`
+- screenshot saved to
+  `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_no_hardware_swagger_20260526.png`
 
 ## Remaining Hardware Validation
 
@@ -133,8 +167,9 @@ The goal is not fully complete until real devices are connected and the
 following are validated on actual hardware:
 
 1. `dev_lab` startup opens the camera without SDK/device-access error.
-2. Real setup preview produces the same local source pixel size as the offline
-   truth: `2048 x 1364`.
+2. `POST /api/system/real-offline-alignment/live-probe` passes against the
+   connected camera, proving real `setup_preview` and `measurement` frames both
+   match `2048 x 1364` plus the configured device ROI metadata.
 3. Real live run uses the same local source pixel size and acquisition contract
    as setup preview.
 4. Real preset A/B points visually sit on the target contour for representative
@@ -143,4 +178,3 @@ following are validated on actual hardware:
    the offline-validated behavior.
 6. LU92XX temperature controller behavior is verified separately with connected
    hardware.
-

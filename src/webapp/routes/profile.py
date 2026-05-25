@@ -14,6 +14,7 @@ from src.application.real_offline_alignment import (
     RealOfflineAlignmentError,
     run_alignment_audit,
 )
+from src.application.real_camera_alignment_probe import probe_real_camera_alignment
 from src.application.runtime_config import RuntimeConfig
 from src.application.temp_serial_ports import list_serial_ports
 from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
@@ -22,6 +23,7 @@ from src.webapp.schemas import (
     CameraProbeResponse,
     PrecheckResponse,
     ProfileResponse,
+    RealCameraAlignmentProbeResponse,
     RealOfflineAlignmentAuditResponse,
     TempCurrentResponse,
     TempSerialPortSelectRequest,
@@ -61,6 +63,11 @@ def get_real_offline_alignment_audit(runtime_config: RuntimeConfig = Depends(get
         return run_alignment_audit(real_profile=real_profile)
     except RealOfflineAlignmentError as exc:
         return {"status": "fail", "detail": str(exc), "hardware_access": "not_attempted"}
+
+
+@router.post("/real-offline-alignment/live-probe", response_model=RealCameraAlignmentProbeResponse)
+def post_real_camera_alignment_probe(runtime_config: RuntimeConfig = Depends(get_runtime_config)) -> dict[str, Any]:
+    return probe_real_camera_alignment(runtime_config)
 
 
 @router.post("/camera/probe", response_model=CameraProbeResponse)

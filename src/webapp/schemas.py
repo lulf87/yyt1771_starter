@@ -496,6 +496,28 @@ class RealOfflineAlignmentAuditResponse(BaseModel):
     detail: str = ""
 
 
+class RealCameraAlignmentProfileProbeResponse(BaseModel):
+    profile_name: str
+    status: str
+    expected_size_px: dict[str, int] | None = None
+    actual_size_px: dict[str, int] | None = None
+    expected_device_roi: dict[str, int] | None = None
+    actual_device_roi: dict[str, int] | None = None
+    acquisition: dict[str, Any]
+    frame_id: int | None = None
+    timestamp_ms: int | None = None
+    source: str = ""
+    detail: str
+
+
+class RealCameraAlignmentProbeResponse(BaseModel):
+    status: str
+    profile: str
+    hardware_access: Literal["attempted"]
+    profiles: list[RealCameraAlignmentProfileProbeResponse]
+    detail: str
+
+
 class CameraProbeIdentityResponse(BaseModel):
     serial_number: str = ""
     ip: str = ""

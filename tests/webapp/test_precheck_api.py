@@ -375,3 +375,59 @@ def test_real_offline_alignment_api_returns_failure_payload_without_device_acces
     assert payload["detail"] == "source pixels drifted"
     assert payload["hardware_access"] == "not_attempted"
     assert payload["angle_results"] == []
+
+
+def test_real_camera_alignment_live_probe_api_returns_hardware_probe_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+
+    def fake_probe(runtime_config) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "profile": runtime_config.profile,
+            "hardware_access": "attempted",
+            "profiles": [
+                {
+                    "profile_name": "setup_preview",
+                    "status": "ok",
+                    "expected_size_px": {"width": 2048, "height": 1364},
+                    "actual_size_px": {"width": 2048, "height": 1364},
+                    "expected_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "actual_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "acquisition": {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0},
+                    "frame_id": 1,
+                    "timestamp_ms": 1000,
+                    "source": "fake_setup_preview",
+                    "detail": "setup_preview frame matches offline truth pixel contract.",
+                },
+                {
+                    "profile_name": "measurement",
+                    "status": "ok",
+                    "expected_size_px": {"width": 2048, "height": 1364},
+                    "actual_size_px": {"width": 2048, "height": 1364},
+                    "expected_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "actual_device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364},
+                    "acquisition": {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0},
+                    "frame_id": 2,
+                    "timestamp_ms": 2000,
+                    "source": "fake_measurement",
+                    "detail": "measurement frame matches offline truth pixel contract.",
+                },
+            ],
+            "detail": "Real camera setup_preview and measurement frames match the offline truth pixel contract.",
+        }
+
+    monkeypatch.setattr(profile_routes, "probe_real_camera_alignment", fake_probe)
+
+    response = client.post("/api/system/real-offline-alignment/live-probe")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["profile"] == "dev_lab_camera_mock_temp"
+    assert payload["hardware_access"] == "attempted"
+    assert [item["profile_name"] for item in payload["profiles"]] == ["setup_preview", "measurement"]
+    assert payload["profiles"][0]["actual_size_px"] == {"width": 2048, "height": 1364}
+    assert payload["profiles"][1]["actual_size_px"] == {"width": 2048, "height": 1364}
