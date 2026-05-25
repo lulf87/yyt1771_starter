@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from src.application.camera_errors import normalize_camera_runtime_error
 from src.application.device_factory import (
     apply_measurement_acquisition_roi,
     build_measurement_capture_plan,
@@ -280,12 +281,13 @@ class LiveRunService:
                 terminal_detail=exc.detail,
             )
         except Exception as exc:
-            self._store_error(active_run, str(exc))
+            normalized_detail = normalize_camera_runtime_error(exc)
+            self._store_error(active_run, normalized_detail)
             self._update_status(
                 active_run,
                 registry,
                 RunStatus.FAILED,
-                payload={"reason": str(exc)},
+                payload={"reason": normalized_detail},
                 capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
             self._persist_partial_terminal_execution(
@@ -296,7 +298,7 @@ class LiveRunService:
                 measurement_capture_plan=measurement_capture_plan,
                 terminal_state=RunStatus.FAILED,
                 terminal_reason="runtime_error",
-                terminal_detail=str(exc),
+                terminal_detail=normalized_detail,
             )
         else:
             with self._state_lock:

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from PIL import Image
 
+from src.application.camera_errors import normalize_camera_runtime_error
 from src.application.container import ApplicationContainer
 from src.application.preview_render import PreviewBitmap, build_preview_bitmap, enhance_preview_bitmap
 from src.application.live_preview_service import compute_preview_interval_ms
@@ -182,7 +183,7 @@ def fetch_preview_frame(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview frame fetch failed: {exc}",
+            detail=f"Preview frame fetch failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     if not tracking:
@@ -217,11 +218,14 @@ def stream_preview_frames(
         active_stream, first_frame = preview_service.start_stream(runtime_config, run_id=run_id)
     except RuntimeError as exc:
         status_code = status.HTTP_409_CONFLICT if "already active" in str(exc) else status.HTTP_503_SERVICE_UNAVAILABLE
-        raise HTTPException(status_code=status_code, detail=f"Preview stream start failed: {exc}") from exc
+        raise HTTPException(
+            status_code=status_code,
+            detail=f"Preview stream start failed: {normalize_camera_runtime_error(exc)}",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview stream start failed: {exc}",
+            detail=f"Preview stream start failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     registry.mark_preview_streaming(run_id)
@@ -330,7 +334,7 @@ def auto_detect_measurement_definition(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview frame fetch failed: {exc}",
+            detail=f"Preview frame fetch failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     registry.mark_preview_frozen(run_id)
@@ -440,7 +444,7 @@ def start_live_run(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Live run failed: {exc}",
+            detail=f"Live run failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
     return RunStartResponse(
         run_id=record.run_id,

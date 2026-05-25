@@ -327,11 +327,13 @@ def test_partial_terminal_execution_runs_afas_when_telemetry_is_available() -> N
     assert execution.result["as_value"] is not None
     assert execution.result["af_value"] is not None
     assert execution.result["point_count"] == 60
+    assert "target_temperature_not_reached" in execution.result["result_detail"]
     assert execution.result["artifacts"]["afas_dataset"] == "afas_dataset.json"
     assert any("terminal_failed" in warning for warning in execution.result["warnings"])
     assert execution.afas_dataset is not None
     assert execution.afas_dataset["live_result_snapshot"]["result_status"] == "ok"
     assert execution.afas_dataset["live_result_snapshot"]["terminal_state"] == "failed"
+    assert "target_temperature_not_reached" in execution.afas_dataset["live_result_snapshot"]["result_detail"]
 
 
 class FailingTempController(MockTempController):

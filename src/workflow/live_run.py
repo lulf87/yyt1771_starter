@@ -1779,6 +1779,10 @@ def build_partial_live_run_execution(
         as_fit_point_count=as_fit_point_count,
         af_fit_point_count=af_fit_point_count,
     )
+    result_detail = _partial_result_detail(
+        analysis_detail=afas_result.detail,
+        terminal_detail=terminal_detail,
+    )
     terminal_warning = f"terminal_{terminal_state}: {terminal_detail}"
     warnings_with_terminal = [*warnings, terminal_warning]
     afas_dataset = build_afas_postprocessing_dataset(
@@ -1794,7 +1798,7 @@ def build_partial_live_run_execution(
         live_result_snapshot={
             "result_status": afas_result.result_status,
             "result_reason": afas_result.reason,
-            "result_detail": afas_result.detail,
+            "result_detail": result_detail,
             "terminal_state": terminal_state,
             "terminal_reason": terminal_reason,
             "terminal_detail": terminal_detail,
@@ -1820,7 +1824,7 @@ def build_partial_live_run_execution(
         channel_name=channel_name,
         result_status=afas_result.result_status,
         result_reason=afas_result.reason,
-        result_detail=afas_result.detail,
+        result_detail=result_detail,
         af95=afas_result.af95,
         as_value=afas_result.as_value,
         af_value=afas_result.af_value,
@@ -1846,6 +1850,16 @@ def build_partial_live_run_execution(
         events=list(events),
         afas_dataset=afas_dataset,
     )
+
+
+def _partial_result_detail(*, analysis_detail: str, terminal_detail: str) -> str:
+    if not terminal_detail:
+        return analysis_detail
+    if not analysis_detail:
+        return terminal_detail
+    if terminal_detail in analysis_detail:
+        return analysis_detail
+    return f"{analysis_detail} Terminal detail: {terminal_detail}"
 
 
 def build_live_detail(

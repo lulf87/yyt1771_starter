@@ -698,6 +698,44 @@ def test_preview_frame_uses_setup_preview_camera_profile(tmp_path: Path) -> None
     assert profile_names == ["setup_preview"]
 
 
+def test_preview_frame_fetch_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 503
+    assert "Hik MVS camera access denied" in response.json()["detail"]
+    assert "another camera client" in response.json()["detail"]
+    assert "0x80000203" in response.json()["detail"]
+
+
+def test_preview_stream_start_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    def fake_start_stream(runtime_config, *, run_id: str):
+        del runtime_config, run_id
+        raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+
+    app.state.live_preview_service.start_stream = fake_start_stream
+
+    response = client.get(f"/api/runs/{run_id}/preview/stream")
+
+    assert response.status_code == 503
+    assert "Hik MVS camera access denied" in response.json()["detail"]
+    assert "another camera client" in response.json()["detail"]
+    assert "0x80000203" in response.json()["detail"]
+
+
 def test_preview_frame_refreshes_with_new_capture_by_default(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     preview_camera = IncrementingPreviewCamera()
@@ -2282,6 +2320,33 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
         "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
+
+
+def test_failed_live_run_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
+
+    def fail_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        del runtime_config
+        if profile_name == "measurement":
+            raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+        return MockCamera(profile_name=profile_name)
+
+    app.state.live_run_service.preview_service.open_camera = fail_open_camera
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    _wait_for_run_status(client, run_id, "failed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert result_response.status_code == 200
+    assert "Hik MVS camera access denied" in result_response.json()["result_detail"]
+    assert "another camera client" in result_response.json()["result_detail"]
 
 
 def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_artifacts(tmp_path: Path) -> None:
