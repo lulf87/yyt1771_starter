@@ -229,6 +229,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/system/profile" in response.text
     assert "/api/system/precheck" in response.text
     assert "/api/system/camera/probe" in response.text
+    assert "/api/system/real-offline-alignment/live-probe" in response.text
     assert "/api/system/temp/current" in response.text
     assert "/api/system/temp/serial-ports" in response.text
     assert "/api/system/temp/serial-port" in response.text
@@ -238,6 +239,10 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "switchFixtureVideo" in response.text
     assert "resolvedDirectionProjectionMode" in response.text
     assert "payload.direction_projection_mode" in response.text
+    assert "buildRealOfflineLiveProbeRequest" in response.text
+    assert "real_offline_alignment_definition_attached" in response.text
+    assert 'buildLiveDefinitionPayload({ coordinateSpace: "source" })' in response.text
+    assert 'body: JSON.stringify(alignmentDefinition)' in response.text
     assert "/api/runs" in response.text
     assert "/preview/frame" in response.text
     assert "/preview/stream" in response.text

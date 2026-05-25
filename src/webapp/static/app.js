@@ -922,6 +922,13 @@ function buildCameraProbeRequest() {
   };
 }
 
+function buildRealOfflineLiveProbeRequest() {
+  if (!hasLocallyCompleteDefinition()) {
+    return null;
+  }
+  return buildLiveDefinitionPayload({ coordinateSpace: "source" });
+}
+
 function hasLiveSetupUi() {
   return Boolean(liveRunIdNode && liveRunStatusNode && liveRunPresetNode);
 }
@@ -4107,8 +4114,30 @@ async function runCameraProbe() {
       headers: { "Content-Type": "application/json" },
       body: requestPayload ? JSON.stringify(requestPayload) : null,
     });
-    const payload = await response.json();
-    renderCameraProbeResult(payload);
+    const cameraProbePayload = await response.json();
+    const alignmentDefinition = buildRealOfflineLiveProbeRequest();
+    const combinedPayload = {
+      camera_probe: cameraProbePayload,
+      real_offline_alignment_live_probe: null,
+      real_offline_alignment_definition_attached: Boolean(alignmentDefinition),
+    };
+    if (alignmentDefinition) {
+      const alignmentResponse = await fetch("/api/system/real-offline-alignment/live-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(alignmentDefinition),
+      });
+      combinedPayload.real_offline_alignment_live_probe = await alignmentResponse.json();
+    } else {
+      combinedPayload.real_offline_alignment_live_probe = {
+        status: "not_attempted",
+        detail:
+          currentLocale === "en"
+            ? "Draw and confirm ROI-local A/B before probing real-frame formal A/B alignment."
+            : "请先框选 ROI 并确认 ROI 内 A/B，再探测真机帧正式 A/B 对齐。",
+      };
+    }
+    renderCameraProbeResult(combinedPayload);
   } catch (error) {
     renderCameraProbeResult({ status: "fail", detail: String(error) });
   } finally {
