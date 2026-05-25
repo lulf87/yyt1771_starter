@@ -1,5 +1,6 @@
 import numpy as np
 
+import src.application.real_camera_alignment_probe as real_camera_alignment_probe
 from src.application.real_camera_alignment_probe import probe_real_camera_alignment
 from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
@@ -105,3 +106,42 @@ def test_probe_real_camera_alignment_normalizes_hik_open_device_error() -> None:
     assert "Hik MVS camera access denied" in payload["detail"]
     assert "0x80000203" in payload["detail"]
 
+
+def test_real_camera_alignment_probe_cli_returns_zero_on_ok(monkeypatch, capsys) -> None:
+    def fake_probe(runtime_config) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "profile": runtime_config.profile,
+            "hardware_access": "attempted",
+            "profiles": [],
+            "detail": "ok",
+        }
+
+    monkeypatch.setattr(real_camera_alignment_probe, "probe_real_camera_alignment", fake_probe)
+
+    exit_code = real_camera_alignment_probe.main(["--profile", "dev_lab_camera_mock_temp"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert '"status": "ok"' in captured.out
+    assert '"profile": "dev_lab_camera_mock_temp"' in captured.out
+
+
+def test_real_camera_alignment_probe_cli_returns_nonzero_on_fail(monkeypatch, capsys) -> None:
+    def fake_probe(runtime_config) -> dict[str, object]:
+        return {
+            "status": "fail",
+            "profile": runtime_config.profile,
+            "hardware_access": "attempted",
+            "profiles": [],
+            "detail": "No Hik cameras were discovered by the MVS SDK",
+        }
+
+    monkeypatch.setattr(real_camera_alignment_probe, "probe_real_camera_alignment", fake_probe)
+
+    exit_code = real_camera_alignment_probe.main(["--profile", "dev_lab_camera_mock_temp"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert '"status": "fail"' in captured.out
+    assert "No Hik cameras were discovered" in captured.out

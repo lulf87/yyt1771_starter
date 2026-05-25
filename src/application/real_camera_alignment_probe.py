@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import argparse
+from collections.abc import Callable, Sequence
+import json
 from typing import Any
 
 from src.application.camera_errors import normalize_camera_runtime_error
@@ -14,6 +16,7 @@ from src.application.frame_pixel_contract import (
     frame_image_size,
     validate_frame_pixel_contract,
 )
+from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
 
 
@@ -130,3 +133,26 @@ def _acquisition_summary(runtime_config: Any, *, profile_name: str) -> dict[str,
         "exposure_us": int(profile.exposure_us),
         "gain_db": float(profile.gain_db),
     }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Read one setup_preview frame and one measurement frame from a connected real camera, "
+            "then compare both against the accepted offline material pixel contract."
+        ),
+    )
+    parser.add_argument(
+        "--profile",
+        default="dev_lab",
+        help="Runtime profile used to open the real camera, for example dev_lab or prod_win.",
+    )
+    args = parser.parse_args(argv)
+    runtime_config = load_runtime_config(args.profile)
+    payload = probe_real_camera_alignment(runtime_config)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("status") == "ok" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
