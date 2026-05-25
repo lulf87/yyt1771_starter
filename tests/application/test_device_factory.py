@@ -10,6 +10,7 @@ from src.application.device_factory import (
     build_metric_source,
     open_camera,
 )
+from src.application.real_offline_alignment_guard import RealOfflineAlignmentGuardError
 from src.application.runtime_config import RuntimeConfig, WebAppConfig, load_runtime_config
 from src.core.config_models import DeviceRoiConfig
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading, _metric_box_within_region
@@ -36,7 +37,7 @@ def _definition(*, x: int = 900, y: int = 600, width: int = 240, height: int = 1
 
 def _lab_runtime_config(*, camera_backend: str = "hik_gige_mvs") -> RuntimeConfig:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="unit_lab_camera_mock_temp",
         platform="mac",
         mode="lab",
         webapp=WebAppConfig(host="127.0.0.1", port=8000),
@@ -452,6 +453,29 @@ def test_build_metric_source_uses_frame_directional_contour_for_direction_defini
     assert metric.meta["tracking_state"] == "bootstrapped"
 
 
+def test_build_metric_source_blocks_locked_profile_stale_definition_before_source_creation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=220, height=80, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=0.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="build_metric_source"):
+        build_metric_source(
+            runtime_config=runtime_config,
+            definition=definition,
+            target_temperature_celsius=45.0,
+        )
+
+
 def test_real_and_offline_metric_sources_match_on_same_pixel_frame() -> None:
     definition = MeasurementDefinition(
         analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
@@ -548,9 +572,9 @@ def test_real_and_offline_profiles_share_metric_pixels_across_roi_angles(angle_d
         point_a_px=point_a,
         point_b_px=point_b,
         foreground_polarity="dark_on_light",
-        threshold_mode="binary",
-        ignore_internal_texture=True,
-        min_target_area_px=150,
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
         direction_angle_deg=float(angle_deg),
         direction_projection_mode="max_chord",
     )

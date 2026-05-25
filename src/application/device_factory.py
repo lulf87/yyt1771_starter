@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from src.application.runtime_config import RuntimeConfig
+from src.application.real_offline_alignment_guard import (
+    assert_real_offline_alignment_ready,
+    assert_real_offline_definition_ready,
+)
 from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, OfflineCaptureCamera, build_hik_rtsp_url
 from src.core.config_models import CameraAcquisitionProfileConfig, DeviceRoiConfig
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, _metric_box_within_region
@@ -80,6 +84,8 @@ def build_metric_source(
     definition: MeasurementDefinition,
     target_temperature_celsius: float,
 ) -> object:
+    assert_real_offline_alignment_ready(runtime_config, context="build_metric_source")
+    assert_real_offline_definition_ready(runtime_config, definition, context="build_metric_source")
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
     if camera_backend == "mock":
         playback = _resolve_mock_afas_curve_playback(runtime_config)
