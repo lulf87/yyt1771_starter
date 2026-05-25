@@ -60,6 +60,16 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
     assert all(item["point_b_setup_px"] for item in payload["angle_results"])
     assert all(item["point_a_px"] for item in payload["angle_results"])
     assert all(item["point_b_px"] for item in payload["angle_results"])
+    assert all(
+        item["contour_settings"]
+        == {
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+        }
+        for item in payload["angle_results"]
+    )
     for item in payload["angle_results"]:
         origin = item["measurement_origin_in_setup_px"]
         assert item["point_a_setup_px"] == [
@@ -86,6 +96,16 @@ def test_run_alignment_audit_confirms_prod_win_matches_offline_truth_without_dev
     assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
     assert all(item["point_a_px"] for item in payload["angle_results"])
     assert all(item["point_b_px"] for item in payload["angle_results"])
+    assert all(
+        item["contour_settings"]
+        == {
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+        }
+        for item in payload["angle_results"]
+    )
     assert payload["offline_material"]["status"] in {"ok", "missing"}
 
 

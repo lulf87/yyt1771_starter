@@ -159,6 +159,12 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-point-a-x"' in response.text
     assert 'id="live-point-b-y"' in response.text
     assert 'id="live-sensitivity"' in response.text
+    assert 'id="live-ignore-internal-texture"' in response.text
+    ignore_texture_control = response.text[
+        response.text.index('id="live-ignore-internal-texture"') :
+        response.text.index('id="live-ignore-internal-texture"') + 180
+    ]
+    assert "checked" not in ignore_texture_control
     assert "正在连接实时预览" in response.text
     assert 'id="app-title"' not in response.text
     assert 'data-testid="home-journey"' not in response.text

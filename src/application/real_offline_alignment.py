@@ -231,7 +231,10 @@ def _audit_offline_material_samples(
             "recorded material ROI no longer matches dev_lab measurement ROI",
         )
 
-    definition = _measurement_definition_from_payload(json.loads(definition_path.read_text(encoding="utf-8")))
+    definition = _measurement_definition_from_payload(
+        json.loads(definition_path.read_text(encoding="utf-8")),
+        vision_config=offline_config.live.vision,
+    )
     accepted_plan = json.loads(capture_plan_path.read_text(encoding="utf-8"))
     accepted_effective_roi = DeviceRoiConfig(**accepted_plan["effective_acquisition_roi"])
     real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
@@ -331,7 +334,7 @@ def _audit_offline_material_samples(
 
 
 def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> dict[str, Any]:
-    definition = _definition_for_angle(angle_deg)
+    definition = _definition_for_angle(angle_deg, vision_config=offline_config.live.vision)
     real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
     offline_plan = build_measurement_capture_plan(runtime_config=offline_config, definition=definition)
     _assert_equal(
@@ -413,6 +416,7 @@ def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> di
         "point_b_setup_px": point_b_setup,
         "metric_raw": real_metric.metric_raw,
         "quality": real_metric.quality,
+        "contour_settings": _definition_contour_summary(real_plan.metric_definition),
     }
 
 
@@ -452,7 +456,7 @@ def _tracking_policy_summary(run: Any) -> dict[str, Any]:
     }
 
 
-def _definition_for_angle(angle_deg: int) -> MeasurementDefinition:
+def _definition_for_angle(angle_deg: int, *, vision_config: Any) -> MeasurementDefinition:
     center_x = 1024
     center_y = 682
     half_span = 420
@@ -464,25 +468,45 @@ def _definition_for_angle(angle_deg: int) -> MeasurementDefinition:
         metric_box=MetricBox(center_x=center_x, center_y=center_y, width=980, height=220, angle_deg=float(angle_deg)),
         point_a_px=PixelPoint(x=center_x - dx, y=center_y - dy),
         point_b_px=PixelPoint(x=center_x + dx, y=center_y + dy),
-        foreground_polarity="dark_on_light",
-        threshold_mode="binary",
-        ignore_internal_texture=True,
-        min_target_area_px=150,
+        foreground_polarity=str(vision_config.foreground_polarity),
+        threshold_mode=str(vision_config.threshold_mode),
+        ignore_internal_texture=bool(vision_config.ignore_internal_texture),
+        min_target_area_px=int(vision_config.min_target_area_px),
         direction_angle_deg=float(angle_deg),
         direction_projection_mode="max_chord",
     )
 
 
-def _measurement_definition_from_payload(payload: dict[str, Any]) -> MeasurementDefinition:
+def _measurement_definition_from_payload(
+    payload: dict[str, Any],
+    *,
+    vision_config: Any | None = None,
+) -> MeasurementDefinition:
     return MeasurementDefinition(
         analysis_roi=RectRegion(**payload["analysis_roi"]),
         metric_box=MetricBox(**payload["metric_box"]),
         point_a_px=PixelPoint(**payload["point_a_px"]),
         point_b_px=PixelPoint(**payload["point_b_px"]),
-        foreground_polarity=str(payload["foreground_polarity"]),
-        threshold_mode=str(payload["threshold_mode"]),
-        ignore_internal_texture=bool(payload["ignore_internal_texture"]),
-        min_target_area_px=int(payload["min_target_area_px"]),
+        foreground_polarity=(
+            str(payload["foreground_polarity"])
+            if vision_config is None
+            else str(vision_config.foreground_polarity)
+        ),
+        threshold_mode=(
+            str(payload["threshold_mode"])
+            if vision_config is None
+            else str(vision_config.threshold_mode)
+        ),
+        ignore_internal_texture=(
+            bool(payload["ignore_internal_texture"])
+            if vision_config is None
+            else bool(vision_config.ignore_internal_texture)
+        ),
+        min_target_area_px=(
+            int(payload["min_target_area_px"])
+            if vision_config is None
+            else int(vision_config.min_target_area_px)
+        ),
         sensitivity=float(payload.get("sensitivity", 50.0)),
         direction_angle_deg=(
             None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
@@ -490,6 +514,15 @@ def _measurement_definition_from_payload(payload: dict[str, Any]) -> Measurement
         direction_projection_mode=str(payload.get("direction_projection_mode", "auto")),
         observation_axis=ObservationAxis(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value)),
     )
+
+
+def _definition_contour_summary(definition: MeasurementDefinition) -> dict[str, Any]:
+    return {
+        "foreground_polarity": str(definition.foreground_polarity),
+        "threshold_mode": str(definition.threshold_mode),
+        "ignore_internal_texture": bool(definition.ignore_internal_texture),
+        "min_target_area_px": int(definition.min_target_area_px),
+    }
 
 
 def _paint_test_line(
