@@ -57,6 +57,9 @@ pixels match the accepted offline material before contour/A-B processing.
 The same contract must be covered for one-shot Freeze, live preview stream
 startup, later live preview stream frames, and live-run measurement frames.
 
+Locked profiles must also reject unknown camera acquisition profile names
+instead of returning `None` and skipping validation.
+
 - [x] **Step 4: Include `prod_win` in no-device precheck alignment**
 
 `real_offline_pixel_alignment` must report `ok` only when `prod_win` setup/live pixels and preview display bounds match the offline truth contract.

@@ -598,6 +598,32 @@ def test_live_run_measurement_camera_rejects_missing_roi_metadata() -> None:
         raise AssertionError("expected missing ROI metadata contract failure")
 
 
+def test_locked_profile_rejects_unknown_camera_profile_name() -> None:
+    class MatchingSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="matching_size_unknown_profile",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        MatchingSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="unknown_profile",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "unknown_profile" in str(exc)
+        assert "does not define a camera acquisition profile" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unknown camera profile contract failure")
+
+
 def test_live_run_measurement_camera_accepts_pixels_that_match_offline_material() -> None:
     class MatchingSizeCamera:
         def read_frame(self) -> FramePacket:

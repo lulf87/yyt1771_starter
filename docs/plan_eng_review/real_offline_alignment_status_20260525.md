@@ -218,7 +218,9 @@ contour detection or formal A/B selection. The frame must also carry
 `device_roi` metadata, and the guard checks the applied ROI origin and size
 against the profile contract. This means a real camera frame with the right
 dimensions but a missing/wrong sensor-origin crop is rejected before it can
-produce misleading A/B points or curve data.
+produce misleading A/B points or curve data. For locked profiles, an unknown
+camera acquisition profile name is also rejected instead of silently skipping
+the pixel/ROI contract.
 
 ### 4. Run Guard Behavior
 
@@ -286,7 +288,7 @@ tests/webapp/test_live_run_api.py
 tests/application/test_live_preview_service.py
 tests/workflow/test_precheck.py
 tests/webapp/test_precheck_api.py
-167 passed, 1 existing warning
+168 passed, 1 existing warning
 
 tests/vision/test_contour_direction.py
 tests/workflow/test_offline_capture_tracking_regression.py

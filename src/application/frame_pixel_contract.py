@@ -78,6 +78,11 @@ def expected_frame_device_roi(runtime_config: Any, *, profile_name: str) -> dict
     live_config = getattr(runtime_config, "live", None)
     camera_config = getattr(live_config, "camera", None)
     acquisition_profile = getattr(camera_config, str(profile_name), None)
+    if acquisition_profile is None:
+        raise FramePixelContractError(
+            f"Locked alignment profile {profile} does not define a camera acquisition profile "
+            f"named {profile_name!r}; pixel/ROI validation cannot be skipped."
+        )
     device_roi = getattr(acquisition_profile, "device_roi", None)
     x = int(getattr(device_roi, "x", 0) or 0)
     y = int(getattr(device_roi, "y", 0) or 0)
