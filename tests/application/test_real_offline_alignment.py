@@ -27,6 +27,19 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
         "exposure_us": 50000,
         "gain_db": 12.0,
     }
+    assert payload["algorithm_contract"]["vision"] == {
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "edge_threshold": 10.0,
+        "ignore_internal_texture": False,
+        "min_target_area_px": 200,
+        "quality_threshold": 0.75,
+    }
+    assert payload["algorithm_contract"]["tracking_policy"] == {
+        "stop_on_invalid_tracking": False,
+        "invalid_tracking_grace_samples": 5,
+        "debug_locked_points_tracking": False,
+    }
     assert payload["angles_checked"] == 12
     assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
     assert all(
@@ -89,6 +102,27 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
     assert all(
         item["pixel_contract"]["measurement_acquisition"]
         == {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["algorithm_contract"]["vision"]
+        == {
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "edge_threshold": 10.0,
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "quality_threshold": 0.75,
+        }
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["algorithm_contract"]["tracking_policy"]
+        == {
+            "stop_on_invalid_tracking": False,
+            "invalid_tracking_grace_samples": 5,
+            "debug_locked_points_tracking": False,
+        }
         for item in payload["profile_results"]
     )
 

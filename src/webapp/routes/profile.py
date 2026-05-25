@@ -50,6 +50,7 @@ def get_precheck(runtime_config: RuntimeConfig = Depends(get_runtime_config)) ->
         camera=runtime_config.camera,
         project_root=Path(__file__).resolve().parents[3],
         run_config=runtime_config.live.run,
+        vision_config=runtime_config.live.vision,
     )
 
 

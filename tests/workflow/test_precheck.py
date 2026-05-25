@@ -158,10 +158,9 @@ def test_build_system_precheck_protocol_any_keeps_identity_optional(
             "allowed_models": [],
             "serial_number": "",
             "ip": "",
-            "setup_preview": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
-            "measurement": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            **_real_hardware_camera_roi_sections(),
         },
-        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
+        run_config=_locked_alignment_run_config(),
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -198,10 +197,9 @@ def test_build_system_precheck_warns_when_sdk_runtime_is_not_ready(
             "allowed_models": [],
             "serial_number": "",
             "ip": "",
-            "setup_preview": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
-            "measurement": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            **_real_hardware_camera_roi_sections(),
         },
-        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
+        run_config=_locked_alignment_run_config(),
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -220,11 +218,8 @@ def test_build_system_precheck_accepts_offline_capture_and_reports_pixel_alignme
         },
         replay={},
         adapters={"camera": "offline_capture", "temp": "offline_capture", "plc": "mock"},
-        camera={
-            "setup_preview": {"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
-            "measurement": {"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
-        },
-        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
+        camera=_offline_capture_camera_roi_sections(),
+        run_config=_locked_alignment_run_config(),
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -264,13 +259,29 @@ def test_build_system_precheck_fails_when_active_profile_pixels_drift(tmp_path: 
     assert "preset and live run would use different source pixels" in items["real_offline_pixel_alignment"]["detail"]
 
 
-def _real_hardware_camera_roi_sections() -> dict[str, dict[str, dict[str, int]]]:
+def _real_hardware_camera_roi_sections() -> dict[str, dict[str, object]]:
     device_roi = {"x": 512, "y": 342, "width": 2048, "height": 1364}
+    acquisition = {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
     return {
-        "setup_preview": {"device_roi": dict(device_roi)},
-        "measurement": {"device_roi": dict(device_roi)},
+        "setup_preview": {"device_roi": dict(device_roi), **acquisition},
+        "measurement": {"device_roi": dict(device_roi), **acquisition},
+    }
+
+
+def _offline_capture_camera_roi_sections() -> dict[str, dict[str, object]]:
+    device_roi = {"x": 0, "y": 0, "width": 2048, "height": 1364}
+    acquisition = {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
+    return {
+        "setup_preview": {"device_roi": dict(device_roi), **acquisition},
+        "measurement": {"device_roi": dict(device_roi), **acquisition},
     }
 
 
 def _locked_alignment_run_config() -> dict[str, int]:
-    return {"preview_display_max_width": 816, "preview_display_max_height": 544}
+    return {
+        "preview_display_max_width": 816,
+        "preview_display_max_height": 544,
+        "stop_on_invalid_tracking": False,
+        "invalid_tracking_grace_samples": 5,
+        "debug_locked_points_tracking": False,
+    }

@@ -24,6 +24,19 @@ ALIGNMENT_PROFILES = {
 }
 ALIGNMENT_PREVIEW_DISPLAY_SIZE = (816, 544)
 ALIGNMENT_ACQUISITION = {"pixel_format": "mono8", "exposure_us": 50000, "gain_db": 12.0}
+ALIGNMENT_VISION = {
+    "foreground_polarity": "dark_on_light",
+    "threshold_mode": "adaptive",
+    "edge_threshold": 10.0,
+    "ignore_internal_texture": False,
+    "min_target_area_px": 200,
+    "quality_threshold": 0.75,
+}
+ALIGNMENT_TRACKING_POLICY = {
+    "stop_on_invalid_tracking": False,
+    "invalid_tracking_grace_samples": 5,
+    "debug_locked_points_tracking": False,
+}
 
 
 def build_system_precheck(
@@ -34,6 +47,7 @@ def build_system_precheck(
     camera: dict[str, Any],
     project_root: Path,
     run_config: Any | None = None,
+    vision_config: Any | None = None,
 ) -> dict[str, Any]:
     camera_backend = adapters.get("camera")
     items = [
@@ -44,7 +58,7 @@ def build_system_precheck(
         _check_adapter("temp_adapter", adapters.get("temp")),
         _check_adapter("plc_adapter", adapters.get("plc")),
     ]
-    alignment_item = _check_active_profile_pixel_alignment(profile_name, camera, run_config)
+    alignment_item = _check_active_profile_pixel_alignment(profile_name, camera, run_config, vision_config)
     if alignment_item is not None:
         items.append(alignment_item)
     if camera_backend == "hik_gige_mvs":
@@ -146,6 +160,7 @@ def _check_active_profile_pixel_alignment(
     profile_name: str,
     camera: dict[str, Any],
     run_config: Any | None,
+    vision_config: Any | None = None,
 ) -> dict[str, str] | None:
     expected = ALIGNMENT_PROFILES.get(profile_name)
     if expected is None:
@@ -206,6 +221,26 @@ def _check_active_profile_pixel_alignment(
                 f"offline truth acquisition {ALIGNMENT_ACQUISITION}"
             ),
         }
+    vision = _vision_settings(vision_config)
+    if vision is not None and vision != ALIGNMENT_VISION:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": (
+                f"{profile_name} vision settings {vision} do not match the "
+                f"offline truth vision {ALIGNMENT_VISION}; contour detection could diverge"
+            ),
+        }
+    tracking_policy = _tracking_policy(run_config)
+    if tracking_policy is not None and tracking_policy != ALIGNMENT_TRACKING_POLICY:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": (
+                f"{profile_name} tracking policy {tracking_policy} does not match the "
+                f"offline truth tracking policy {ALIGNMENT_TRACKING_POLICY}; live A/B acceptance could diverge"
+            ),
+        }
     preview_size = _preview_display_size(run_config)
     if preview_size is not None and preview_size != ALIGNMENT_PREVIEW_DISPLAY_SIZE:
         return {
@@ -262,6 +297,35 @@ def _acquisition_from_camera_section(camera: dict[str, Any], section: str) -> di
             "pixel_format": str(payload.get("pixel_format", "") or ""),
             "exposure_us": int(payload.get("exposure_us", 0) or 0),
             "gain_db": float(payload.get("gain_db", 0.0) or 0.0),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _vision_settings(vision_config: Any | None) -> dict[str, Any] | None:
+    if vision_config is None:
+        return None
+    try:
+        return {
+            "foreground_polarity": str(_get_config_value(vision_config, "foreground_polarity")),
+            "threshold_mode": str(_get_config_value(vision_config, "threshold_mode")),
+            "edge_threshold": float(_get_config_value(vision_config, "edge_threshold")),
+            "ignore_internal_texture": bool(_get_config_value(vision_config, "ignore_internal_texture")),
+            "min_target_area_px": int(_get_config_value(vision_config, "min_target_area_px")),
+            "quality_threshold": float(_get_config_value(vision_config, "quality_threshold")),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _tracking_policy(run_config: Any | None) -> dict[str, Any] | None:
+    if run_config is None:
+        return None
+    try:
+        return {
+            "stop_on_invalid_tracking": bool(_get_config_value(run_config, "stop_on_invalid_tracking")),
+            "invalid_tracking_grace_samples": int(_get_config_value(run_config, "invalid_tracking_grace_samples")),
+            "debug_locked_points_tracking": bool(_get_config_value(run_config, "debug_locked_points_tracking")),
         }
     except (TypeError, ValueError):
         return None

@@ -379,20 +379,20 @@ class LivePreviewService:
         with active_stream.close_lock:
             if active_stream.closed:
                 return
+            with self._state_lock:
+                if self._active_stream is active_stream:
+                    self._active_stream = None
+                self._last_preview_display_fps = _preview_display_fps(active_stream)
+                self._last_preview_display_fps_run_id = active_stream.run_id
+            active_stream.stop_event.set()
+            active_stream.frame_event.set()
+            close = getattr(active_stream.camera, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
             active_stream.closed = True
-        with self._state_lock:
-            if self._active_stream is active_stream:
-                self._active_stream = None
-            self._last_preview_display_fps = _preview_display_fps(active_stream)
-            self._last_preview_display_fps_run_id = active_stream.run_id
-        active_stream.stop_event.set()
-        active_stream.frame_event.set()
-        close = getattr(active_stream.camera, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
         reader_thread = active_stream.reader_thread
         if (
             reader_thread is not None

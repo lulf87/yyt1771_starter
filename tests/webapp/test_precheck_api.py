@@ -235,6 +235,42 @@ def test_precheck_api_fails_when_locked_profile_acquisition_drifts_from_offline_
     assert "offline truth acquisition" in items["real_offline_pixel_alignment"]["detail"]
 
 
+def test_precheck_api_fails_when_locked_profile_vision_drifts_from_offline_truth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+    client.app.state.runtime_config.live.vision.edge_threshold = 8.0
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["real_offline_pixel_alignment"]["status"] == "fail"
+    assert "vision settings" in items["real_offline_pixel_alignment"]["detail"]
+    assert "offline truth vision" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def test_precheck_api_fails_when_locked_profile_tracking_policy_drifts_from_offline_truth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+    client.app.state.runtime_config.live.run.stop_on_invalid_tracking = True
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["real_offline_pixel_alignment"]["status"] == "fail"
+    assert "tracking policy" in items["real_offline_pixel_alignment"]["detail"]
+    assert "offline truth tracking policy" in items["real_offline_pixel_alignment"]["detail"]
+
+
 def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path: Path) -> None:
     client = _make_client(tmp_path, profile="dev_lab")
 
@@ -248,6 +284,19 @@ def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path
     assert payload["hardware_access"] == "not_attempted"
     assert payload["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
     assert payload["pixel_contract"]["preview_display_px"] == {"width": 816, "height": 544}
+    assert payload["algorithm_contract"]["vision"] == {
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "adaptive",
+        "edge_threshold": 10.0,
+        "ignore_internal_texture": False,
+        "min_target_area_px": 200,
+        "quality_threshold": 0.75,
+    }
+    assert payload["algorithm_contract"]["tracking_policy"] == {
+        "stop_on_invalid_tracking": False,
+        "invalid_tracking_grace_samples": 5,
+        "debug_locked_points_tracking": False,
+    }
     assert payload["offline_material"]["status"] in {"ok", "missing"}
     if payload["offline_material"]["status"] == "ok":
         assert payload["offline_material"]["frame_count"] == 5807

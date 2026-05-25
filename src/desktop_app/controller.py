@@ -56,6 +56,8 @@ class DesktopWorkbenchController:
             adapters=runtime_config.adapters,
             camera=runtime_config.camera,
             project_root=self.context.project_root,
+            run_config=runtime_config.live.run,
+            vision_config=runtime_config.live.vision,
         )
 
     def probe_camera(self, override: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -48,6 +48,7 @@ def run_alignment_audit(
     real_config = load_runtime_config(real_profile)
     offline_config = load_runtime_config(offline_profile)
     profile_summary = _audit_profile_pixel_contract(real_config=real_config, offline_config=offline_config)
+    algorithm_contract = _audit_algorithm_contract(real_config=real_config, offline_config=offline_config)
     angle_results = [
         _audit_angle(real_config=real_config, offline_config=offline_config, angle_deg=angle_deg)
         for angle_deg in angles_deg
@@ -62,6 +63,7 @@ def run_alignment_audit(
         "real_profile": real_config.profile,
         "offline_profile": offline_config.profile,
         "pixel_contract": profile_summary,
+        "algorithm_contract": algorithm_contract,
         "angles_checked": len(angle_results),
         "angle_step_deg": 30,
         "angle_results": angle_results,
@@ -142,6 +144,27 @@ def _audit_profile_pixel_contract(*, real_config: Any, offline_config: Any) -> d
         },
         "setup_preview_acquisition": real_setup_acquisition,
         "measurement_acquisition": real_measurement_acquisition,
+    }
+
+
+def _audit_algorithm_contract(*, real_config: Any, offline_config: Any) -> dict[str, Any]:
+    real_vision = _vision_summary(real_config.live.vision)
+    offline_vision = _vision_summary(offline_config.live.vision)
+    real_tracking_policy = _tracking_policy_summary(real_config.live.run)
+    offline_tracking_policy = _tracking_policy_summary(offline_config.live.run)
+    _assert_equal(
+        real_vision,
+        offline_vision,
+        f"{real_config.profile} vision settings differ from accepted offline material",
+    )
+    _assert_equal(
+        real_tracking_policy,
+        offline_tracking_policy,
+        f"{real_config.profile} tracking policy differs from accepted offline material",
+    )
+    return {
+        "vision": real_vision,
+        "tracking_policy": real_tracking_policy,
     }
 
 
@@ -391,6 +414,25 @@ def _acquisition_summary(profile: Any) -> dict[str, Any]:
         "pixel_format": str(profile.pixel_format),
         "exposure_us": int(profile.exposure_us),
         "gain_db": float(profile.gain_db),
+    }
+
+
+def _vision_summary(vision: Any) -> dict[str, Any]:
+    return {
+        "foreground_polarity": str(vision.foreground_polarity),
+        "threshold_mode": str(vision.threshold_mode),
+        "edge_threshold": float(vision.edge_threshold),
+        "ignore_internal_texture": bool(vision.ignore_internal_texture),
+        "min_target_area_px": int(vision.min_target_area_px),
+        "quality_threshold": float(vision.quality_threshold),
+    }
+
+
+def _tracking_policy_summary(run: Any) -> dict[str, Any]:
+    return {
+        "stop_on_invalid_tracking": bool(run.stop_on_invalid_tracking),
+        "invalid_tracking_grace_samples": int(run.invalid_tracking_grace_samples),
+        "debug_locked_points_tracking": bool(run.debug_locked_points_tracking),
     }
 
 
