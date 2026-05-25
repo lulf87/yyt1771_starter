@@ -3,22 +3,36 @@
 这份文件定义项目的固定推进顺序。
 从现在开始，Codex 的每个工单都必须服从这里的阶段划分，不得跳步。
 
+## 2026-05-25 `mac-finish` 方向校准
+
+当前 `mac-finish` 版本的实际交付主线已经重新校准为 Web 工作站。
+Windows 迁移应优先迁移和验证：
+
+```text
+src.webapp.serve -> Application Layer -> Workflow / Storage / Report
+```
+
+本文档中早期关于 `desktop_app` 作为最终目标交付壳的表述，保留为历史
+阶段记录，不再覆盖当前 Web-on-Windows 迁移方向。当前状态以
+[web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
+为准。
+
 ## 1. 总体目标
 
 围绕 YY/T 1771 的视觉法上位机，先打通离线最小主链，再逐步接入真实设备。
 
-正式交互路线冻结为：
+当前正式交互路线冻结为：
 
 ```text
-Delivery Shell (desktop_app | webapp) -> Application Layer -> Workflow / Storage / Report
+webapp -> Application Layer -> Workflow / Storage / Report
 ```
 
 其中：
 
 - Mac：开发、测试、mock 联调与大部分验证
-- Windows：最终真实设备运行、打包与现场验收环境
-- `desktop_app`：最终目标交付壳
-- `webapp`：过渡适配壳 / 调试入口
+- Windows：最终真实设备运行与现场验收环境
+- `webapp`：当前 `mac-finish` operator-facing 主壳
+- `desktop_app`：暂停的历史 / fallback 壳，不是当前默认迁移目标
 
 项目固定主链：
 

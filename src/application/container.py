@@ -131,10 +131,29 @@ class ApplicationContainer:
         with self._temp_io_lock:
             controller = self._shared_temp_controller
             self._shared_temp_controller = None
-        if controller is not None:
-            close = getattr(controller, "close", None)
-            if callable(close):
-                close()
+        _close_controller(controller)
+
+    def select_temp_serial_port(self, port: str) -> Any:
+        selected_port = str(port or "").strip()
+        if not selected_port:
+            raise ValueError("serial port must not be empty")
+
+        with self._temp_io_lock:
+            previous_port = str(self.runtime_config.live.temp.serial.port or "")
+            previous_controller = self._shared_temp_controller
+            self._shared_temp_controller = None
+            self.runtime_config.live.temp.serial.port = selected_port
+        _close_controller(previous_controller)
+
+        try:
+            return self.with_temp_controller(lambda controller: controller.read())
+        except Exception:
+            with self._temp_io_lock:
+                failed_controller = self._shared_temp_controller
+                self._shared_temp_controller = None
+                self.runtime_config.live.temp.serial.port = previous_port
+            _close_controller(failed_controller)
+            raise
 
     def _should_share_temp_controller(self) -> bool:
         backend = str(self.runtime_config.live.temp.backend or self.runtime_config.adapters.get("temp", "") or "")
@@ -164,3 +183,11 @@ class ApplicationContainer:
 def _is_non_native_windows_path(value: str | Path) -> bool:
     text = str(value)
     return os.name != "nt" and bool(PureWindowsPath(text).drive)
+
+
+def _close_controller(controller: object | None) -> None:
+    if controller is None:
+        return
+    close = getattr(controller, "close", None)
+    if callable(close):
+        close()

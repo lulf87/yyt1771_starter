@@ -23,19 +23,37 @@ That means:
 
 ## 2. Project Goal
 
+### 2026-05-25 `mac-finish` Delivery Refreeze
+
+As of the `mac-finish` checkpoint, the current operator-facing delivery shell is
+the Web workstation.
+
+Windows migration means validating this Web workstation on Windows first. The
+older PySide6 / Qt `desktop_app` route remains in the repository only as paused
+historical / fallback material, and must not be treated as the active migration
+path unless the user explicitly reactivates it.
+
+For the current Windows migration state, read:
+
+- [current_run_modes_20260524.md](../plan_eng_review/current_run_modes_20260524.md)
+- [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
+
 Build a YY/T 1771 visual-analysis workstation that:
 
 - starts from an offline minimum chain
 - keeps module boundaries stable
 - has already proven a browser-based workstation baseline
-- keeps a desktop-migration path active, but now explicitly re-evaluates whether a tuned Web shell can remain the final delivery path when the preview target is narrowed to `18 fps`
-- runs with Mac-based development and Windows-based production profiles
+- uses the Web workstation as the current `mac-finish` delivery baseline
+- runs with Mac-based development and Windows-based production validation needs
 
 The fixed system direction is:
 
 ```text
-Delivery Shell (desktop_app | webapp) -> Application Layer -> Workflow / Storage / Report
+webapp -> Application Layer -> Workflow / Storage / Report
 ```
+
+`desktop_app` is retained as a paused legacy adapter, not as the current
+operator-facing shell.
 
 The fixed analysis chain is:
 
@@ -88,7 +106,8 @@ Use these first when you need:
 - phase order
 - current forbidden work
 - the original browser workstation product framing
-- the current desktop-delivery migration direction
+- the current Web workstation delivery direction
+- the paused legacy status of the desktop-delivery migration direction
 - frozen live-setup interaction semantics
 - the current screen-role split between `Launch & Control Cockpit` on home and `Analysis Studio` in workspace
 - the current visual-system convergence direction for home and workspace
@@ -116,7 +135,7 @@ Use these when you need:
 - [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md)
 - [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md)
 - [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md)
-- [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md)
+- [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) paused legacy / fallback reference only
 - [afas_full_postprocessing_migration_requirement_v1.md](./afas_full_postprocessing_migration_requirement_v1.md)
 - [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md)
 - [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md)
@@ -167,12 +186,12 @@ Use this when you need:
 - the locked rule that `Auto Detect Points` must search inside ROI and return a horizontal-or-vertical dominant point pair, not a pre-window axis guess or an arbitrary diagonal diameter
 - the locked rule that `observation_window` is a post-A/B live-run observation aperture rather than an auto-detect prerequisite
 - the locked rule that downstream observation direction is constrained to the window's `long_axis` or `short_axis`
-- the locked decision gate for whether Web may remain the final delivery shell under an `18 fps` preview target
+- the locked decision that Web is the current `mac-finish` delivery shell
 - the locked interpretation of “bigger and brighter Web preview” as a requirement rather than an implementation suggestion
-- the locked rule that desktop migration is now conditional on whether the narrowed Web gate passes
-- the locked decision to keep the same workflow while migrating final delivery to a desktop workstation
+- the locked rule that desktop migration is paused unless explicitly reactivated
+- the locked decision to keep the same workflow while migrating the Web workstation to Windows
 - the locked decision to keep the migration inside the current repository
-- the locked acceptance gate for desktop preview display performance on Windows
+- the historical acceptance gate for desktop preview display performance on Windows, retained only for paused desktop-reference context
 - the locked requirement that “AFAS parity” means full post-data capability parity, not just lightweight `As / Af / AF95` computation
 - the locked requirement to migrate AFAS preprocessing, parameterized tangent analysis, plotting, result-panel, and export capabilities if full AFAS postprocessing parity is claimed
 - the locked expectation that full AFAS parity includes persisted postprocessing artifacts, not just transient API responses
@@ -191,8 +210,9 @@ The canonical engineering-review files now live in the sibling
 - [live_setup_freeze_roi_tracking_plan_lock_v1.md](../plan_eng_review/live_setup_freeze_roi_tracking_plan_lock_v1.md)
 - [live_setup_roi_ab_window_plan_lock_v1.md](../plan_eng_review/live_setup_roi_ab_window_plan_lock_v1.md)
 - [web_preview_18fps_plan_lock_v1.md](../plan_eng_review/web_preview_18fps_plan_lock_v1.md)
-- [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
-- [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
+- [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
+- [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md) paused legacy / fallback reference only
+- [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md) paused legacy / fallback reference only
 - [live_capture_temporal_sampling_plan_lock_v1.md](../plan_eng_review/live_capture_temporal_sampling_plan_lock_v1.md)
 - [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
 - [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
@@ -209,9 +229,9 @@ Use these when you need:
 - the phased implementation order for ROI angle, sensitivity, current-temperature display, temperature-settings confirmation, and live A/B updates
 - the locked implementation plan for `ROI -> A-B -> observation window -> observation_axis`
 - the engineering decision to split ROI-first point detection from post-A/B window-bounded tracking
-- the locked implementation decision for whether Web can remain the final delivery shell under the narrowed `18 fps` preview target
-- the locked desktop-transition plan for staying in the current repo and extracting an application layer before adding a desktop shell
-- the current D1-D7 desktop migration progress board
+- the locked implementation decision that Web is the current `mac-finish` delivery shell
+- the Web-on-Windows migration state
+- the paused D1-D7 desktop migration progress board, when historical desktop context is explicitly needed
 - the locked implementation plan for `50 Hz` measurement and preview / measurement split
 - the current locked implementation plan
 - task breakdown and dependency order
@@ -240,25 +260,26 @@ Recommended reading order for current work:
 8. [home_worker_minimal_cockpit_state_handoff_requirement_v1.md](./home_worker_minimal_cockpit_state_handoff_requirement_v1.md) if touching the tiny `ready` cue, completion-dock target visibility, `保存数据` semantics, or the post-temperature-confirmation start-enable state machine
 9. [live_setup_freeze_roi_tracking_requirement_v1.md](./live_setup_freeze_roi_tracking_requirement_v1.md) if touching launch flow, `Freeze / 解除冻结`, ROI editing, ROI rotation, ROI-local point detection, fresh-frame `A/B` recompute, sensitivity meaning, current temperature display, bundled temperature confirmation, or live A/B tracking
 10. [live_setup_roi_ab_window_requirement_v1.md](./live_setup_roi_ab_window_requirement_v1.md) only when you need the older `ROI -> A-B -> observation window` split for historical context or for identifying what the newer live setup requirement superseded
-11. [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md) if touching final delivery choice, Web preview target, display size, or brightness usability
-12. [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) if touching desktop transition, same-workflow migration, or the contingency path when Web does not pass the narrowed gate
-13. [architecture_lock.md](./architecture_lock.md)
-14. [module_map.md](./module_map.md)
-15. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
-16. [afas_full_postprocessing_migration_requirement_v1.md](./afas_full_postprocessing_migration_requirement_v1.md) if touching post-run curve analysis parity, smoothing/outlier handling, AFAS-style charting, artifact persistence, or export/report equivalence
-17. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
-18. [afas_full_postprocessing_migration_plan_lock_v1.md](../plan_eng_review/afas_full_postprocessing_migration_plan_lock_v1.md) if touching AFAS parity, preprocessing migration, analysis chart parity, or export/report migration
-19. [live_setup_freeze_roi_tracking_plan_lock_v1.md](../plan_eng_review/live_setup_freeze_roi_tracking_plan_lock_v1.md)
-20. [live_setup_roi_ab_window_plan_lock_v1.md](../plan_eng_review/live_setup_roi_ab_window_plan_lock_v1.md)
-21. [web_preview_18fps_plan_lock_v1.md](../plan_eng_review/web_preview_18fps_plan_lock_v1.md)
-22. [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md)
-23. [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md)
-24. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
-25. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
-26. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
-27. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
-28. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
-29. [live_run_bench_validation_v1.md](../plan_eng_review/live_run_bench_validation_v1.md)
+11. [web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md) if touching Web preview target, display size, or brightness usability
+12. [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md) if touching Windows migration or delivery-shell choice
+13. [desktop_workstation_migration_requirement_v1.md](./desktop_workstation_migration_requirement_v1.md) only if the user explicitly reactivates desktop transition work
+14. [architecture_lock.md](./architecture_lock.md)
+15. [module_map.md](./module_map.md)
+16. [lu92xx_modbus_rtu_requirement_v1.md](./lu92xx_modbus_rtu_requirement_v1.md) if touching real controller work
+17. [afas_full_postprocessing_migration_requirement_v1.md](./afas_full_postprocessing_migration_requirement_v1.md) if touching post-run curve analysis parity, smoothing/outlier handling, AFAS-style charting, artifact persistence, or export/report equivalence
+18. [live_capture_temporal_sampling_requirement_v1.md](./live_capture_temporal_sampling_requirement_v1.md) if touching preview cadence, measurement rate, or 50/100 Hz discussions
+19. [afas_full_postprocessing_migration_plan_lock_v1.md](../plan_eng_review/afas_full_postprocessing_migration_plan_lock_v1.md) if touching AFAS parity, preprocessing migration, analysis chart parity, or export/report migration
+20. [live_setup_freeze_roi_tracking_plan_lock_v1.md](../plan_eng_review/live_setup_freeze_roi_tracking_plan_lock_v1.md)
+21. [live_setup_roi_ab_window_plan_lock_v1.md](../plan_eng_review/live_setup_roi_ab_window_plan_lock_v1.md)
+22. [web_preview_18fps_plan_lock_v1.md](../plan_eng_review/web_preview_18fps_plan_lock_v1.md)
+23. [desktop_workstation_migration_plan_lock_v1.md](../plan_eng_review/desktop_workstation_migration_plan_lock_v1.md) only for paused desktop-reference context
+24. [desktop_workstation_migration_status_v1.md](../plan_eng_review/desktop_workstation_migration_status_v1.md) only for paused desktop-reference context
+25. [live_run_plan_lock_v1.md](../plan_eng_review/live_run_plan_lock_v1.md)
+26. [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
+27. [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
+28. [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
+29. [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
+30. [live_run_bench_validation_v1.md](../plan_eng_review/live_run_bench_validation_v1.md)
 
 ## 7. Practical Directory Notes
 

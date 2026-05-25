@@ -215,11 +215,37 @@ The adapter must distinguish at least these failure classes:
 These errors must fail clearly and must not be silently converted into a fake
 temperature or a fake "output started" state.
 
+### 4.6 Operator serial-port selection lock
+
+For the Web workstation, the LU92XX serial port must be selectable from the UI.
+The operator should not have to edit a backend YAML file during normal setup.
+
+Locked behavior:
+
+- Web exposes a serial-port discovery endpoint backed by the local Python
+  runtime's visible serial ports.
+- The temperature setup panel exposes:
+  - refresh available serial ports
+  - choose one visible port
+  - apply the port and immediately read current temperature
+- Applying a port updates only the current service process:
+  `runtime_config.live.temp.serial.port`.
+- Applying a port must not write tracked or local YAML files.
+- The shared temperature controller must be reset after a port change.
+- The new port is accepted only if a temperature read succeeds.
+- If the read fails, the service rolls back to the previous port and surfaces a
+  clear error to the UI.
+- This feature is active only for the `lu92xx_modbus_rtu` backend. Mock and
+  offline profiles must not pretend that a hardware serial port was selected.
+
 ## 5. Test Contract
 
 The real-device phase should add at least:
 
 - `tests/temp/test_lu92xx_modbus_rtu_controller.py`
+- `tests/webapp/test_profile_api.py` coverage for serial-port listing,
+  process-local selection, rollback on failed read, and unknown-port rejection
+- `tests/webapp/test_ui_shell.py` coverage for the Web serial-port controls
 
 Minimum coverage:
 

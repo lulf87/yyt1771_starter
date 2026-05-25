@@ -5,6 +5,22 @@
 
 ## 1. 总原则
 
+### 2026-05-25 delivery-shell refreeze
+
+当前 `mac-finish` 版本的 operator-facing 主壳是 `webapp`。
+
+`desktop_app` 仍作为暂停的历史 / fallback adapter 保留在目录树中，
+用于可回溯和避免破坏已有测试，但它不再是当前 Windows 迁移的默认入口。
+后续 Windows 迁移应优先围绕：
+
+```text
+src.webapp.serve -> application -> workflow / storage / report
+```
+
+除非用户明确重新启用桌面路线，否则不要给 `desktop_app` 增加新功能、
+不要把 PySide6 作为当前交付主线、也不要把 D1-D7 桌面文档当成
+`mac-finish` 的实施口径。
+
 1. 先冻结边界，再写业务代码。
 2. 硬件适配层只负责采集/读写，不做业务判断。
 3. 算法层只做计算，不直接控制设备。
@@ -66,6 +82,9 @@ src/
 ```
 
 禁止新增新的一级业务模块，除非我明确批准。
+
+说明：`desktop_app/` 当前是 paused legacy adapter。保留它是为了不破坏历史
+结构与测试，不代表它是当前产品主线。
 
 ---
 
@@ -326,7 +345,8 @@ project-root/
 
 允许：
 - 调用硬件适配层、算法层、流程层、存储层来组装用例服务
-- 被 `webapp` 和 `desktop_app` 两个交付壳复用
+- 被当前 `webapp` 交付壳复用
+- 被 paused `desktop_app` 历史壳复用，但不为其新增产品职责
 
 禁止：
 - 承担具体 GUI 布局
@@ -345,7 +365,13 @@ project-root/
 - 新增共享能力应优先进入 `application`、`workflow`、`storage` 或 `report`，而不是继续扩大 Web 路由职责。
 
 ### desktop_app
-只负责桌面壳、Qt 运行时 bootstrap、桌面 controller 和原生预览控件。
+暂停的历史 / fallback 桌面壳，只负责既有 Qt 运行时 bootstrap、桌面
+controller 和原生预览控件。
+
+当前规则：
+- 不作为 `mac-finish` 的默认 Windows 迁移入口
+- 不新增桌面功能，除非用户明确重新启用桌面路线
+- 不让桌面迁移文档覆盖当前 Web-on-Windows 主线
 
 禁止：
 - 复制 `application` 中的业务服务
@@ -366,8 +392,8 @@ project-root/
 - `storage -> core/vision`
 - `report -> core`
 - `application -> core/camera/temp/plc/vision/curve/workflow/storage/report`
-- `webapp -> application/core/desktop_app/workflow/storage/report/curve/vision`
-- `desktop_app -> application/core/camera/workflow`
+- `webapp -> application/core/workflow/storage/report/curve/vision`
+- `desktop_app -> application/core/camera/workflow`（paused legacy adapter only）
 - `workflow -> core/camera/temp/plc/vision/sync/curve/storage/report`
 - `examples -> src` 公共 API
 - `tests -> 被测模块`

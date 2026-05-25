@@ -1,7 +1,24 @@
 # Live Run Task Status v1
 
 Updated on 2026-04-01
-Status: ACTIVE_WORKTREE_SNAPSHOT
+Status: HISTORICAL_WORKTREE_SNAPSHOT_WITH_MAC_FINISH_SUPERSESSION
+
+## 2026-05-25 `mac-finish` Supersession Note
+
+This file records an older live-run worktree snapshot. Any statements below
+that say Web is no longer the final delivery form or that desktop migration is
+the preferred next path are superseded.
+
+Current direction:
+
+```text
+webapp -> application -> workflow / storage / report
+```
+
+For current Windows migration, read:
+
+- [current_run_modes_20260524.md](./current_run_modes_20260524.md)
+- [web_on_windows_migration_status_20260525.md](./web_on_windows_migration_status_20260525.md)
 
 ## Purpose
 
@@ -93,11 +110,11 @@ Status: ACTIVE_WORKTREE_SNAPSHOT
   - `A-B` 先于 `Draw Window`
   - default `observation_window` 由 `A-B` 连线生成
   - `observation_axis` 继续限制为 `long_axis | short_axis`
-- 最终交付方向已新增锁定：
+- 历史桌面迁移方向已被 `mac-finish` 覆盖：
   - 保留现有 workflow 语义
-  - 不再以 Web 作为最终交付形态
-  - 优先在当前仓库内做桌面迁移
-  - 首批抽离目标是 `webapp/config.py` 与 `webapp/deps.py` 中的应用层职责
+  - 当前 operator-facing shell 是 Web 工作站
+  - Windows 迁移优先验证 `src.webapp.serve --profile dev_lab`
+  - `desktop_app` / PySide6 只保留为暂停的历史 / fallback reference
 - `workflow` 不直接处理 LU92XX 寄存器与串口细节
 - `curve` 负责结果计算
 - `target_temperature_celsius` 保持 API 语义

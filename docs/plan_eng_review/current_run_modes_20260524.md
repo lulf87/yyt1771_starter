@@ -33,6 +33,15 @@ active debugging:
 Other profiles and historical folders may remain useful as references, but they
 should not be treated as the main operator states unless this file is updated.
 
+2026-05-25 `mac-finish` delivery note:
+
+- the current operator-facing shell is the Web workstation
+- Windows migration means validating the Web workstation on Windows first
+- `src/desktop_app/` and D1-D7 desktop migration documents are paused legacy /
+  fallback references, not formal active run states
+- `configs/prod_win.yaml` is a historical production-profile skeleton, not a
+  verified `mac-finish` Windows runtime profile
+
 ## State A - Real Camera And Real Temperature Controller
 
 Purpose:
@@ -219,3 +228,5 @@ Validation boundary:
    file and `configs/dev_offline_capture.yaml` together.
 5. If the real hardware profile changes from `dev_lab`, update this file before
    changing operator instructions.
+6. Do not treat `desktop_app` or `prod_win` as current migration entry points
+   unless the user explicitly reactivates that path.

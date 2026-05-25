@@ -48,6 +48,32 @@ class TempTargetResponse(BaseModel):
     source: str
 
 
+class TempSerialPortInfoResponse(BaseModel):
+    device: str
+    name: str = ""
+    description: str = ""
+    hwid: str = ""
+
+
+class TempSerialPortsResponse(BaseModel):
+    backend: str
+    configured_port: str
+    selected_port: str
+    ports: list[TempSerialPortInfoResponse]
+
+
+class TempSerialPortSelectRequest(BaseModel):
+    port: str = Field(min_length=1)
+
+
+class TempSerialPortSelectResponse(BaseModel):
+    backend: str
+    selected_port: str
+    temperature_celsius: float
+    timestamp_ms: int
+    source: str
+
+
 class TemperatureSettingsRequest(BaseModel):
     target_temperature_celsius: float = Field(ge=-50, le=50)
     control_mode: Literal["manual"] = "manual"

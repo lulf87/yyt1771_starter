@@ -769,6 +769,29 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.temp-serial-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.temp-serial-status {
+  margin-top: 2px;
+}
+
+.temp-serial-status--success {
+  color: #cfe3cf;
+}
+
+.temp-serial-status--warning {
+  color: #f0d4a8;
+}
+
+.temp-serial-status--error {
+  color: #e2b8bf;
+}
+
 .operator-inline-note {
   margin: 10px 0 0;
   color: var(--muted);

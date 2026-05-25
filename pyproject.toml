@@ -23,6 +23,8 @@ dependencies = [
 ]
 
 [project.scripts]
+yyt1771-web = "src.webapp.serve:main"
+# Paused legacy desktop shell; keep for historical smoke/debug use only.
 yyt1771-desktop = "src.desktop_app.main:main"
 
 [project.optional-dependencies]

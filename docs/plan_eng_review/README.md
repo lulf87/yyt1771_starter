@@ -7,7 +7,8 @@ Use the files here when you need:
 
 - the locked implementation plan for migrating full AFAS post-data capability parity, not just lightweight live `As / Af / AF95`
 - the shipped status of persisted AFAS analysis / plot / report artifacts after full parity landed
-- the locked engineering decision for whether Web can remain the final delivery shell under an `18 fps` preview target
+- the locked engineering decision that `mac-finish` currently uses the Web workstation as the delivery shell
+- the Windows migration status for Web-on-Windows
 - the primary locked implementation decision after requirement refreeze
 - the current execution plan
 - implementation breakdown and task dependency order
@@ -17,6 +18,7 @@ Use the files here when you need:
 Current authority set:
 
 - [current_run_modes_20260524.md](./current_run_modes_20260524.md)
+- [web_on_windows_migration_status_20260525.md](./web_on_windows_migration_status_20260525.md)
 - [current_validation_state_20260524.md](./current_validation_state_20260524.md)
 - [cleanup_inventory_20260524.md](./cleanup_inventory_20260524.md)
 - [source_state_inventory_20260524.md](./source_state_inventory_20260524.md)
@@ -24,8 +26,8 @@ Current authority set:
 - [live_setup_freeze_roi_tracking_plan_lock_v1.md](./live_setup_freeze_roi_tracking_plan_lock_v1.md)
 - [live_setup_roi_ab_window_plan_lock_v1.md](./live_setup_roi_ab_window_plan_lock_v1.md)
 - [web_preview_18fps_plan_lock_v1.md](./web_preview_18fps_plan_lock_v1.md)
-- [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md)
-- [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md)
+- [desktop_workstation_migration_plan_lock_v1.md](./desktop_workstation_migration_plan_lock_v1.md) paused legacy / fallback reference only
+- [desktop_workstation_migration_status_v1.md](./desktop_workstation_migration_status_v1.md) paused legacy / fallback reference only
 - [live_capture_temporal_sampling_plan_lock_v1.md](./live_capture_temporal_sampling_plan_lock_v1.md)
 - [live_capture_temporal_sampling_bench_v1.md](./live_capture_temporal_sampling_bench_v1.md)
 - [live_run_plan_lock_v1.md](./live_run_plan_lock_v1.md)

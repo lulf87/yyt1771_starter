@@ -4,8 +4,9 @@ YY/T 1771 visual-analysis workstation baseline with:
 
 - offline mock and replay session flows
 - shared workflow / storage / report core reused across delivery shells
-- browser shell kept as transition / debug route
-- final delivery now migrating toward a Windows desktop workstation
+- Web workstation kept as the active operator-facing shell
+- current `mac-finish` delivery direction centered on the Web workstation
+- Windows migration now means Web-on-Windows first, not PySide6 desktop first
 - replay detail visualization and workspace analysis views
 - full AFAS postprocessing workspace parity with persisted analysis/export artifacts
 - adjustment contract and Adjustment MVP state flow
@@ -16,7 +17,9 @@ current migration state:
 - canonical requirements and plan docs have moved under `docs/requirements/`
   and `docs/plan_eng_review/`
 - the shared application layer is being extracted from `webapp`
-- the desktop workstation shell is now bootstrapped in `src/desktop_app/`
+- `src.webapp.serve` is the current operator-facing shell
+- the older `src/desktop_app/` PySide6 shell remains in the tree as paused
+  historical / fallback work, not as the active Windows migration path
 
 For review and current execution truth, prefer the canonical docs rather than
 older browser-first wording in historical materials.
@@ -26,13 +29,16 @@ older browser-first wording in historical materials.
 Start here:
 
 - [docs/requirements/requirements_overview.md](docs/requirements/requirements_overview.md)
-- [docs/plan_eng_review/desktop_workstation_migration_status_v1.md](docs/plan_eng_review/desktop_workstation_migration_status_v1.md)
+- [docs/plan_eng_review/current_run_modes_20260524.md](docs/plan_eng_review/current_run_modes_20260524.md)
+- [docs/plan_eng_review/web_on_windows_migration_status_20260525.md](docs/plan_eng_review/web_on_windows_migration_status_20260525.md)
 
 Use those files as the current entry point for:
 
 - project goals and phase order
 - module and directory responsibilities
-- desktop migration status and acceptance boundaries
+- current Web workstation run modes
+- Windows migration boundaries for the Web workstation
+- Mac Codex -> SSH -> Windows PowerShell remote-control setup
 - task-by-task implementation references under the canonical docs tree
 
 ## 3 分钟跑起来
@@ -79,6 +85,12 @@ python -m venv .venv
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.webapp.serve --profile dev_lab
 ```
 
+安装到虚拟环境后也有对应 console script：
+
+```bash
+yyt1771-web --profile dev_lab
+```
+
 常用 profile：
 
 - `dev_lab`：真实相机 + 真实温控，本机联机调试用。
@@ -94,7 +106,8 @@ python -m venv .venv
 
 其他入口只在特定场景使用：
 
-- 桌面壳迁移入口：`.venv/bin/python -m src.desktop_app.main --profile dev_mock --smoke-run`
+- 当前 Web 工作站脚本：`yyt1771-web --profile dev_lab`
+- 暂停的旧桌面壳入口：`.venv/bin/python -m src.desktop_app.main --profile dev_mock --smoke-run`
 - 离线素材录制工具：`../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.capture_camera_frames ...`
 - 回归测试：`.venv/bin/python -m pytest tests/vision/test_metric_two_point_distance.py -q`
 
@@ -112,11 +125,11 @@ http://127.0.0.1:8002/
 http://127.0.0.1:8000/
 ```
 
-桌面迁移现状：
+桌面壳现状：
 
-- `src/desktop_app/` 已有第一版 bootstrap
-- 当前环境若未安装 `PySide6`，桌面入口会明确提示缺依赖
-- Windows 最终打包与桌面高帧率预览仍未完成
+- `src/desktop_app/` 仍保留第一版 bootstrap 和测试
+- 当前 `mac-finish` 方向已暂停 PySide6/Qt 桌面壳，不再把它作为 Windows 迁移默认入口
+- 后续 Windows 迁移应优先验证 Web 工作站：`python -m src.webapp.serve --profile dev_lab`
 
 ### 4. 最小可见流程
 
@@ -150,8 +163,9 @@ http://127.0.0.1:8000/
 ### 6. 当前边界
 
 - 当前最稳定的可见链路仍是 offline mock/replay/workspace。
-- live run / real camera / temporal sampling 已有更深实现，但最终桌面交付尚在迁移中。
-- 这不是“Windows 桌面最终成品”，而是当前迁移中的主仓库工作树。
+- live run / real camera / temporal sampling 已有更深实现，但 Windows 硬件端仍需重新验证。
+- 这不是“Windows 桌面最终成品”，而是当前 Web 工作站主线的主仓库工作树。
+- `configs/prod_win.yaml` 与 `desktop_app` 相关内容是历史生产/桌面迁移参考，不代表当前 `mac-finish` 可直接运行的 Windows 方案。
 
 ### 7. Camera Probe（受控单帧）
 
@@ -160,7 +174,7 @@ http://127.0.0.1:8000/
 - 现在支持两种模式：`Protocol Any` 和 `Pinned Device`。
 - `Protocol Any` 允许在 `serial_number` / `ip` 为空时按协议优先探测第一台可用设备。
 - `Pinned Device` 要求同时给出 `allowed_models` 和 `serial_number` 或 `ip`，用于锁定具体设备。
-- 仓库默认的 [prod_win.yaml](configs/prod_win.yaml) 仍然不会提交真实现场 identity；需要真实探测时，请只在本机本地填写，不要把现场身份信息提交回仓库。
+- 仓库默认的 [prod_win.yaml](configs/prod_win.yaml) 仍然不会提交真实现场 identity；在当前 `mac-finish` 方向下它只应视为未验收的历史生产 profile 骨架。需要真实探测时，请优先用本机 local override 填写，不要把现场身份信息提交回仓库。
 
 ### 8. Probe 失败怎么看
 

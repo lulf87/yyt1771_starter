@@ -1,11 +1,25 @@
 # Desktop Workstation Migration Requirement v1
 
 Updated on 2026-03-24
-Status: CANONICAL_REQUIREMENT_ADDENDUM
+Status: PAUSED_LEGACY_REFERENCE_AFTER_MAC_FINISH
+
+## 2026-05-25 `mac-finish` Supersession Note
+
+This requirement is no longer the active Windows migration direction.
+
+As of the `mac-finish` checkpoint, the current operator-facing shell is the Web
+workstation, and Windows migration means Web-on-Windows validation first.
+
+Use this file only as historical / fallback desktop context unless the user
+explicitly reactivates the PySide6 desktop route. For the current migration
+state, read:
+
+- [requirements_overview.md](./requirements_overview.md)
+- [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
 
 ## Scope Note
 
-这份 requirement 仍然定义桌面迁移路线本身的边界与价值。
+这份 requirement 仅保留桌面迁移路线本身的历史边界与价值。
 
 但从 2026-03-24 起，若讨论的问题是：
 
@@ -14,24 +28,32 @@ Status: CANONICAL_REQUIREMENT_ADDENDUM
 - “更大、更亮”的 Web preview 是否足够
 
 则应先以
-[web_preview_18fps_requirement_v1.md](./web_preview_18fps_requirement_v1.md)
-为更新后的优先 requirement。
+[web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
+和 [requirements_overview.md](./requirements_overview.md)
+为当前优先 requirement。
 
 也就是说：
 
-- 本文档继续定义 desktop migration 路线
-- 但 delivery-shell 的最终选择已不再默认只剩 desktop 一条路
+- 本文档不再定义当前 migration 路线
+- 只有用户明确重新启用 PySide6 desktop route 时，才把本文作为 fallback
+  requirement input
 
 ## Purpose
 
-这份文档用于锁定一个新的产品与交付方向：
+这份历史文档曾用于锁定一个新的产品与交付方向：
 
 - 保留当前项目已经验证过的工作流与业务语义
-- 不再把浏览器 Web 工作站作为最终交付形态
+- 当时假设不再把浏览器 Web 工作站作为最终交付形态
 - 在原仓库内继续演进，而不是立刻另开一个新的 Python 项目
-- 最终交付方向切换为 Windows 桌面工作站
+- 当时假设最终交付方向切换为 Windows 桌面工作站
 
-这份 requirement 解决的不是“要不要重写所有东西”，而是下面 4 个更关键的问题：
+2026-05-25 `mac-finish` correction:
+
+- current final delivery shell is Web workstation
+- Windows migration means Web-on-Windows first
+- desktop_app / PySide6 is paused legacy / fallback material
+
+这份 requirement 现在只回答历史桌面路线当时关心的 4 个问题：
 
 1. 哪些现有工作流必须原样保留
 2. 哪些现有模块应被视为可复用核心
@@ -137,28 +159,26 @@ Status: CANONICAL_REQUIREMENT_ADDENDUM
 
 ---
 
-## Product Direction Change
+## Historical Product Direction Change
 
-### R5. Browser is no longer the final delivery baseline
+### R5. Historical desktop assumption
 
-从现在开始，浏览器工作站不再是最终交付基线。
+本节记录 2026-03-24 桌面迁移路线当时的假设。该假设已被
+2026-05-25 `mac-finish` Web 工作站方向覆盖。
 
-新的正式产品方向应表述为：
+当时的产品方向曾表述为：
 
 > 一个保留当前 YY/T 1771 工作流语义、但最终以 Windows 桌面工作站形式交付的系统。
 
-这意味着：
+这在当前只意味着：
 
-- `webapp` 不再自动等于“最终产品”
-- 浏览器层可以继续保留为：
-  - 过渡适配层
-  - 调试入口
-  - 内部工具
-- 但它不再是桌面迁移后的唯一目标壳
+- 如果用户未来明确重新启用桌面迁移，本文可作为历史 requirement input
+- 当前 `mac-finish` 默认最终产品壳仍是 Web 工作站
+- Windows 迁移应优先验证 Web-on-Windows，而不是默认恢复桌面路线
 
 ### R6. The new work should stay in the current repository
 
-当前 requirement 锁定为：
+历史 desktop requirement 曾锁定为：
 
 - 若桌面迁移仍采用 Python 技术栈，则必须优先在现有仓库内演进
 - 不应在当前阶段另开一个新的 Python 项目来复制已有核心逻辑
@@ -311,10 +331,17 @@ Windows 上必须承担：
 
 ---
 
-## Migration Outcome
+## Historical Migration Outcome
 
-从现在开始，新的迁移目标应明确表述为：
+历史桌面迁移目标曾明确表述为：
 
 > 在不改变当前 YY/T 1771 工作流与结果语义的前提下，把项目从 Web 最终交付路线迁移到 Windows 桌面工作站路线，并优先在原仓库内完成这次迁移。
 
-这就是当前锁定的 requirement baseline。
+这不再是当前锁定的 requirement baseline。当前 baseline 是：
+
+```text
+src.webapp.serve -> application -> workflow / storage / report
+```
+
+当前 Windows 迁移方向见
+[web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)。

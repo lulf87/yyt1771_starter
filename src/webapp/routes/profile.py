@@ -5,10 +5,11 @@ from pathlib import Path
 import time
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from src.application.container import ApplicationContainer
 from src.application.runtime_config import RuntimeConfig
+from src.application.temp_serial_ports import list_serial_ports
 from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
 from src.webapp.schemas import (
     CameraProbeRequest,
@@ -16,6 +17,9 @@ from src.webapp.schemas import (
     PrecheckResponse,
     ProfileResponse,
     TempCurrentResponse,
+    TempSerialPortSelectRequest,
+    TempSerialPortSelectResponse,
+    TempSerialPortsResponse,
     TempTargetRequest,
     TempTargetResponse,
 )
@@ -68,6 +72,67 @@ def get_current_temperature(
     }
 
 
+@router.get("/temp/serial-ports", response_model=TempSerialPortsResponse)
+def get_temp_serial_ports(
+    container: ApplicationContainer = Depends(get_application_container),
+) -> dict[str, object]:
+    backend = _temp_backend(container)
+    try:
+        ports = list_serial_ports()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Serial ports unavailable: {exc}") from exc
+    selected_port = str(container.runtime_config.live.temp.serial.port or "")
+    return {
+        "backend": backend or "missing",
+        "configured_port": selected_port,
+        "selected_port": selected_port,
+        "ports": [
+            {
+                "device": port.device,
+                "name": port.name,
+                "description": port.description,
+                "hwid": port.hwid,
+            }
+            for port in ports
+        ],
+    }
+
+
+@router.post("/temp/serial-port", response_model=TempSerialPortSelectResponse)
+def post_temp_serial_port(
+    payload: TempSerialPortSelectRequest,
+    container: ApplicationContainer = Depends(get_application_container),
+) -> dict[str, object]:
+    backend = _temp_backend(container)
+    if backend != "lu92xx_modbus_rtu":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Temperature serial-port selection requires lu92xx_modbus_rtu backend, got {backend or 'missing'}",
+        )
+    selected_port = payload.port.strip()
+    try:
+        visible_ports = list_serial_ports()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Serial ports unavailable: {exc}") from exc
+    visible_devices = {port.device for port in visible_ports}
+    if selected_port not in visible_devices:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Serial port is not currently visible: {selected_port}")
+    try:
+        reading = container.select_temp_serial_port(selected_port)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Temperature serial port selection unavailable: {exc}",
+        ) from exc
+    return {
+        "backend": backend,
+        "selected_port": selected_port,
+        "temperature_celsius": float(reading.celsius),
+        "timestamp_ms": int(reading.timestamp_ms),
+        "source": str(reading.source),
+    }
+
+
 @router.post("/temp/target", response_model=TempTargetResponse)
 def post_target_temperature(
     payload: TempTargetRequest,
@@ -87,6 +152,10 @@ def post_target_temperature(
         "timestamp_ms": int(time.time() * 1000),
         "source": str(result["source"]),
     }
+
+
+def _temp_backend(container: ApplicationContainer) -> str:
+    return str(container.runtime_config.live.temp.backend or container.runtime_config.adapters.get("temp", "") or "")
 
 
 def _write_and_confirm_target_temperature(controller: object, target_temperature_celsius: float) -> dict[str, object]:

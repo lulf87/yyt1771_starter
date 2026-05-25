@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from src.application.temp_serial_ports import SerialPortInfo
 from src.webapp.app import create_app
+import src.webapp.routes.profile as profile_routes
 
 
 def test_profile_api_returns_runtime_profile_payload() -> None:
@@ -56,6 +58,17 @@ class _FailingTempControllerFixture:
 
     def read_target_temperature(self) -> float:
         raise RuntimeError("serial unavailable")
+
+
+class _PortAwareTempControllerFixture:
+    def __init__(self, *, port: str, fail_port: str | None = None) -> None:
+        self.port = port
+        self.fail_port = fail_port
+
+    def read(self) -> _TempReadingFixture:
+        if self.port == self.fail_port:
+            raise RuntimeError(f"cannot read {self.port}")
+        return _TempReadingFixture(celsius=31.2, timestamp_ms=4321, source=f"fixture:{self.port}")
 
 
 def test_current_temp_api_returns_backend_reading() -> None:
@@ -137,3 +150,98 @@ def test_set_target_temp_api_rejects_temperature_outside_range() -> None:
     response = client.post("/api/system/temp/target", json={"target_temperature_celsius": 75.0})
 
     assert response.status_code == 422
+
+
+def test_temp_serial_ports_api_lists_ports_and_current_selection(monkeypatch) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.live.temp.backend = "lu92xx_modbus_rtu"
+    app.state.runtime_config.live.temp.serial.port = "COM2"
+    monkeypatch.setattr(
+        profile_routes,
+        "list_serial_ports",
+        lambda: [
+            SerialPortInfo(device="COM2", name="COM2", description="USB Serial A", hwid="HWID-A"),
+            SerialPortInfo(device="COM5", name="COM5", description="USB Serial B", hwid="HWID-B"),
+        ],
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/system/temp/serial-ports")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "backend": "lu92xx_modbus_rtu",
+        "configured_port": "COM2",
+        "selected_port": "COM2",
+        "ports": [
+            {"device": "COM2", "name": "COM2", "description": "USB Serial A", "hwid": "HWID-A"},
+            {"device": "COM5", "name": "COM5", "description": "USB Serial B", "hwid": "HWID-B"},
+        ],
+    }
+
+
+def test_temp_serial_port_select_updates_runtime_config_and_reads_temperature(monkeypatch) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.live.temp.backend = "lu92xx_modbus_rtu"
+    app.state.runtime_config.live.temp.serial.port = "COM2"
+    monkeypatch.setattr(
+        profile_routes,
+        "list_serial_ports",
+        lambda: [SerialPortInfo(device="COM5", name="COM5", description="USB Serial B", hwid="HWID-B")],
+    )
+    app.state.application_container.build_temp_controller = lambda: _PortAwareTempControllerFixture(
+        port=app.state.runtime_config.live.temp.serial.port,
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/system/temp/serial-port", json={"port": "COM5"})
+
+    assert response.status_code == 200
+    assert app.state.runtime_config.live.temp.serial.port == "COM5"
+    assert response.json() == {
+        "backend": "lu92xx_modbus_rtu",
+        "selected_port": "COM5",
+        "temperature_celsius": 31.2,
+        "timestamp_ms": 4321,
+        "source": "fixture:COM5",
+    }
+
+
+def test_temp_serial_port_select_rolls_back_when_temperature_read_fails(monkeypatch) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.live.temp.backend = "lu92xx_modbus_rtu"
+    app.state.runtime_config.live.temp.serial.port = "COM2"
+    monkeypatch.setattr(
+        profile_routes,
+        "list_serial_ports",
+        lambda: [SerialPortInfo(device="COM7", name="COM7", description="USB Serial C", hwid="HWID-C")],
+    )
+    app.state.application_container.build_temp_controller = lambda: _PortAwareTempControllerFixture(
+        port=app.state.runtime_config.live.temp.serial.port,
+        fail_port="COM7",
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/system/temp/serial-port", json={"port": "COM7"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Temperature serial port selection unavailable: cannot read COM7"}
+    assert app.state.runtime_config.live.temp.serial.port == "COM2"
+
+
+def test_temp_serial_port_select_rejects_unknown_visible_port(monkeypatch) -> None:
+    app = create_app(profile="dev_mock")
+    app.state.runtime_config.live.temp.backend = "lu92xx_modbus_rtu"
+    app.state.runtime_config.live.temp.serial.port = "COM2"
+    monkeypatch.setattr(
+        profile_routes,
+        "list_serial_ports",
+        lambda: [SerialPortInfo(device="COM5", name="COM5", description="USB Serial B", hwid="HWID-B")],
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/system/temp/serial-port", json={"port": "COM9"})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Serial port is not currently visible: COM9"}
+    assert app.state.runtime_config.live.temp.serial.port == "COM2"

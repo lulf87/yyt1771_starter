@@ -136,6 +136,10 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-point-prompt-body"' in response.text
     assert 'id="live-preview-overlay"' in response.text
     assert 'id="live-current-temperature"' in response.text
+    assert 'id="temp-serial-port-select"' in response.text
+    assert 'id="refresh-temp-serial-ports-btn"' in response.text
+    assert 'id="apply-temp-serial-port-btn"' in response.text
+    assert 'id="temp-serial-port-status"' in response.text
     assert 'id="live-target-temperature"' in response.text
     assert 'id="live-completion-mode"' in response.text
     assert 'value="manual_stop_only"' in response.text
@@ -207,6 +211,8 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/system/precheck" in response.text
     assert "/api/system/camera/probe" in response.text
     assert "/api/system/temp/current" in response.text
+    assert "/api/system/temp/serial-ports" in response.text
+    assert "/api/system/temp/serial-port" in response.text
     assert "/api/debug/fixture-videos" in response.text
     assert "fixture-video-select" in response.text
     assert "loadFixtureVideoSwitch" in response.text
@@ -234,6 +240,8 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "confirm-target-temperature-btn" in response.text
     assert "startCurrentTemperaturePolling" in response.text
     assert "confirmTargetTemperature" in response.text
+    assert "refreshTempSerialPorts" in response.text
+    assert "applyTempSerialPort" in response.text
     assert "Confirming bundled temperature settings on the controller" in response.text
     assert "confirmedTemperatureSettings" in response.text
     assert "isTemperatureSettingsConfirmed" in response.text

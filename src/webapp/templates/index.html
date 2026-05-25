@@ -182,6 +182,19 @@
                 <h3 data-i18n="home.sections.temperature.title_minimal">温度设置</h3>
               </div>
               <div class="current-task-dual-grid">
+                <div class="current-task-row current-task-row--full temp-serial-row">
+                  <label for="temp-serial-port-select" data-i18n="home.sections.temperature.serial_port">温控串口</label>
+                  <div class="temp-serial-controls">
+                    <select id="temp-serial-port-select" data-testid="temp-serial-port-select" aria-label="温控串口" data-i18n-aria-label="home.sections.temperature.serial_port">
+                      <option value="" data-i18n="home.options.serial_loading">正在读取串口...</option>
+                    </select>
+                    <button id="refresh-temp-serial-ports-btn" class="button-secondary" type="button" data-i18n="home.actions.refresh_serial_ports">刷新串口</button>
+                    <button id="apply-temp-serial-port-btn" class="button-secondary" type="button" data-i18n="home.actions.apply_serial_port">使用并读取</button>
+                  </div>
+                  <p id="temp-serial-port-status" class="operator-inline-note temp-serial-status" data-testid="temp-serial-port-status">
+                    选择可读取的温控串口后再确认温控设置。
+                  </p>
+                </div>
                 <div class="current-task-row">
                   <label for="live-target-temperature" data-i18n="home.sections.temperature.target">目标温度 (°C)</label>
                   <input

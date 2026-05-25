@@ -2,7 +2,23 @@
 
 Date: 2026-04-02
 
-Status: AUDIT_SNAPSHOT
+Status: HISTORICAL_AUDIT_SNAPSHOT_WITH_MAC_FINISH_SUPERSESSION
+
+## 2026-05-25 `mac-finish` Supersession Note
+
+This audit predates the `mac-finish` delivery refreeze. Any scoring or text
+below that treats `desktop_app` as active migration work is now historical.
+
+Current direction:
+
+```text
+webapp -> application -> workflow / storage / report
+```
+
+For current Windows migration work, read:
+
+- [requirements_overview.md](./requirements_overview.md)
+- [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
 
 ## Purpose
 
@@ -67,13 +83,15 @@ Current practical conclusion:
 
 - the active home/setup/workspace/AFAS product line is largely implemented in the current codebase
 - LU92XX Modbus RTU support is implemented at config/adapter/test level, but hardware acceptance is still blocked
-- desktop migration is clearly underway and usable in mock mode, but not fully closed
+- desktop migration exists as paused historical / fallback work, but the active
+  `mac-finish` shell is the Web workstation
 - temporal-sampling and web-preview performance requirements cannot be honestly marked done without bench validation
 - the biggest clear non-conformance is not the feature lane; it is the older structure freeze. `architecture_lock.md` and `module_map.md` no longer match the current repository shape
 
 Most useful current implementation-facing requirement set:
 
 - `requirements_overview.md`
+- `web_on_windows_migration_status_20260525.md`
 - `home_worker_minimal_cockpit_requirement_v1.md`
 - `home_worker_minimal_cockpit_state_handoff_requirement_v1.md`
 - `live_setup_freeze_roi_tracking_requirement_v1.md`
@@ -83,7 +101,8 @@ Most useful current implementation-facing requirement set:
 - `analysis_studio_afas_alignment_state_fallback_requirement_v1.md`
 - `afas_full_postprocessing_migration_requirement_v1.md`
 - `lu92xx_modbus_rtu_requirement_v1.md`
-- `desktop_workstation_migration_requirement_v1.md`
+- `desktop_workstation_migration_requirement_v1.md` only if the user explicitly
+  reactivates the PySide6 desktop route
 
 ## Consolidated Requirement Audit
 

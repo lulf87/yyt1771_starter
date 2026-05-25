@@ -7,6 +7,14 @@
 
 ## 1. 模块总览
 
+### 2026-05-25 delivery-shell refreeze
+
+当前 `mac-finish` 版本的主交付壳是 `src.webapp`。
+
+`src.desktop_app` 仍保留为 paused legacy adapter，但不再是当前 Windows
+迁移默认入口。除非用户明确重新启用桌面路线，否则新的 operator-facing
+能力应进入 Web 工作站主线。
+
 | 模块 | 唯一职责 | 允许直接依赖 | 禁止关注点 |
 | --- | --- | --- | --- |
 | `src.core` | 数据模型、协议接口、枚举、错误码、配置模型 | 无 | OpenCV、PLC 通讯、工作流状态机 |
@@ -20,8 +28,8 @@
 | `src.storage` | 落盘、索引、回放、artifact keyframe 序列化 | `src.core`、`src.vision` | 工作流反向控制、新视觉识别 |
 | `src.report` | 结果摘要、图表导出 | `src.core` | 设备访问、流程控制 |
 | `src.application` | 共享运行时配置、设备工厂、预览服务、live run 服务、应用容器 | `src.core`、`src.camera`、`src.temp`、`src.plc`、`src.vision`、`src.curve`、`src.workflow`、`src.storage`、`src.report` | GUI 布局、HTTP 路由、桌面控件 |
-| `src.webapp` | HTTP 路由、请求响应模型、Web 依赖注入 | `src.application`、`src.core`、`src.desktop_app`、`src.workflow`、`src.storage`、`src.report`、`src.curve`、`src.vision` | 设备适配器直连、继续扩大共享业务逻辑 |
-| `src.desktop_app` | 桌面壳、Qt runtime bootstrap、桌面 controller、原生预览控件 | `src.application`、`src.core`、`src.camera`、`src.workflow` | 设备/算法/存储结构反向决策 |
+| `src.webapp` | HTTP 路由、请求响应模型、Web 依赖注入；当前 operator-facing 主壳 | `src.application`、`src.core`、`src.workflow`、`src.storage`、`src.report`、`src.curve`、`src.vision` | 设备适配器直连、继续扩大共享业务逻辑 |
+| `src.desktop_app` | 暂停的历史 / fallback 桌面壳、Qt runtime bootstrap、桌面 controller、原生预览控件 | `src.application`、`src.core`、`src.camera`、`src.workflow` | 设备/算法/存储结构反向决策；在未重新启用桌面路线时新增产品功能 |
 
 ## 2. 公共数据契约归属
 
@@ -131,12 +139,14 @@
 
 ### `src/desktop_app/`
 
-- `controller.py`：桌面壳 controller，复用共享 application layer
-- `main.py`：桌面入口、smoke 和 benchmark CLI
+- 当前状态：paused legacy adapter
+- `controller.py`：历史桌面壳 controller，复用共享 application layer
+- `main.py`：历史桌面入口、smoke 和 benchmark CLI
 - `qt_runtime.py`：Qt / MVS runtime bootstrap 辅助
 - `window.py`：最小桌面主窗口
 - `preview_canvas.py`：桌面预览画布
 - `overlay_math.py`：桌面 overlay 几何辅助
+- 新增产品能力不要默认进入这里，除非用户明确重新启用桌面路线
 
 ## 4. 导入规则
 
@@ -178,7 +188,7 @@ EndDisplacementMetricExtractor
   Normalizer / Af95
 ```
 
-Web 交互入口冻结为：
+当前主交互入口冻结为：
 
 ```text
 Browser
@@ -190,7 +200,7 @@ src.application
 workflow / storage / report
 ```
 
-桌面交互入口冻结为：
+暂停的历史桌面交互入口为：
 
 ```text
 Desktop shell
@@ -205,11 +215,12 @@ workflow / storage / report
 说明：
 
 - 真正的设备控制命令后置，先把离线主链打通。
-- GUI 不决定算法结构；Web 和桌面壳都通过共享 application layer 进入主链。
+- GUI 不决定算法结构；当前 Web 壳通过共享 application layer 进入主链。
+- paused 桌面壳若被重新启用，也必须通过共享 application layer 进入主链。
 - `workflow` 只负责编排，不替代 `vision` 或 `curve`。
 - `workflow.camera_probe` 只负责编排受控单帧探测，不替代 `camera` 层 SDK 访问实现。
 - `webapp` 负责 HTTP / HTML 交互壳和 Web 依赖注入，不直接连接相机、温度、PLC。
-- `desktop_app` 负责桌面壳和原生预览控件，不复制共享应用服务。
+- `desktop_app` 负责已存在的历史桌面壳和原生预览控件，不复制共享应用服务；当前不作为默认实现目标。
 
 ## 6. 约束提醒
 

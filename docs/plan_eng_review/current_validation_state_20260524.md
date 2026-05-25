@@ -57,11 +57,14 @@ The current fixed data chain remains:
 Frame -> ShapeMetric -> SyncPoint -> Curve -> Result
 ```
 
-The current delivery direction remains:
+The current `mac-finish` delivery direction is:
 
 ```text
-webapp | desktop_app -> application -> workflow / storage / report
+webapp -> application -> workflow / storage / report
 ```
+
+`desktop_app` remains in the repository as paused legacy / fallback material,
+but it is not the current Windows migration path.
 
 ## Known Preserved Capabilities
 

@@ -1,7 +1,19 @@
 # Web Preview 18 FPS Viability Requirement v1
 
 Updated on 2026-03-24
-Status: CANONICAL_REQUIREMENT_ADDENDUM
+Status: SUPERSEDED_BY_MAC_FINISH_WEB_DIRECTION
+
+## 2026-05-25 `mac-finish` Outcome Note
+
+This requirement introduced the decision gate that allowed Web to remain a
+delivery candidate. The current product direction has now been refrozen around
+the Web workstation.
+
+Use this file for the original Web-preview gate rationale. For current Windows
+migration work, use:
+
+- [requirements_overview.md](./requirements_overview.md)
+- [web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)
 
 ## Purpose
 
@@ -99,7 +111,9 @@ Status: CANONICAL_REQUIREMENT_ADDENDUM
 
 ## Frozen Requirement
 
-从现在开始，关于“18 fps Web preview 是否足够”的 requirement 冻结如下。
+本节记录原始“18 fps Web preview 是否足够” gate。`mac-finish` 后，
+Web 工作站已成为当前 active shell，因此下面内容应理解为历史 gate
+定义，而不是仍待决策的路线选择。
 
 ### R1. Existing workflow semantics remain intact
 
@@ -118,7 +132,7 @@ Status: CANONICAL_REQUIREMENT_ADDENDUM
 
 ### R2. Web remains an allowed final-delivery candidate if it passes the narrowed gate
 
-从现在开始，Web 不应再被自动视为“只剩过渡价值”的壳。
+原始 gate 锁定后，Web 不应再被自动视为“只剩过渡价值”的壳。
 
 新的冻结规则是：
 
@@ -221,8 +235,11 @@ Status: CANONICAL_REQUIREMENT_ADDENDUM
 - 如果 Web 在目标 profile 和目标环境下通过 `preview_display_fps >= 18` gate
   - 桌面端可降级为可选优化路线
   - 不再是最终交付的必选项
-- 如果 Web 过不了这条 gate
-  - 桌面迁移继续保持 active primary path
+- 如果 Web 当时过不了这条 gate
+  - 桌面迁移会继续作为当时的主路径
+- `mac-finish` 后当前结论
+  - Web 工作站已作为 active shell 继续推进
+  - 桌面迁移只保留为暂停的历史 / fallback reference
 
 ### R10. Final acceptance still belongs to Windows
 
@@ -242,8 +259,15 @@ Mac 上的验证可以继续作为：
 
 ## Outcome
 
-这轮 requirement 的最终冻结表达应是：
+这轮 requirement 的历史冻结表达是：
 
 > 如果项目的 operator preview 目标收窄为约 `18 fps`，并且 workflow 语义保持不变，那么 Web 仍然可以作为最终交付候选；桌面端不再被默认视为唯一正确路线，但只有在 Web 通过明确的 `preview_display_fps >= 18`、更大显示尺寸、可用亮度这组验收条件后，才允许把 desktop 从必选项降级为可选优化项。
 
-这就是当前锁定的 requirement baseline。
+2026-05-25 后，这条 gate 的 outcome 已经落到当前 baseline：
+
+```text
+src.webapp.serve -> application -> workflow / storage / report
+```
+
+当前 Windows 迁移方向见
+[web_on_windows_migration_status_20260525.md](../plan_eng_review/web_on_windows_migration_status_20260525.md)。

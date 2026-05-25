@@ -1,7 +1,26 @@
 # Desktop Workstation Migration Status v1
 
 Updated on 2026-03-24
-Status: ACTIVE_DESKTOP_TRANSITION_SNAPSHOT
+Status: PAUSED_LEGACY_REFERENCE_AFTER_MAC_FINISH
+
+## 2026-05-25 `mac-finish` Supersession Note
+
+This status board is retained only as historical / fallback desktop context.
+
+It must not be used as the default Windows migration state for `mac-finish`.
+The active direction is now Web-on-Windows:
+
+```text
+src.webapp.serve -> application -> workflow / storage / report
+```
+
+Read these first for current work:
+
+- [current_run_modes_20260524.md](./current_run_modes_20260524.md)
+- [web_on_windows_migration_status_20260525.md](./web_on_windows_migration_status_20260525.md)
+
+Do not add new `desktop_app` work unless the user explicitly reactivates the
+desktop track.
 
 ## Purpose
 
@@ -29,18 +48,20 @@ Status: ACTIVE_DESKTOP_TRANSITION_SNAPSHOT
 
 ---
 
-## Current locked truths
+## Current locked truths after `mac-finish`
 
 当前已经锁定且不应再被反复重开的问题：
 
-- desktop migration 仍然是 active fallback / contingency path
-- 但在 operator preview 目标收窄到约 `18 fps` 后，Web 是否还能保留为最终交付壳，必须先看独立的 Web viability gate
+- current active shell is Web workstation
+- Windows migration means Web-on-Windows first
+- desktop migration is paused historical / fallback material, not an active
+  default path
 - 当前仓库继续作为唯一实现主线
-- 若继续使用 Python，默认桌面技术路线是 `PySide6 / Qt`
-- 必须先抽 `src/webapp/config.py` 与 `src/webapp/deps.py` 中的应用层职责
-- `webapp` 后续应退化为 thin adapter，而不是继续承担共享应用层
+- 若用户未来明确重新启用桌面路线，历史默认桌面技术路线仍是
+  `PySide6 / Qt`
+- 已抽离的 application layer 继续服务于 Web 工作站与未来可能的交付壳
 - `50 Hz synchronized measurement` 已作为 camera/workflow cadence gate 站住
-- “桌面可视预览 >50 Hz” 现在也已被独立锁定为 desktop preview gate
+- “桌面可视预览 >50 Hz” 仅保留为历史 desktop preview gate
 
 当前仍未被宣布完成的部分：
 

@@ -73,6 +73,10 @@ const liveIgnoreInternalTextureInput = document.getElementById("live-ignore-inte
 const liveMinTargetAreaInput = document.getElementById("live-min-target-area");
 const liveSensitivityInput = document.getElementById("live-sensitivity");
 const liveCurrentTemperatureInput = document.getElementById("live-current-temperature");
+const tempSerialPortSelect = document.getElementById("temp-serial-port-select");
+const refreshTempSerialPortsButton = document.getElementById("refresh-temp-serial-ports-btn");
+const applyTempSerialPortButton = document.getElementById("apply-temp-serial-port-btn");
+const tempSerialPortStatusNode = document.getElementById("temp-serial-port-status");
 const liveTargetTemperatureInput = document.getElementById("live-target-temperature");
 const liveControlModeSelect = document.getElementById("live-control-mode");
 const liveCompletionModeSelect = document.getElementById("live-completion-mode");
@@ -217,6 +221,8 @@ let precheckState = null;
 let recentSessionsState = [];
 let probeControlsDirty = false;
 let fixtureVideoSwitchBusy = false;
+let tempSerialPortBusy = false;
+let tempSerialPortBackend = "";
 let newLiveTestConfirmationTimer = null;
 let newLiveTestPendingConfirmation = false;
 let currentLocale = "zh";
@@ -323,8 +329,12 @@ const TRANSLATIONS = {
     "home.actions.confirm_new_test": "确认新测试",
     "home.messages.new_test_confirm": "再次点击“确认新测试”才会清空当前结果并开始下一次测试。",
     "home.sections.temperature.completion_mode": "结束方式",
+    "home.sections.temperature.serial_port": "温控串口",
+    "home.options.serial_loading": "正在读取串口...",
     "home.options.completion_target_reached": "到目标温度自动停止",
     "home.options.completion_manual_stop_only": "只手动停止",
+    "home.actions.refresh_serial_ports": "刷新串口",
+    "home.actions.apply_serial_port": "使用并读取",
     "workspace.step_status.todo": "待处理",
     "workspace.step_status.active": "进行中",
     "workspace.step_status.done": "已完成",
@@ -447,12 +457,16 @@ const TRANSLATIONS = {
     "home.sections.temperature.target": "Target Temp (°C)",
     "home.sections.temperature.control_mode": "Control Mode",
     "home.sections.temperature.completion_mode": "Stop Mode",
+    "home.sections.temperature.serial_port": "Temp Serial Port",
     "home.sections.temperature.power": "Temperature Power (%)",
     "home.sections.temperature.controller_confirm": "Confirm Settings",
     "home.sections.temperature.controller_target": "Confirmed Settings",
+    "home.options.serial_loading": "Loading serial ports...",
     "home.options.control_mode_manual": "Manual",
     "home.options.completion_target_reached": "Auto at Target",
     "home.options.completion_manual_stop_only": "Manual Stop Only",
+    "home.actions.refresh_serial_ports": "Refresh Ports",
+    "home.actions.apply_serial_port": "Use and Read",
     "home.actions.confirm_target": "Confirm Temperature Settings",
     "home.actions.save_definition": "Save Definition",
     "home.actions.start_live_run": "Start Live Run",
@@ -1216,6 +1230,137 @@ function renderCurrentTemperature(payload) {
   const celsius = normalizeTemperatureValue(payload?.temperature_celsius);
   liveRunState.currentTemperatureCelsius = celsius;
   liveCurrentTemperatureInput.value = celsius === null ? "--" : celsius.toFixed(1);
+}
+
+function setTempSerialPortStatus(message, tone = "info") {
+  if (!tempSerialPortStatusNode) {
+    return;
+  }
+  tempSerialPortStatusNode.textContent = message;
+  tempSerialPortStatusNode.className = `operator-inline-note temp-serial-status temp-serial-status--${tone}`;
+}
+
+function renderTempSerialPorts(payload) {
+  if (!tempSerialPortSelect) {
+    return;
+  }
+  const backend = String(payload?.backend || "");
+  tempSerialPortBackend = backend;
+  const ports = Array.isArray(payload?.ports) ? payload.ports : [];
+  const selectedPort = String(payload?.selected_port || payload?.configured_port || "");
+  const portOptions = ports.map((port) => {
+    const device = String(port.device || "");
+    const description = String(port.description || "");
+    const label = description && description !== device ? `${device} - ${description}` : device;
+    return { device, label };
+  });
+  if (selectedPort && !portOptions.some((port) => port.device === selectedPort)) {
+    portOptions.unshift({
+      device: selectedPort,
+      label: currentLocale === "en" ? `${selectedPort} (configured, not visible)` : `${selectedPort}（当前配置，未发现）`,
+    });
+  }
+  if (!portOptions.length) {
+    tempSerialPortSelect.innerHTML = `<option value="">${
+      currentLocale === "en" ? "No serial ports found" : "未发现串口"
+    }</option>`;
+    tempSerialPortSelect.value = "";
+  } else {
+    tempSerialPortSelect.innerHTML = portOptions
+      .map((port) => `<option value="${escapeHtml(port.device)}">${escapeHtml(port.label)}</option>`)
+      .join("");
+    tempSerialPortSelect.value = selectedPort && portOptions.some((port) => port.device === selectedPort)
+      ? selectedPort
+      : portOptions[0].device;
+  }
+  if (backend !== "lu92xx_modbus_rtu") {
+    setTempSerialPortStatus(
+      currentLocale === "en"
+        ? `Serial selection is inactive for ${backend || "missing"} temperature backend.`
+        : `当前温控后端为 ${backend || "missing"}，不启用硬件串口选择。`,
+      "warning",
+    );
+  } else if (!portOptions.length) {
+    setTempSerialPortStatus(currentLocale === "en" ? "No visible serial ports." : "未发现可见串口。", "warning");
+  } else {
+    setTempSerialPortStatus(
+      currentLocale === "en" ? "Choose a port, then use and read temperature." : "请选择串口，然后点击“使用并读取”。",
+      "info",
+    );
+  }
+  updateLiveRunControls();
+}
+
+async function refreshTempSerialPorts({ silent = false } = {}) {
+  if (!tempSerialPortSelect) {
+    return null;
+  }
+  if (refreshTempSerialPortsButton) {
+    refreshTempSerialPortsButton.disabled = true;
+  }
+  try {
+    const response = await fetch("/api/system/temp/serial-ports");
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(parseErrorDetail(payload, `Serial port discovery failed: ${response.status}`));
+    }
+    renderTempSerialPorts(payload);
+    return payload;
+  } catch (error) {
+    if (!silent) {
+      setTempSerialPortStatus(String(error), "error");
+    }
+    return null;
+  } finally {
+    if (refreshTempSerialPortsButton) {
+      refreshTempSerialPortsButton.disabled = false;
+    }
+    updateLiveRunControls();
+  }
+}
+
+async function applyTempSerialPort() {
+  if (!tempSerialPortSelect || tempSerialPortBusy) {
+    return;
+  }
+  const selectedPort = String(tempSerialPortSelect.value || "").trim();
+  if (!selectedPort) {
+    setTempSerialPortStatus(currentLocale === "en" ? "Choose a serial port first." : "请先选择一个串口。", "error");
+    return;
+  }
+  tempSerialPortBusy = true;
+  stopCurrentTemperaturePolling();
+  setTempSerialPortStatus(
+    currentLocale === "en" ? `Using ${selectedPort} and reading temperature...` : `正在使用 ${selectedPort} 并读取温度...`,
+    "info",
+  );
+  updateLiveRunControls();
+  try {
+    const response = await fetch("/api/system/temp/serial-port", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ port: selectedPort }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(parseErrorDetail(payload, `Serial port selection failed: ${response.status}`));
+    }
+    renderCurrentTemperature(payload);
+    liveRunState.confirmedTemperatureSettings = null;
+    refreshTemperatureSettingsSummary();
+    setTempSerialPortStatus(
+      currentLocale === "en"
+        ? `Using ${payload.selected_port}; current temperature ${Number(payload.temperature_celsius).toFixed(1)} °C.`
+        : `已使用 ${payload.selected_port}；当前温度 ${Number(payload.temperature_celsius).toFixed(1)} °C。`,
+      "success",
+    );
+  } catch (error) {
+    setTempSerialPortStatus(String(error), "error");
+  } finally {
+    tempSerialPortBusy = false;
+    startCurrentTemperaturePolling();
+    updateLiveRunControls();
+  }
 }
 
 function formatPointSummary(point) {
@@ -2219,6 +2364,17 @@ function updateLiveRunControls() {
     confirmTargetTemperatureButton.textContent = temperatureSettingsConfirmed
       ? t("home.actions.target_confirmed", {}, currentLocale === "en" ? "Settings Confirmed" : "已确认")
       : t("home.actions.confirm_target", {}, currentLocale === "en" ? "Confirm Temperature Settings" : "确认温控设置");
+  }
+  if (refreshTempSerialPortsButton) {
+    refreshTempSerialPortsButton.disabled = tempSerialPortBusy || isRunActive;
+  }
+  if (applyTempSerialPortButton) {
+    applyTempSerialPortButton.disabled =
+      tempSerialPortBusy ||
+      isRunActive ||
+      tempSerialPortBackend !== "lu92xx_modbus_rtu" ||
+      !tempSerialPortSelect ||
+      !tempSerialPortSelect.value;
   }
   refreshTemperatureSettingsSummary();
   if (startLiveRunButton) {
@@ -5919,7 +6075,14 @@ async function bootstrap() {
   try {
     renderHomeCompactResultSummary(null);
     resetLiveProcessTelemetry();
-    await Promise.all([loadHealth(), loadProfile(), loadFixtureVideoSwitch(), loadPrecheck(), loadRecentSessions()]);
+    await Promise.all([
+      loadHealth(),
+      loadProfile(),
+      loadFixtureVideoSwitch(),
+      loadPrecheck(),
+      loadRecentSessions(),
+      refreshTempSerialPorts({ silent: true }),
+    ]);
     if (liveRunPresetNode && liveRunPresetSelect) {
       liveRunPresetNode.textContent = liveRunPresetSelect.value;
     }
@@ -6125,6 +6288,16 @@ if (startLiveRunButton) {
 }
 if (confirmTargetTemperatureButton) {
   confirmTargetTemperatureButton.addEventListener("click", confirmTargetTemperature);
+}
+if (refreshTempSerialPortsButton) {
+  refreshTempSerialPortsButton.addEventListener("click", () => {
+    void refreshTempSerialPorts();
+  });
+}
+if (applyTempSerialPortButton) {
+  applyTempSerialPortButton.addEventListener("click", () => {
+    void applyTempSerialPort();
+  });
 }
 if (stopLiveRunButton) {
   stopLiveRunButton.addEventListener("click", stopLiveRun);
