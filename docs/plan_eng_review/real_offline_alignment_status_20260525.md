@@ -175,6 +175,20 @@ This endpoint also does not open the camera or temperature controller. It is a
 configuration and algorithm parity check only, and its response includes
 `hardware_access: not_attempted` by design.
 
+The operator runtime also enforces the locked pixel contract before vision
+processing:
+
+- setup preview one-shot freeze validates the actual returned frame pixels
+- setup preview stream validates every emitted frame
+- live-run measurement wraps `camera.read_frame()` and validates every
+  measurement frame before contour extraction
+
+For the locked real/offline profiles, a returned frame that is not `2048 x
+1364` fails immediately with a pixel-contract error instead of flowing into
+contour detection or formal A/B selection. This is intended to surface true
+camera SDK / ROI drift early, before it can produce misleading A/B points or
+curve data.
+
 ### 4. Run Guard Behavior
 
 Both active profiles must avoid silently stopping valid long runs because of

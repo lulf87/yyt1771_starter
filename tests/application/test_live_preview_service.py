@@ -1,7 +1,12 @@
 import time
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
+
+from src.application.frame_pixel_contract import FramePixelContractError
 from src.application.live_preview_service import LivePreviewService, compute_preview_interval_ms
+from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
 
 
@@ -393,3 +398,65 @@ def test_fetch_frame_retries_retryable_hik_handle_creation_failures() -> None:
     assert frame.source == "retry_success_camera"
     assert failing_camera.closed is True
     assert success_camera.closed is True
+
+
+def test_fetch_frame_rejects_locked_profile_preview_pixels_that_differ_from_offline_material() -> None:
+    service = LivePreviewService()
+
+    class WrongSizeCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_000 + self.frame_id,
+                source="wrong_size_camera",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = WrongSizeCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="expected=2048x1364, actual=1120x620"):
+        service.fetch_frame(runtime_config, run_id="run-wrong-size", prefer_cached=False)
+
+    assert camera.closed is True
+
+
+def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_material() -> None:
+    service = LivePreviewService()
+
+    class MatchingSizeCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=5_000 + self.frame_id,
+                source="matching_size_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MatchingSizeCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    frame = service.fetch_frame(runtime_config, run_id="run-matching-size", prefer_cached=False)
+
+    assert frame.frame_id == 3
+    assert frame.meta["pixel_contract_width"] == 2048
+    assert frame.meta["pixel_contract_height"] == 1364
+    assert camera.closed is True

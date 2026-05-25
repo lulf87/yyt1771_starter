@@ -5,6 +5,7 @@ import numpy as np
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_service import (
     _ActiveLiveRun,
+    _FramePixelContractCamera,
     _augment_telemetry_for_setup_preview,
     _coerce_native_bitmap_pixels,
     _composite_tracking_frame_into_setup_preview,
@@ -17,7 +18,8 @@ from src.application.live_run_service import (
     _tracking_preview_min_interval_ms,
 )
 from src.application.device_factory import apply_measurement_acquisition_roi, build_measurement_capture_plan
-from src.application.runtime_config import RuntimeConfig, WebAppConfig
+from src.application.frame_pixel_contract import FramePixelContractError
+from src.application.runtime_config import RuntimeConfig, WebAppConfig, load_runtime_config
 from src.core.config_models import DeviceRoiConfig, RunRuntimeConfig
 from src.core.models import (
     FramePacket,
@@ -517,6 +519,53 @@ def test_definition_in_setup_source_space_preserves_source_coordinates_even_in_d
     )
 
     assert translated == definition
+
+
+def test_live_run_measurement_camera_rejects_pixels_that_differ_from_offline_material() -> None:
+    class WrongSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="wrong_size_measurement",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=1,
+            )
+
+    camera = _FramePixelContractCamera(
+        WrongSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected=2048x1364, actual=1120x620" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected locked live-run pixel contract failure")
+
+
+def test_live_run_measurement_camera_accepts_pixels_that_match_offline_material() -> None:
+    class MatchingSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="matching_size_measurement",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+            )
+
+    camera = _FramePixelContractCamera(
+        MatchingSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    frame = camera.read_frame()
+
+    assert frame.meta["pixel_contract_width"] == 2048
+    assert frame.meta["pixel_contract_height"] == 1364
 
 
 def test_should_cache_tracking_preview_honors_minimum_interval() -> None:

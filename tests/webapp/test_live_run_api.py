@@ -717,6 +717,40 @@ def test_preview_frame_fetch_normalizes_hik_access_denied_error(tmp_path: Path) 
     assert "0x80000203" in response.json()["detail"]
 
 
+def test_preview_frame_locked_contract_mismatch_returns_operator_error(tmp_path: Path) -> None:
+    app = create_app(profile="dev_lab")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+
+    class WrongSizeCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="wrong_size_camera",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            return None
+
+    app.state.live_preview_service.open_camera = (
+        lambda runtime_config, *, profile_name="setup_preview": WrongSizeCamera()
+    )
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 503
+    assert "Frame pixel contract mismatch" in response.json()["detail"]
+    assert "expected=2048x1364, actual=1120x620" in response.json()["detail"]
+
+
 def test_preview_stream_start_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     client = TestClient(app)

@@ -19,6 +19,7 @@ from src.application.device_factory import (
     build_metric_source,
     build_temp_controller,
 )
+from src.application.frame_pixel_contract import validate_frame_pixel_contract
 from src.application.live_preview_service import LivePreviewService
 from src.application.preview_render import build_preview_bitmap, enhance_preview_bitmap
 from src.application.live_run_registry import LiveRunDraftRegistry
@@ -208,6 +209,11 @@ class LiveRunService:
                 runtime_config=effective_runtime_config,
                 definition=measurement_plan.metric_definition,
                 target_temperature_celsius=target_temperature_celsius,
+            )
+            camera = _FramePixelContractCamera(
+                camera,
+                runtime_config=effective_runtime_config,
+                profile_name="measurement",
             )
             coordinator = LiveRunCoordinator(repo=self.repo, artifact_store=self.artifact_store)
             execution = coordinator.run(
@@ -478,6 +484,26 @@ class LiveRunService:
         open_method = getattr(camera, "open", None)
         if callable(open_method):
             open_method()
+
+
+class _FramePixelContractCamera:
+    def __init__(self, camera: object, *, runtime_config: RuntimeConfig, profile_name: str) -> None:
+        self._camera = camera
+        self._runtime_config = runtime_config
+        self._profile_name = str(profile_name)
+
+    def read_frame(self) -> FramePacket:
+        read_frame = getattr(self._camera, "read_frame")
+        frame = read_frame()
+        return validate_frame_pixel_contract(
+            self._runtime_config,
+            profile_name=self._profile_name,
+            frame=frame,
+            context="live_run_measurement_frame",
+        )
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._camera, name)
 
 
 def _runtime_config_with_measurement_profile(
