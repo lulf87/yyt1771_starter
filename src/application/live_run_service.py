@@ -623,110 +623,12 @@ def _definition_in_setup_source_space(
     preview_service: LivePreviewService,
     run_id: str,
 ) -> MeasurementDefinition:
-    try:
-        frame = preview_service.fetch_frame(runtime_config, run_id=run_id, prefer_cached=True)
-    except Exception:
-        return definition
-    source_width, source_height = _frame_image_dimensions(frame)
-    if source_width < 1 or source_height < 1:
-        return definition
-    bitmap = build_preview_bitmap(
-        frame.image,
-        max_width=int(runtime_config.live.run.preview_display_max_width),
-        max_height=int(runtime_config.live.run.preview_display_max_height),
-    )
-    preview_width = int(bitmap.width)
-    preview_height = int(bitmap.height)
-    if preview_width < 1 or preview_height < 1:
-        return definition
-    if not _definition_fits_preview_bounds(
-        definition,
-        preview_width=preview_width,
-        preview_height=preview_height,
-    ):
-        return definition
-    setup_preview_roi = runtime_config.live.camera.setup_preview.device_roi
-    setup_origin_x = int(setup_preview_roi.x)
-    setup_origin_y = int(setup_preview_roi.y)
-    setup_source_width = source_width
-    setup_source_height = source_height
-
-    def _scale_x(value: int) -> int:
-        scaled = int(round(int(value) * setup_source_width / preview_width))
-        return max(setup_origin_x, min(setup_origin_x + setup_source_width - 1, setup_origin_x + scaled))
-
-    def _scale_y(value: int) -> int:
-        scaled = int(round(int(value) * setup_source_height / preview_height))
-        return max(setup_origin_y, min(setup_origin_y + setup_source_height - 1, setup_origin_y + scaled))
-
-    def _scale_width(start: int, width: int) -> int:
-        if width <= 0:
-            return 1
-        left = _scale_x(start)
-        right = _scale_x(start + width)
-        return max(1, int(right - left))
-
-    def _scale_height(start: int, height: int) -> int:
-        if height <= 0:
-            return 1
-        top = _scale_y(start)
-        bottom = _scale_y(start + height)
-        return max(1, int(bottom - top))
-
-    return MeasurementDefinition(
-        analysis_roi=type(definition.analysis_roi)(
-            x=_scale_x(definition.analysis_roi.x),
-            y=_scale_y(definition.analysis_roi.y),
-            width=_scale_width(definition.analysis_roi.x, definition.analysis_roi.width),
-            height=_scale_height(definition.analysis_roi.y, definition.analysis_roi.height),
-        ),
-        metric_box=type(definition.metric_box)(
-            center_x=_scale_x(definition.metric_box.center_x),
-            center_y=_scale_y(definition.metric_box.center_y),
-            width=max(1, int(round(int(definition.metric_box.width) * setup_source_width / preview_width))),
-            height=max(1, int(round(int(definition.metric_box.height) * setup_source_height / preview_height))),
-            angle_deg=float(definition.metric_box.angle_deg),
-        ),
-        point_a_px=type(definition.point_a_px)(
-            x=_scale_x(definition.point_a_px.x),
-            y=_scale_y(definition.point_a_px.y),
-        ),
-        point_b_px=type(definition.point_b_px)(
-            x=_scale_x(definition.point_b_px.x),
-            y=_scale_y(definition.point_b_px.y),
-        ),
-        foreground_polarity=definition.foreground_polarity,
-        threshold_mode=definition.threshold_mode,
-        ignore_internal_texture=definition.ignore_internal_texture,
-        min_target_area_px=int(definition.min_target_area_px),
-        sensitivity=float(definition.sensitivity),
-        direction_angle_deg=definition.direction_angle_deg,
-        direction_projection_mode=definition.direction_projection_mode,
-        observation_axis=definition.observation_axis,
-    )
-
-
-def _definition_fits_preview_bounds(
-    definition: MeasurementDefinition,
-    *,
-    preview_width: int,
-    preview_height: int,
-) -> bool:
-    if preview_width < 1 or preview_height < 1:
-        return False
-    analysis_roi = definition.analysis_roi
-    metric_box = definition.metric_box
-    points = (definition.point_a_px, definition.point_b_px)
-    if analysis_roi.x < 0 or analysis_roi.y < 0:
-        return False
-    if analysis_roi.x + analysis_roi.width > preview_width or analysis_roi.y + analysis_roi.height > preview_height:
-        return False
-    if not (0 <= metric_box.center_x < preview_width and 0 <= metric_box.center_y < preview_height):
-        return False
-    for point in points:
-        if not (0 <= point.x < preview_width and 0 <= point.y < preview_height):
-            return False
-    return True
+    del runtime_config, preview_service, run_id
+    # The current Web setup sends definition geometry in preview source-frame
+    # coordinates. Do not infer display-coordinate input from small ROI values;
+    # source-frame ROIs near the upper-left can legitimately fit inside the
+    # 816x543 display bounds.
+    return definition
 
 
 def _camera_applied_device_roi(camera: object) -> DeviceRoiConfig | None:

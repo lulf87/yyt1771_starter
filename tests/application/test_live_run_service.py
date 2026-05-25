@@ -481,22 +481,22 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
     assert payload["setup_to_requested_local_translation_px"] == {"dx": -840, "dy": -568}
 
 
-def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor_coordinates() -> None:
+def test_definition_in_setup_source_space_preserves_source_coordinates_even_in_display_bounds() -> None:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="dev_lab",
         platform="mac",
         mode="lab",
-        webapp=WebAppConfig(host="127.0.0.1", port=8000),
-        adapters={"camera": "hik_gige_mvs", "temp": "mock", "plc": "mock"},
+        webapp=WebAppConfig(host="127.0.0.1", port=8002),
+        adapters={"camera": "offline_capture", "temp": "offline_capture", "plc": "mock"},
     )
-    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig()
+    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
     runtime_config.live.run.preview_display_max_width = 816
     runtime_config.live.run.preview_display_max_height = 544
     definition = MeasurementDefinition(
-        analysis_roi=RectRegion(x=360, y=110, width=220, height=360),
-        metric_box=MetricBox(center_x=470, center_y=290, width=180, height=90, angle_deg=0.0),
-        point_a_px=PixelPoint(x=380, y=290),
-        point_b_px=PixelPoint(x=560, y=290),
+        analysis_roi=RectRegion(x=120, y=90, width=360, height=260),
+        metric_box=MetricBox(center_x=300, center_y=220, width=280, height=120, angle_deg=12.0),
+        point_a_px=PixelPoint(x=170, y=230),
+        point_b_px=PixelPoint(x=430, y=220),
         foreground_polarity="dark_on_light",
         threshold_mode="otsu",
         ignore_internal_texture=True,
@@ -505,7 +505,7 @@ def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor
     frame = FramePacket(
         timestamp_ms=1_000,
         source="setup_preview",
-        image=_NativePreviewImage(source_width=3072, source_height=2048, preview_width=816, preview_height=544),
+        image=_NativePreviewImage(source_width=2048, source_height=1364, preview_width=816, preview_height=543),
         frame_id=1,
     )
 
@@ -516,18 +516,7 @@ def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor
         run_id="run-001",
     )
 
-    assert translated.analysis_roi.x == 1355
-    assert translated.analysis_roi.y == 414
-    assert translated.analysis_roi.width == 829
-    assert translated.analysis_roi.height == 1355
-    assert translated.metric_box.center_x == 1769
-    assert translated.metric_box.center_y == 1092
-    assert translated.metric_box.width == 678
-    assert translated.metric_box.height == 339
-    assert translated.point_a_px.x == 1431
-    assert translated.point_b_px.x == 2108
-    assert translated.point_a_px.y == 1092
-    assert translated.point_b_px.y == 1092
+    assert translated == definition
 
 
 def test_should_cache_tracking_preview_honors_minimum_interval() -> None:

@@ -9,7 +9,7 @@ from src.application.device_factory import (
     build_metric_source,
     open_camera,
 )
-from src.application.runtime_config import RuntimeConfig, WebAppConfig
+from src.application.runtime_config import RuntimeConfig, WebAppConfig, load_runtime_config
 from src.core.config_models import DeviceRoiConfig
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading, _metric_box_within_region
 
@@ -491,3 +491,41 @@ def test_real_and_offline_metric_sources_match_on_same_pixel_frame() -> None:
     assert real_metric.point_a_px == offline_metric.point_a_px
     assert real_metric.point_b_px == offline_metric.point_b_px
     assert real_metric.metric_raw == offline_metric.metric_raw
+
+
+def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_definition() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=200,
+        direction_angle_deg=30.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    real_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_lab"),
+        definition=definition,
+    )
+    offline_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_offline_capture"),
+        definition=definition,
+    )
+
+    assert real_plan.measurement_profile.device_roi.width == offline_plan.measurement_profile.device_roi.width
+    assert real_plan.measurement_profile.device_roi.height == offline_plan.measurement_profile.device_roi.height
+    assert real_plan.metric_definition == offline_plan.metric_definition
+    assert real_plan.setup_preview_roi == DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
+    assert offline_plan.setup_preview_roi == DeviceRoiConfig(x=0, y=0, width=2048, height=1364)
+    assert (
+        real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x
+        == offline_plan.measurement_profile.device_roi.x
+    )
+    assert (
+        real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
+        == offline_plan.measurement_profile.device_roi.y
+    )

@@ -1652,6 +1652,9 @@ def test_start_live_run_passes_persisted_long_axis_definition_into_metric_source
     assert start_response.status_code == 200
     assert "metric_definition" in captured
     metric_definition = captured["metric_definition"]
+    assert metric_definition.analysis_roi == RectRegion(x=0, y=0, width=240, height=160)
+    assert metric_definition.metric_box.center_x == 120
+    assert metric_definition.metric_box.center_y == 80
     assert metric_definition.observation_axis == ObservationAxis.LONG_AXIS
     assert metric_definition.metric_box.angle_deg == -32.0
 
@@ -2228,7 +2231,7 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
     _wait_for_run_status(client, run_id, "completed")
 
     assert start_response.status_code == 200
-    assert profile_names == ["setup_preview", "measurement"]
+    assert profile_names == ["measurement"]
 
 
 def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(tmp_path: Path) -> None:
