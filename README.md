@@ -104,6 +104,80 @@ yyt1771-web --profile dev_lab
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.webapp.serve --profile dev_offline_capture
 ```
 
+### 2.1 Mac 快速切换模拟素材和真实设备
+
+Mac 本机调试时，模拟素材、真实设备、真实相机 + 模拟温控之间通过
+profile 切换。切换 profile 需要先停止当前 Web 服务，再用另一个
+profile 重启；建议统一用 `8000` 端口，避免不同 profile 默认端口造成混乱。
+
+先进入项目目录：
+
+```bash
+cd "/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/yyt1771_starter"
+```
+
+如果不确定旧服务是否还占着 `8000`，先停掉：
+
+```bash
+pids=$(lsof -tiTCP:8000 -sTCP:LISTEN)
+[ -n "$pids" ] && kill $pids
+```
+
+真实相机 + 真实温控：
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 \
+  -m src.webapp.serve \
+  --profile dev_lab \
+  --port 8000 \
+  --open-browser
+```
+
+模拟素材离线测试：
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 \
+  -m src.webapp.serve \
+  --profile dev_offline_capture \
+  --port 8000 \
+  --open-browser
+```
+
+真实相机 + 模拟温控：
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 \
+  -m src.webapp.serve \
+  --profile dev_lab_camera_mock_temp \
+  --port 8000 \
+  --open-browser
+```
+
+也可以在当前终端里临时设置 alias，提高切换速度：
+
+```bash
+export YYT_PY="../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11"
+
+alias yyt-stop='pids=$(lsof -tiTCP:8000 -sTCP:LISTEN); [ -n "$pids" ] && kill $pids'
+alias yyt-real='yyt-stop; $YYT_PY -m src.webapp.serve --profile dev_lab --port 8000 --open-browser'
+alias yyt-offline='yyt-stop; $YYT_PY -m src.webapp.serve --profile dev_offline_capture --port 8000 --open-browser'
+alias yyt-real-mock-temp='yyt-stop; $YYT_PY -m src.webapp.serve --profile dev_lab_camera_mock_temp --port 8000 --open-browser'
+```
+
+之后直接运行：
+
+```bash
+yyt-offline
+yyt-real
+yyt-real-mock-temp
+```
+
+对应关系：
+
+- `yyt-offline`：模拟素材离线测试。
+- `yyt-real`：真实相机 + 真实温控。
+- `yyt-real-mock-temp`：真实相机 + 模拟温控。
+
 其他入口只在特定场景使用：
 
 - 当前 Web 工作站脚本：`yyt1771-web --profile dev_lab`
