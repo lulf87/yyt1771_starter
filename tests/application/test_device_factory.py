@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from src.application.device_factory import (
     apply_measurement_acquisition_roi,
@@ -529,3 +530,95 @@ def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_d
         real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
         == offline_plan.measurement_profile.device_roi.y
     )
+
+
+@pytest.mark.parametrize("angle_deg", list(range(0, 360, 30)))
+def test_real_and_offline_profiles_share_metric_pixels_across_roi_angles(angle_deg: int) -> None:
+    center_x = 1024
+    center_y = 682
+    half_span = 420
+    angle_rad = np.deg2rad(angle_deg)
+    dx = int(round(np.cos(angle_rad) * half_span))
+    dy = int(round(np.sin(angle_rad) * half_span))
+    point_a = PixelPoint(x=center_x - dx, y=center_y - dy)
+    point_b = PixelPoint(x=center_x + dx, y=center_y + dy)
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=120, y=120, width=1800, height=1120),
+        metric_box=MetricBox(center_x=center_x, center_y=center_y, width=980, height=220, angle_deg=float(angle_deg)),
+        point_a_px=point_a,
+        point_b_px=point_b,
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=float(angle_deg),
+        direction_projection_mode="max_chord",
+    )
+
+    real_config = load_runtime_config("dev_lab")
+    offline_config = load_runtime_config("dev_offline_capture")
+    real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
+    offline_plan = build_measurement_capture_plan(runtime_config=offline_config, definition=definition)
+
+    assert real_plan.metric_definition == offline_plan.metric_definition
+    assert real_plan.measurement_profile.device_roi.width == offline_plan.measurement_profile.device_roi.width
+    assert real_plan.measurement_profile.device_roi.height == offline_plan.measurement_profile.device_roi.height
+    assert (
+        real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x
+        == offline_plan.measurement_profile.device_roi.x
+    )
+    assert (
+        real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
+        == offline_plan.measurement_profile.device_roi.y
+    )
+
+    image = np.full((1364, 2048), 240, dtype=np.uint8)
+    _paint_test_line(
+        image,
+        (real_plan.metric_definition.point_a_px.x, real_plan.metric_definition.point_a_px.y),
+        (real_plan.metric_definition.point_b_px.x, real_plan.metric_definition.point_b_px.y),
+        width=28,
+        value=30,
+    )
+    frame = FramePacket(timestamp_ms=1_000, source="fixture", image=image, frame_id=1)
+    temp = TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture")
+
+    real_metric = build_metric_source(
+        runtime_config=real_config,
+        definition=real_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    ).extract(frame, temp, sample_index=0, total_samples=1)
+    offline_metric = build_metric_source(
+        runtime_config=offline_config,
+        definition=offline_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    ).extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert real_metric.quality > 0.0
+    assert offline_metric.quality > 0.0
+    assert real_metric.meta["selection_mode"] == offline_metric.meta["selection_mode"]
+    assert real_metric.point_a_px == offline_metric.point_a_px
+    assert real_metric.point_b_px == offline_metric.point_b_px
+    assert real_metric.metric_raw == offline_metric.metric_raw
+
+
+def _paint_test_line(
+    image: np.ndarray,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    width: int,
+    value: int,
+) -> None:
+    x0, y0 = start
+    x1, y1 = end
+    steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+    radius = max(0, int(width) // 2)
+    for index in range(steps + 1):
+        ratio = index / steps
+        x = int(round(x0 + (x1 - x0) * ratio))
+        y = int(round(y0 + (y1 - y0) * ratio))
+        image[
+            max(0, y - radius) : min(image.shape[0], y + radius + 1),
+            max(0, x - radius) : min(image.shape[1], x + radius + 1),
+        ] = value
