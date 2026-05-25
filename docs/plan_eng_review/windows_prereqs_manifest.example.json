@@ -1,0 +1,22 @@
+{
+  "entries": [
+    {
+      "key": "hik_mvs",
+      "label": "Hik MVS SDK / Driver",
+      "filename": "MVS_OFFICIAL_INSTALLER.exe",
+      "install_args": []
+    },
+    {
+      "key": "vc_redist_x64",
+      "label": "Microsoft Visual C++ Redistributable x64",
+      "filename": "VC_redist.x64.exe",
+      "install_args": ["/install", "/quiet", "/norestart"]
+    },
+    {
+      "key": "usb_serial",
+      "label": "USB-to-Serial Driver",
+      "filename": "USB_SERIAL_OFFICIAL_DRIVER.exe",
+      "install_args": []
+    }
+  ]
+}
