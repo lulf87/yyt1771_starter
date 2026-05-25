@@ -2,8 +2,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from src.application.real_offline_alignment import RealOfflineAlignmentError
 from src.workflow import precheck as precheck_module
 from src.webapp.app import create_app
+from src.webapp.routes import profile as profile_routes
 
 
 def _make_client(tmp_path: Path, profile: str = "dev_mock") -> TestClient:
@@ -166,3 +168,43 @@ def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
     assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
     assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="dev_lab")
+
+    response = client.get("/api/system/real-offline-alignment")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["real_profile"] == "dev_lab"
+    assert payload["offline_profile"] == "dev_offline_capture"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["pixel_contract"]["source_size_px"] == {"width": 2048, "height": 1364}
+    assert payload["pixel_contract"]["preview_display_px"] == {"width": 816, "height": 544}
+    assert payload["angles_checked"] == 12
+    assert [item["angle_deg"] for item in payload["angle_results"]] == list(range(0, 360, 30))
+    assert all(item["point_a_px"] for item in payload["angle_results"])
+    assert all(item["point_b_px"] for item in payload["angle_results"])
+
+
+def test_real_offline_alignment_api_returns_failure_payload_without_device_access(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab")
+
+    def fail_audit() -> dict[str, object]:
+        raise RealOfflineAlignmentError("source pixels drifted")
+
+    monkeypatch.setattr(profile_routes, "run_alignment_audit", fail_audit)
+
+    response = client.get("/api/system/real-offline-alignment")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "fail"
+    assert payload["detail"] == "source pixels drifted"
+    assert payload["hardware_access"] == "not_attempted"
+    assert payload["angle_results"] == []

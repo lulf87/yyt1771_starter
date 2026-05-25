@@ -482,6 +482,18 @@ class PrecheckResponse(BaseModel):
     items: list[PrecheckItemResponse]
 
 
+class RealOfflineAlignmentAuditResponse(BaseModel):
+    status: str
+    real_profile: str | None = None
+    offline_profile: str | None = None
+    pixel_contract: dict[str, Any] | None = None
+    angles_checked: int | None = None
+    angle_step_deg: int | None = None
+    angle_results: list[dict[str, Any]] = Field(default_factory=list)
+    hardware_access: Literal["not_attempted"] = "not_attempted"
+    detail: str = ""
+
+
 class CameraProbeIdentityResponse(BaseModel):
     serial_number: str = ""
     ip: str = ""

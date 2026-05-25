@@ -148,6 +148,17 @@ This command does not open the camera or temperature controller. It loads
 source pixels, then runs the same metric chain on synthetic source frames at
 every 30 degrees.
 
+The same audit is exposed through the operator Web service for browser/API
+diagnostics:
+
+```text
+GET /api/system/real-offline-alignment
+```
+
+This endpoint also does not open the camera or temperature controller. It is a
+configuration and algorithm parity check only, and its response includes
+`hardware_access: not_attempted` by design.
+
 ### 4. Run Guard Behavior
 
 Both active profiles must avoid silently stopping valid long runs because of

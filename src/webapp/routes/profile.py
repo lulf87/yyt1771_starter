@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from src.application.container import ApplicationContainer
+from src.application.real_offline_alignment import RealOfflineAlignmentError, run_alignment_audit
 from src.application.runtime_config import RuntimeConfig
 from src.application.temp_serial_ports import list_serial_ports
 from src.webapp.deps import get_application_container, get_camera_probe_runner, get_runtime_config
@@ -16,6 +17,7 @@ from src.webapp.schemas import (
     CameraProbeResponse,
     PrecheckResponse,
     ProfileResponse,
+    RealOfflineAlignmentAuditResponse,
     TempCurrentResponse,
     TempSerialPortSelectRequest,
     TempSerialPortSelectResponse,
@@ -44,6 +46,14 @@ def get_precheck(runtime_config: RuntimeConfig = Depends(get_runtime_config)) ->
         project_root=Path(__file__).resolve().parents[3],
         run_config=runtime_config.live.run,
     )
+
+
+@router.get("/real-offline-alignment", response_model=RealOfflineAlignmentAuditResponse)
+def get_real_offline_alignment_audit() -> dict[str, Any]:
+    try:
+        return run_alignment_audit()
+    except RealOfflineAlignmentError as exc:
+        return {"status": "fail", "detail": str(exc), "hardware_access": "not_attempted"}
 
 
 @router.post("/camera/probe", response_model=CameraProbeResponse)
