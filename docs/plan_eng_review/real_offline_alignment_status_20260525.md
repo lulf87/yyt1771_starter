@@ -136,6 +136,18 @@ device ROI pixels drift away from the locked offline truth contract. It also
 treats `offline_capture` as a supported active camera backend rather than a
 failed unknown backend.
 
+For a direct command-line audit of pixel geometry, contour selection, and formal
+A/B parity across the 12 locked ROI angles, run:
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m src.application.real_offline_alignment
+```
+
+This command does not open the camera or temperature controller. It loads
+`dev_lab` and `dev_offline_capture`, compares their effective measurement
+source pixels, then runs the same metric chain on synthetic source frames at
+every 30 degrees.
+
 ### 4. Run Guard Behavior
 
 Both active profiles must avoid silently stopping valid long runs because of
