@@ -23,7 +23,10 @@ from src.application.frame_pixel_contract import validate_frame_pixel_contract
 from src.application.live_preview_service import LivePreviewService
 from src.application.preview_render import build_preview_bitmap, enhance_preview_bitmap
 from src.application.live_run_registry import LiveRunDraftRegistry
-from src.application.real_offline_alignment_guard import assert_real_offline_alignment_ready
+from src.application.real_offline_alignment_guard import (
+    assert_real_offline_alignment_ready,
+    assert_real_offline_definition_ready,
+)
 from src.application.runtime_config import RuntimeConfig
 from src.core.config_models import DeviceRoiConfig
 from src.core.enums import CaptureMode, RunStatus
@@ -85,9 +88,10 @@ class LiveRunService:
         target_temperature_celsius: float,
         registry: LiveRunDraftRegistry,
     ) -> object:
-        assert_real_offline_alignment_ready(runtime_config, context="live_run_start")
         if record.definition is None:
             raise ValueError("measurement definition is required before starting a live run")
+        assert_real_offline_alignment_ready(runtime_config, context="live_run_start")
+        assert_real_offline_definition_ready(runtime_config, record.definition, context="live_run_start")
 
         with self._state_lock:
             if any(

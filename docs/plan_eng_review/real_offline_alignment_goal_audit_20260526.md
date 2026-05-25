@@ -49,6 +49,7 @@ material, CLI audits, automated tests, and browser-visible local Web APIs.
 | Connected real camera must prove setup and measurement pixels with actual frames | `src.application.real_camera_alignment_probe.probe_real_camera_alignment()`, `python -m src.application.real_camera_alignment_probe --profile dev_lab`, and `POST /api/system/real-offline-alignment/live-probe` first report the real/offline `alignment_contract`, then attempt live camera access, read one `setup_preview` frame and one `measurement` frame, and validate both with the same frame pixel contract. Browser verification without connected hardware returned `hardware_access=attempted` and a structured camera-discovery failure instead of a false pass. | Implemented; hardware pass pending |
 | One live probe response must expose pixel, contour, and A/B rule status together | `live-probe` and the CLI now include `alignment_contract.pixel_contract`, `alignment_contract.algorithm_contract.vision`, and `alignment_contract.algorithm_contract.ab_selection` before hardware frame results. If the offline-truth contract fails, the probe returns `hardware_access=not_attempted` and does not open the camera. | No-hardware contract verified |
 | Runtime preset and live-run paths must not bypass the alignment contract | `src.application.real_offline_alignment_guard.assert_real_offline_alignment_ready()` gates locked profiles before `definition/auto` and before `LiveRunService.start_run()`. If source pixels, contour settings, or live A/B tracking policy drift from the offline truth, preset auto-detect returns `409` before fetching a frame and live run start returns `409` before opening the camera. | No-hardware runtime guard verified |
+| Operator/request contour settings must not bypass the offline truth | Locked profiles now validate the request or saved `MeasurementDefinition` contour fields before save-definition, preset auto-detect, and live-run start. The locked auto-detect path uses only the offline-truth contour candidate (`dark_on_light`, `adaptive`, `ignore_internal_texture=false`, `min_target_area_px=200`) instead of searching alternate threshold/polarity combinations. | No-hardware runtime guard verified |
 | The same formal A/B pair must feed overlay, telemetry, curve, and analysis | Canonical requirement `live_setup_freeze_roi_tracking_requirement_v1.md` R6.1 / R6.2 locks this semantic rule. This audit verifies the no-hardware profile/algorithm contract, but does not prove live hardware overlay behavior without a connected camera. | Partially verified; hardware visual check pending |
 | Hik SDK `ret=0x80000203` open-device errors must be actionable | Commit `0d317dd Normalize Hik camera runtime errors` adds operator-facing normalization for `Failed to open device via Hik MVS SDK (ret=0x80000203)`. Targeted tests cover preview fetch, preview stream start, and failed live run normalization. | Verified in tests |
 
@@ -135,6 +136,32 @@ Result: `16 passed`.
 
 ```bash
 ../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/workflow/test_precheck.py \
+  tests/webapp/test_live_run_api.py::test_auto_detect_definition_blocks_locked_profile_when_alignment_contract_drifts \
+  tests/webapp/test_live_run_api.py::test_auto_detect_definition_blocks_locked_profile_request_contour_drift \
+  tests/webapp/test_live_run_api.py::test_save_definition_blocks_locked_profile_request_contour_drift \
+  tests/webapp/test_live_run_api.py::test_locked_profile_auto_detect_uses_only_offline_truth_contour_candidate \
+  tests/webapp/test_live_run_api.py::test_start_live_run_blocks_locked_profile_when_alignment_contract_drifts \
+  tests/webapp/test_live_run_api.py::test_start_live_run_blocks_locked_profile_saved_definition_contour_drift -q
+```
+
+Result: `22 passed`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
+  tests/application/test_real_offline_alignment_guard.py \
+  tests/application/test_real_camera_alignment_probe.py \
+  tests/application/test_real_offline_alignment.py \
+  tests/workflow/test_precheck.py \
+  tests/webapp/test_precheck_api.py \
+  tests/webapp/test_live_run_api.py -q
+```
+
+Result: `119 passed, 1 warning`.
+
+```bash
+../_local/yyt1771_starter/.conda-desktop-x86/bin/python3.11 -m pytest \
   tests/webapp/test_live_run_api.py::test_auto_detect_definition_returns_suggested_points_for_mock_preview \
   tests/webapp/test_live_run_api.py::test_auto_detect_definition_uses_directional_contour_when_direction_angle_is_provided \
   tests/webapp/test_live_run_api.py::test_start_live_run_completes_and_persists_result_bundle \
@@ -203,6 +230,7 @@ URL:
 - `http://127.0.0.1:8002/api/system/precheck`
 - `http://127.0.0.1:8002/api/system/real-offline-alignment`
 - `http://127.0.0.1:8012/docs`
+- `http://127.0.0.1:8013/docs`
 
 Observed in the real browser:
 
@@ -227,6 +255,16 @@ Observed in the real browser:
   `alignment_contract.algorithm_contract.ab_selection`; visible values included
   `dark_on_light`, `adaptive`, `target_contour_boundary`, `point_a_px`, and
   `point_b_px`
+- on `http://127.0.0.1:8013/docs`, a locked-profile request drift
+  (`foreground_polarity=light_on_dark`) returned HTTP `409` from
+  `/api/runs/{run_id}/definition/auto` before hardware access, with detail
+  stating that request contour settings must match offline truth contour
+  settings
+- on the same browser session, `POST
+  /api/system/real-offline-alignment/live-probe` returned HTTP `200` with
+  `status=fail`, `hardware_access=attempted`, and the expected no-camera detail
+  `No Hik cameras were discovered by the MVS SDK`, while still exposing the
+  locked offline alignment contract
 - screenshot saved to
   `/Users/lulingfeng/Documents/工作/开发/奥氏体变换/1771/_local/browser_checks/live_probe_no_hardware_swagger_20260526.png`
 - updated screenshot saved to
