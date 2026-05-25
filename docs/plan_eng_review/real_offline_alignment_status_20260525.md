@@ -125,6 +125,17 @@ same source pixels and definition. It asserts:
 - equal `point_b_px`
 - equal `metric_raw`
 
+The system precheck now also includes a runtime guard:
+
+```text
+real_offline_pixel_alignment
+```
+
+For `dev_lab` and `dev_offline_capture`, this item fails if setup and live run
+device ROI pixels drift away from the locked offline truth contract. It also
+treats `offline_capture` as a supported active camera backend rather than a
+failed unknown backend.
+
 ### 4. Run Guard Behavior
 
 Both active profiles must avoid silently stopping valid long runs because of
@@ -233,4 +244,3 @@ Required visual checks:
 
 Do not mark the real/offline alignment goal complete until these real-hardware
 checks have been observed in the current hardware session.
-

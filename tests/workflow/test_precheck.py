@@ -117,7 +117,10 @@ def test_build_system_precheck_protocol_any_keeps_identity_optional(
             "allowed_models": [],
             "serial_number": "",
             "ip": "",
+            "setup_preview": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            "measurement": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
         },
+        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -154,7 +157,10 @@ def test_build_system_precheck_warns_when_sdk_runtime_is_not_ready(
             "allowed_models": [],
             "serial_number": "",
             "ip": "",
+            "setup_preview": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            "measurement": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
         },
+        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
         project_root=Path(__file__).resolve().parents[2],
     )
 
@@ -162,3 +168,56 @@ def test_build_system_precheck_warns_when_sdk_runtime_is_not_ready(
     assert report["status"] == "warn"
     assert items["camera_sdk_runtime"]["status"] == "warn"
     assert "import readiness" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_build_system_precheck_accepts_offline_capture_and_reports_pixel_alignment(tmp_path: Path) -> None:
+    report = build_system_precheck(
+        profile_name="dev_offline_capture",
+        storage={
+            "sqlite_path": str(tmp_path / "offline.sqlite3"),
+            "artifact_dir": str(tmp_path / "artifacts"),
+        },
+        replay={},
+        adapters={"camera": "offline_capture", "temp": "offline_capture", "plc": "mock"},
+        camera={
+            "setup_preview": {"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+            "measurement": {"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+        },
+        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    items = {item["name"]: item for item in report["items"]}
+    assert report["status"] == "warn"
+    assert items["camera_backend"]["status"] == "ok"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "offline truth contract" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def test_build_system_precheck_fails_when_active_profile_pixels_drift(tmp_path: Path) -> None:
+    report = build_system_precheck(
+        profile_name="dev_lab",
+        storage={
+            "sqlite_path": str(tmp_path / "lab.sqlite3"),
+            "artifact_dir": str(tmp_path / "artifacts"),
+        },
+        replay={},
+        adapters={"camera": "hik_gige_mvs", "temp": "mock", "plc": "mock"},
+        camera={
+            "transport": "gige_vision",
+            "sdk": "hik_mvs",
+            "probe_mode": "protocol_any",
+            "allowed_models": [],
+            "serial_number": "",
+            "ip": "",
+            "setup_preview": {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            "measurement": {"device_roi": {"x": 512, "y": 342, "width": 1024, "height": 768}},
+        },
+        run_config={"preview_display_max_width": 816, "preview_display_max_height": 544},
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    items = {item["name"]: item for item in report["items"]}
+    assert report["status"] == "fail"
+    assert items["real_offline_pixel_alignment"]["status"] == "fail"
+    assert "preset and live run would use different source pixels" in items["real_offline_pixel_alignment"]["detail"]

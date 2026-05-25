@@ -131,3 +131,18 @@ def test_precheck_api_reports_sdk_runtime_ok_when_import_is_ready(
     assert items["camera_sdk_runtime"]["status"] == "ok"
     assert "importable on this machine" in items["camera_sdk_runtime"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
+
+
+def test_precheck_api_reports_offline_capture_alignment_as_ready(tmp_path: Path) -> None:
+    client = _make_client(tmp_path, profile="dev_offline_capture")
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["camera_backend"]["status"] == "ok"
+    assert items["real_offline_pixel_alignment"]["status"] == "ok"
+    assert "origin=(0, 0)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "size=(2048, 1364)" in items["real_offline_pixel_alignment"]["detail"]
+    assert "preview_display=816x544" in items["real_offline_pixel_alignment"]["detail"]
