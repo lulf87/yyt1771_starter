@@ -12,6 +12,10 @@ from src.application.live_preview_service import compute_preview_interval_ms
 from src.application.live_preview_service import LivePreviewService, PreviewStateSnapshot
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.live_run_service import LiveRunService
+from src.application.real_offline_alignment_guard import (
+    assert_real_offline_alignment_ready,
+    assert_real_offline_definition_ready,
+)
 from src.application.runtime_config import RuntimeConfig, load_runtime_config
 from src.core.enums import RunStatus
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord
@@ -56,6 +60,8 @@ class DesktopWorkbenchController:
             adapters=runtime_config.adapters,
             camera=runtime_config.camera,
             project_root=self.context.project_root,
+            run_config=runtime_config.live.run,
+            vision_config=runtime_config.live.vision,
         )
 
     def probe_camera(self, override: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -69,6 +75,12 @@ class DesktopWorkbenchController:
         return self.registry.get(run_id)
 
     def save_definition(self, run_id: str, definition: MeasurementDefinition) -> RunDraftRecord:
+        assert_real_offline_alignment_ready(self.context.runtime_config, context="desktop_save_definition")
+        assert_real_offline_definition_ready(
+            self.context.runtime_config,
+            definition,
+            context="desktop_save_definition",
+        )
         return self.registry.save_definition(run_id, definition)
 
     def fetch_preview_frame(self, run_id: str, *, cached: bool = False) -> FramePacket:
@@ -253,6 +265,8 @@ def _desktop_bootstrap_definition() -> MeasurementDefinition:
         point_b_px=PixelPoint(x=83, y=32),
         foreground_polarity="dark_on_light",
         threshold_mode="adaptive",
-        ignore_internal_texture=True,
-        min_target_area_px=150,
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
     )

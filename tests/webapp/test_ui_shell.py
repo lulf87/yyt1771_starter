@@ -66,6 +66,19 @@ def test_static_app_js_resizes_rotated_roi_in_roi_local_axes() -> None:
     assert "Math.abs(point.y - drag.fixedCorner.y)" not in pointer_move_body
 
 
+def test_static_app_js_defaults_formal_ab_selection_to_max_chord() -> None:
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+
+    body = _js_function_body(app_js, "currentDirectionProjectionMode")
+    auto_detect_body = _js_function_body(app_js, "autoDetectLiveDefinition")
+
+    assert 'resolvedDirectionProjectionMode: "max_chord"' in app_js
+    assert 'liveRunState.resolvedDirectionProjectionMode = "auto";' not in app_js
+    assert ': "max_chord";' in body
+    assert 'payload.direction_projection_mode' in auto_detect_body
+    assert ': "max_chord";' in auto_detect_body
+
+
 def test_static_app_js_rotates_roi_without_resizing() -> None:
     app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
 
@@ -159,6 +172,12 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-point-a-x"' in response.text
     assert 'id="live-point-b-y"' in response.text
     assert 'id="live-sensitivity"' in response.text
+    assert 'id="live-ignore-internal-texture"' in response.text
+    ignore_texture_control = response.text[
+        response.text.index('id="live-ignore-internal-texture"') :
+        response.text.index('id="live-ignore-internal-texture"') + 180
+    ]
+    assert "checked" not in ignore_texture_control
     assert "正在连接实时预览" in response.text
     assert 'id="app-title"' not in response.text
     assert 'data-testid="home-journey"' not in response.text
@@ -210,6 +229,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "/api/system/profile" in response.text
     assert "/api/system/precheck" in response.text
     assert "/api/system/camera/probe" in response.text
+    assert "/api/system/real-offline-alignment/live-probe" in response.text
     assert "/api/system/temp/current" in response.text
     assert "/api/system/temp/serial-ports" in response.text
     assert "/api/system/temp/serial-port" in response.text
@@ -219,6 +239,10 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "switchFixtureVideo" in response.text
     assert "resolvedDirectionProjectionMode" in response.text
     assert "payload.direction_projection_mode" in response.text
+    assert "buildRealOfflineLiveProbeRequest" in response.text
+    assert "real_offline_alignment_definition_attached" in response.text
+    assert 'buildLiveDefinitionPayload({ coordinateSpace: "source" })' in response.text
+    assert 'body: JSON.stringify(alignmentDefinition)' in response.text
     assert "/api/runs" in response.text
     assert "/preview/frame" in response.text
     assert "/preview/stream" in response.text
@@ -266,7 +290,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "applyStaticTranslations" in response.text
     assert "setLocale" in response.text
     assert "startLiveTrackingLoop" in response.text
-    assert "const LIVE_TRACKING_POLL_MS = 50" in response.text
+    assert "const LIVE_TRACKING_POLL_MS = 200" in response.text
     assert "renderLiveProcessTelemetry" in response.text
     assert "live-process-chart-line" in response.text
     assert "live-process-chart-smooth-line" in response.text

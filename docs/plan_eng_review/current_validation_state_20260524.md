@@ -129,8 +129,8 @@ Do not claim these are solved until they are revalidated:
 
 - A/B contour detection stability over full offline material at operator-visible
   10 Hz replay
-- live run throughput meeting the configured 10 Hz offline target or 20 Hz real
-  hardware target
+- live run throughput meeting the configured 10 Hz offline and real hardware
+  target
 - real camera + real temperature controller end-to-end validation in the current
   hardware session
 - temperature output power write/readback behavior on the real LU92XX

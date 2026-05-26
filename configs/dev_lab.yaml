@@ -27,10 +27,10 @@ camera:
     gain_db: 12.0
     timeout_ms: 1000
     device_roi:
-      x: 0
-      y: 0
-      width: 0
-      height: 0
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
   measurement:
     trigger_mode: free_run
     pixel_format: mono8
@@ -49,13 +49,14 @@ temp:
     mock_ramp_step_celsius: 0.5
 run:
   preview_poll_ms: 50
-  capture_interval_ms: 50
+  capture_interval_ms: 100
   preview_target_fps: 20
-  measurement_target_hz: 20
-  artifact_capture_hz: 20
+  measurement_target_hz: 10
+  artifact_capture_hz: 10
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
+  stop_on_invalid_tracking: false
   invalid_tracking_grace_samples: 5
 storage:
   sqlite_path: examples/runtime/dev_lab.sqlite3

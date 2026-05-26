@@ -258,8 +258,46 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 
 - `point_a_px / point_b_px` 必须表示目标物体轮廓或边界上的真实点
 - 系统不得把沿 ROI 方向的数学投影点显示、保存或下发为正式 `A-B`
+- 当前正式选点实现锁定为 `direction_projection_mode=max_chord`，即沿 ROI
+  局部测量方向寻找目标物体最大有效弦长对应的两端真实轮廓点；真实 profile
+  不得回退到 `auto` 或 `mask_projection` 作为正式 `A-B` 选择模式
 - 如需在算法内部使用方向坐标、排序或跨度比较，只能作为临时计算量，不得形成第二套对外可见的 `source A/B`、`axis A/B` 或 `projected A/B`
 - 实时画面、实时曲线、落盘 telemetry、数据分析入口都必须以同一对正式 `A-B` 为来源
+
+### R6.2. Accepted offline material is the truth source for real profiles
+
+当前已完成离线验证的标准素材是 `dev_offline_capture` profile 读取的：
+
+- `examples/runtime/camera_captures/20260522-183158-dev_lab`
+- reference run: `examples/runtime/artifacts/run-9953bd601113`
+
+在真实设备重新连接并完成硬件验证前，所有真实相机 profile 都必须以这套
+离线素材链路作为 truth source。这里的 truth source 不只是文件路径，而是
+完整的 preset/live-run 测量契约：
+
+- `dev_lab`、`dev_lab_camera_mock_temp`、`prod_win` 的 setup preview 与
+  live run 必须使用同一套局部源像素尺寸：`2048 x 1364`
+- setup preview 与 measurement 的采集参数必须对齐离线素材：
+  `mono8 / 50000us / 12.0dB`
+- Web 预览显示上限必须保持为 `816 x 544`，用于防止浏览器显示态与源帧
+  坐标体系脱节
+- 轮廓检测设置必须与离线素材保持一致，包括前景极性、阈值模式、边缘阈值、
+  内部纹理处理、最小目标面积和质量阈值
+- live tracking 的失效处理策略必须与离线素材保持一致，包括是否因低质量
+  tracking 中止、grace samples 和 locked-points debug 行为
+- 温度样本与正式 `A-B`/形变量样本必须使用同一套 `10 Hz` synchronized
+  measurement cadence：`capture_interval_ms=100`、
+  `measurement_target_hz=10`、`artifact_capture_hz=10`
+- formal `point_a_px / point_b_px` 必须继续表示目标物体真实轮廓/边界点；
+  不得把投影点、轴向辅助点或内部候选点作为正式 `A-B`
+- locked real profiles 的 preset auto-detect、definition save、live run start
+  都必须拒绝非 `max_chord` 的正式 A/B selection mode，防止模拟素材合格后
+  真机链路重新进入旧的 `auto/mask_projection` 分叉
+
+这条规则的工程目的，是防止“离线素材已通过，但真机 preset/live run 的像素、
+轮廓检测或 A/B 选点链路悄悄分叉”。如果任一真实 profile 的上述契约发生改变，
+必须先更新本 requirement 与 no-hardware alignment audit，再重新完成离线和
+真机验证。
 
 ### R7. The target inside ROI follows a blank-object-blank model
 

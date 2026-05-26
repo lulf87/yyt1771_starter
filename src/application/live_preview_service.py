@@ -8,6 +8,8 @@ import threading
 import time
 
 from src.application.device_factory import open_camera
+from src.application.frame_pixel_contract import validate_frame_pixel_contract
+from src.application.real_offline_alignment_guard import assert_real_offline_alignment_ready
 from src.application.runtime_config import RuntimeConfig
 from src.core.models import FramePacket
 
@@ -16,6 +18,8 @@ from src.core.models import FramePacket
 class _ActivePreviewStream:
     run_id: str
     camera: object
+    runtime_config: RuntimeConfig
+    profile_name: str
     stop_event: threading.Event
     started_at_monotonic: float
     frames_presented: int = 0
@@ -61,11 +65,23 @@ class LivePreviewService:
         run_id: str = "",
         prefer_cached: bool = False,
     ) -> FramePacket:
+        _assert_preview_alignment_ready(runtime_config, context="preview_fetch_frame")
         cached_frame = self._latest_frame_for_run(run_id) if prefer_cached else None
         if cached_frame is not None:
-            return cached_frame
+            return validate_frame_pixel_contract(
+                runtime_config,
+                profile_name="setup_preview",
+                frame=cached_frame,
+                context="preview_cached_frame",
+            )
         active_frame = self.get_active_frame()
         if active_frame is not None:
+            active_frame = validate_frame_pixel_contract(
+                runtime_config,
+                profile_name="setup_preview",
+                frame=active_frame,
+                context="preview_active_frame",
+            )
             if run_id:
                 self._store_latest_frame(run_id, active_frame)
             return active_frame
@@ -84,6 +100,7 @@ class LivePreviewService:
         *,
         run_id: str,
     ) -> tuple[object, FramePacket]:
+        _assert_preview_alignment_ready(runtime_config, context="preview_stream_start")
         with self._stream_transition_lock:
             active_stream = self._handoff_active_stream(run_id=run_id)
             if active_stream is not None:
@@ -96,6 +113,12 @@ class LivePreviewService:
                 try:
                     camera = self.open_camera(runtime_config, profile_name="setup_preview")
                     first_frame = self._read_from_camera(camera)
+                    first_frame = validate_frame_pixel_contract(
+                        runtime_config,
+                        profile_name="setup_preview",
+                        frame=first_frame,
+                        context="preview_stream_start",
+                    )
                     break
                 except Exception as exc:
                     last_error = exc
@@ -114,6 +137,8 @@ class LivePreviewService:
             active_stream = _ActivePreviewStream(
                 run_id=run_id,
                 camera=camera,
+                runtime_config=runtime_config,
+                profile_name="setup_preview",
                 stop_event=threading.Event(),
                 started_at_monotonic=time.monotonic(),
                 latest_frame=first_frame,
@@ -357,20 +382,20 @@ class LivePreviewService:
         with active_stream.close_lock:
             if active_stream.closed:
                 return
+            with self._state_lock:
+                if self._active_stream is active_stream:
+                    self._active_stream = None
+                self._last_preview_display_fps = _preview_display_fps(active_stream)
+                self._last_preview_display_fps_run_id = active_stream.run_id
+            active_stream.stop_event.set()
+            active_stream.frame_event.set()
+            close = getattr(active_stream.camera, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
             active_stream.closed = True
-        with self._state_lock:
-            if self._active_stream is active_stream:
-                self._active_stream = None
-            self._last_preview_display_fps = _preview_display_fps(active_stream)
-            self._last_preview_display_fps_run_id = active_stream.run_id
-        active_stream.stop_event.set()
-        active_stream.frame_event.set()
-        close = getattr(active_stream.camera, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
         reader_thread = active_stream.reader_thread
         if (
             reader_thread is not None
@@ -402,6 +427,12 @@ class LivePreviewService:
         try:
             while not active_stream.stop_event.is_set():
                 frame = self._read_from_camera(active_stream.camera)
+                frame = validate_frame_pixel_contract(
+                    active_stream.runtime_config,
+                    profile_name=active_stream.profile_name,
+                    frame=frame,
+                    context="preview_stream_frame",
+                )
                 with active_stream.frame_lock:
                     active_stream.latest_frame = frame
                     active_stream.latest_sequence += 1
@@ -444,7 +475,13 @@ class LivePreviewService:
             camera = None
             try:
                 camera = self.open_camera(runtime_config, profile_name=profile_name)
-                return self._read_with_close(camera, warmup_frame_count=warmup_frame_count)
+                frame = self._read_with_close(camera, warmup_frame_count=warmup_frame_count)
+                return validate_frame_pixel_contract(
+                    runtime_config,
+                    profile_name=profile_name,
+                    frame=frame,
+                    context="preview_fresh_frame",
+                )
             except Exception as exc:
                 last_error = exc
                 close = getattr(camera, "close", None) if camera is not None else None
@@ -498,6 +535,12 @@ def _fresh_capture_warmup_frame_count(runtime_config: RuntimeConfig) -> int:
     if camera_backend == "hik_gige_mvs":
         return 2
     return 0
+
+
+def _assert_preview_alignment_ready(runtime_config: RuntimeConfig, *, context: str) -> None:
+    if not str(getattr(runtime_config, "profile", "") or ""):
+        return
+    assert_real_offline_alignment_ready(runtime_config, context=context)
 
 
 def _frame_signature(frame: FramePacket) -> tuple[object, ...]:

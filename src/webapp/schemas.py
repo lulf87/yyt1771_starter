@@ -143,7 +143,7 @@ class MeasurementDefinitionRequest(BaseModel):
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -179,7 +179,7 @@ class AutoDetectDefinitionRequest(BaseModel):
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -204,7 +204,7 @@ class AutoDetectDefinitionResponse(BaseModel):
     threshold_mode_used: Literal["adaptive", "binary", "otsu"]
     foreground_polarity_used: Literal["dark_on_light", "light_on_dark"]
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "auto"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
     selection_mode: str | None = None
     detail: str = ""
 
@@ -234,8 +234,11 @@ class EditorStateResponse(BaseModel):
 class RunRatesResponse(BaseModel):
     camera_resulting_fps: float | None = None
     preview_display_fps: float | None = None
+    preview_target_fps: float | None = None
     measurement_sample_hz: float | None = None
+    measurement_target_hz: float | None = None
     artifact_capture_hz: float | None = None
+    artifact_target_hz: float | None = None
     dropped_frame_count: int = 0
 
 
@@ -477,6 +480,46 @@ class PrecheckResponse(BaseModel):
     profile: str
     status: str
     items: list[PrecheckItemResponse]
+
+
+class RealOfflineAlignmentAuditResponse(BaseModel):
+    status: str
+    real_profile: str | None = None
+    offline_profile: str | None = None
+    pixel_contract: dict[str, Any] | None = None
+    algorithm_contract: dict[str, Any] | None = None
+    offline_material: dict[str, Any] | None = None
+    angles_checked: int | None = None
+    angle_step_deg: int | None = None
+    angle_results: list[dict[str, Any]] = Field(default_factory=list)
+    hardware_access: Literal["not_attempted"] = "not_attempted"
+    detail: str = ""
+
+
+class RealCameraAlignmentProfileProbeResponse(BaseModel):
+    profile_name: str
+    status: str
+    expected_size_px: dict[str, int] | None = None
+    actual_size_px: dict[str, int] | None = None
+    expected_device_roi: dict[str, int] | None = None
+    actual_device_roi: dict[str, int] | None = None
+    acquisition: dict[str, Any]
+    frame_id: int | None = None
+    timestamp_ms: int | None = None
+    source: str = ""
+    ab_detection: dict[str, Any] | None = None
+    detail: str
+
+
+class RealCameraAlignmentProbeResponse(BaseModel):
+    status: str
+    profile: str
+    hardware_access: Literal["attempted", "not_attempted"]
+    frame_source_mode: str = ""
+    frame_access: Literal["attempted", "not_attempted"] = "not_attempted"
+    alignment_contract: dict[str, Any] | None = None
+    profiles: list[RealCameraAlignmentProfileProbeResponse]
+    detail: str
 
 
 class CameraProbeIdentityResponse(BaseModel):

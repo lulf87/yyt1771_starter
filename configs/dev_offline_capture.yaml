@@ -29,8 +29,8 @@ camera:
     device_roi:
       x: 0
       y: 0
-      width: 0
-      height: 0
+      width: 2048
+      height: 1364
   measurement:
     trigger_mode: free_run
     pixel_format: mono8

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
+import sys
 from typing import Any
 
 import yaml
@@ -22,6 +24,10 @@ from src.core.config_models import (
     TempRuntimeConfig,
     VisionRuntimeConfig,
 )
+
+USER_CONFIG_DIR_ENV = "YYT1771_USER_CONFIG_DIR"
+PROJECT_ROOT_ENV = "YYT1771_PROJECT_ROOT"
+USER_APP_DIR_NAME = "YYT1771"
 
 
 @dataclass(slots=True)
@@ -60,8 +66,9 @@ def load_runtime_config(profile: str) -> RuntimeConfig:
     config_root = _project_root() / "configs"
     config_path = config_root / f"{profile}.yaml"
     raw_config = _load_config_mapping(config_path)
-    local_override_path = config_root / f"{profile}.local.yaml"
-    if local_override_path.exists():
+    for local_override_path in _profile_override_paths(profile, config_root=config_root):
+        if not local_override_path.exists():
+            continue
         local_override = _load_config_mapping(local_override_path)
         raw_config = _deep_merge_mapping(raw_config, local_override)
 
@@ -88,7 +95,56 @@ def load_runtime_config(profile: str) -> RuntimeConfig:
 
 
 def _project_root() -> Path:
+    configured_root = os.environ.get(PROJECT_ROOT_ENV, "").strip()
+    if configured_root:
+        return Path(configured_root).expanduser()
+    if getattr(sys, "frozen", False):
+        bundle_root = str(getattr(sys, "_MEIPASS", "") or "").strip()
+        if bundle_root:
+            return Path(bundle_root)
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[2]
+
+
+def _profile_override_paths(profile: str, *, config_root: Path) -> list[Path]:
+    paths = [config_root / f"{profile}.local.yaml"]
+    user_override = user_local_profile_override_path(profile)
+    if user_override is not None:
+        paths.append(user_override)
+    return paths
+
+
+def user_local_config_dir() -> Path | None:
+    configured_dir = os.environ.get(USER_CONFIG_DIR_ENV, "").strip()
+    if configured_dir:
+        return Path(configured_dir).expanduser()
+    local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local_app_data:
+        return None
+    return Path(local_app_data).expanduser() / USER_APP_DIR_NAME / "configs"
+
+
+def user_local_profile_override_path(profile: str) -> Path | None:
+    config_dir = user_local_config_dir()
+    if config_dir is None:
+        return None
+    return config_dir / f"{profile}.local.yaml"
+
+
+def write_user_local_profile_override(profile: str, override: dict[str, Any]) -> Path | None:
+    override_path = user_local_profile_override_path(profile)
+    if override_path is None:
+        return None
+    current = _load_config_mapping(override_path) if override_path.exists() else {}
+    merged = _deep_merge_mapping(current, override)
+    override_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = override_path.with_suffix(override_path.suffix + ".tmp")
+    temporary_path.write_text(
+        yaml.safe_dump(merged, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    temporary_path.replace(override_path)
+    return override_path
 
 
 def _load_config_mapping(path: Path) -> dict[str, Any]:

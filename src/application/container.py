@@ -11,7 +11,7 @@ from typing import Any
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_registry import LiveRunDraftRegistry
 from src.application.live_run_service import LiveRunService
-from src.application.runtime_config import RuntimeConfig
+from src.application.runtime_config import RuntimeConfig, write_user_local_profile_override
 from src.application.device_factory import build_temp_controller
 from src.storage.probe_diagnostics import ProbeDiagnosticStore
 from src.storage.session_adjustments import SessionAdjustmentStore
@@ -146,7 +146,7 @@ class ApplicationContainer:
         _close_controller(previous_controller)
 
         try:
-            return self.with_temp_controller(lambda controller: controller.read())
+            reading = self.with_temp_controller(lambda controller: controller.read())
         except Exception:
             with self._temp_io_lock:
                 failed_controller = self._shared_temp_controller
@@ -154,6 +154,17 @@ class ApplicationContainer:
                 self.runtime_config.live.temp.serial.port = previous_port
             _close_controller(failed_controller)
             raise
+        write_user_local_profile_override(
+            self.profile_name,
+            {
+                "temp": {
+                    "serial": {
+                        "port": selected_port,
+                    },
+                },
+            },
+        )
+        return reading
 
     def _should_share_temp_controller(self) -> bool:
         backend = str(self.runtime_config.live.temp.backend or self.runtime_config.adapters.get("temp", "") or "")

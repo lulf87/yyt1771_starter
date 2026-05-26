@@ -19,6 +19,8 @@ const liveRunPresetSelect = document.getElementById("live-run-preset-select");
 const liveRunIdNode = document.getElementById("live-run-id");
 const liveRunStatusNode = document.getElementById("live-run-status");
 const liveRunPresetNode = document.getElementById("live-run-preset");
+const liveSourceFrameSizeNode = document.getElementById("live-source-frame-size");
+const liveDisplayFrameSizeNode = document.getElementById("live-display-frame-size");
 const livePreviewRateNode = document.getElementById("live-preview-rate");
 const liveMeasurementRateNode = document.getElementById("live-measurement-rate");
 const stopLivePreviewStreamButton = document.getElementById("stop-live-preview-stream-btn");
@@ -205,7 +207,8 @@ const WORKSPACE_STEP_LABELS_EN = [
 ];
 const TARGET_TEMPERATURE_MIN_C = -50;
 const TARGET_TEMPERATURE_MAX_C = 50;
-const LIVE_TRACKING_POLL_MS = 50;
+const LIVE_TRACKING_POLL_MS = 200;
+const LIVE_PREVIEW_STATUS_POLL_MS = 1000;
 const NEW_LIVE_TEST_CONFIRM_TIMEOUT_MS = 12000;
 const LANGUAGE_STORAGE_KEY = "yyt1771-ui-language";
 let workspaceDetailState = null;
@@ -237,6 +240,7 @@ const liveRunState = {
   lastPreviewFrameId: null,
   previewSize: null,
   previewSourceSize: null,
+  measurementSourceSize: null,
   roiConfirmed: false,
   confirmedRoiSignature: "",
   activeTool: "",
@@ -250,10 +254,11 @@ const liveRunState = {
   confirmedTemperatureSettings: null,
   currentTemperatureCelsius: null,
   currentTemperatureTimer: null,
+  previewStatusTimer: null,
   liveTrackingTimer: null,
   latestTelemetry: null,
   liveProcessResult: null,
-  resolvedDirectionProjectionMode: "auto",
+  resolvedDirectionProjectionMode: "max_chord",
 };
 const LIVE_SETUP_RUN_STORAGE_KEY = "yyt1771-live-setup-run-id";
 const AFAS_OVERVIEW_CHANNEL_COLORS = ["#8B9DC3", "#C4A4A4", "#A4B8A4", "#D4B896", "#B4A4C4", "#9CB8C4"];
@@ -325,6 +330,8 @@ const TRANSLATIONS = {
     "state.loading": "加载中",
     "state.unknown": "未知",
     "state.not_ready": "未就绪",
+    "home.meta.source_frame": "源帧",
+    "home.meta.display_frame": "显示帧",
     "home.actions.new_test": "新测试",
     "home.actions.confirm_new_test": "确认新测试",
     "home.messages.new_test_confirm": "再次点击“确认新测试”才会清空当前结果并开始下一次测试。",
@@ -416,6 +423,8 @@ const TRANSLATIONS = {
     "home.meta.run_id": "Run ID",
     "home.meta.status": "Status",
     "home.meta.preset": "Preset",
+    "home.meta.source_frame": "Source Frame",
+    "home.meta.display_frame": "Display Frame",
     "home.meta.preview_fps": "Preview FPS",
     "home.meta.measurement_hz": "Measurement Hz",
     "home.meta.setup_type": "Live Setup Type",
@@ -911,6 +920,13 @@ function buildCameraProbeRequest() {
     serial_number: probeSerialNumberInput ? probeSerialNumberInput.value.trim() : "",
     ip: probeIpInput ? probeIpInput.value.trim() : "",
   };
+}
+
+function buildRealOfflineLiveProbeRequest() {
+  if (!hasLocallyCompleteDefinition()) {
+    return null;
+  }
+  return buildLiveDefinitionPayload({ coordinateSpace: "source" });
 }
 
 function hasLiveSetupUi() {
@@ -1547,11 +1563,85 @@ function setSetupRecomputeState({ inFlight = false, detail = "" } = {}) {
   updateLiveRunControls();
 }
 
-function formatRateValue(value, unit) {
+function formatRateValue(value, unit, { target = null } = {}) {
   if (!Number.isFinite(value) || Number(value) <= 0) {
+    if (Number.isFinite(target) && Number(target) > 0) {
+      return currentLocale === "en"
+        ? `target ${Number(target).toFixed(1)} ${unit}`
+        : `目标 ${Number(target).toFixed(1)} ${unit}`;
+    }
     return t("common.not_applicable", {}, "n/a");
   }
   return `${Number(value).toFixed(1)} ${unit}`;
+}
+
+function formatFrameSize(size) {
+  if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width <= 0 || size.height <= 0) {
+    return t("common.not_applicable", {}, "n/a");
+  }
+  return `${Math.round(size.width)}×${Math.round(size.height)}`;
+}
+
+function readMeasurementSourceSize(payload) {
+  const roi = payload?.measurement_profile?.acquisition_roi;
+  if (!roi || !Number.isFinite(roi.width) || !Number.isFinite(roi.height) || roi.width <= 0 || roi.height <= 0) {
+    return null;
+  }
+  return { width: Number(roi.width), height: Number(roi.height) };
+}
+
+function renderLivePreviewMeta() {
+  const rates = liveRunState.detail?.rates || {};
+  const displaySize =
+    liveRunState.previewSize ||
+    (livePreviewImageNode && livePreviewImageNode.naturalWidth && livePreviewImageNode.naturalHeight
+      ? { width: livePreviewImageNode.naturalWidth, height: livePreviewImageNode.naturalHeight }
+      : null);
+  const sourceSize = liveRunState.previewSourceSize || liveRunState.measurementSourceSize;
+  if (liveSourceFrameSizeNode) {
+    liveSourceFrameSizeNode.textContent = formatFrameSize(sourceSize);
+  }
+  if (liveDisplayFrameSizeNode) {
+    liveDisplayFrameSizeNode.textContent = formatFrameSize(displaySize);
+  }
+  if (livePreviewRateNode) {
+    livePreviewRateNode.textContent = formatRateValue(rates.preview_display_fps, "fps", {
+      target: rates.preview_target_fps,
+    });
+  }
+  if (liveMeasurementRateNode) {
+    liveMeasurementRateNode.textContent = formatRateValue(rates.measurement_sample_hz, "Hz", {
+      target: rates.measurement_target_hz,
+    });
+  }
+}
+
+function stopLivePreviewStatusPolling() {
+  if (liveRunState.previewStatusTimer) {
+    window.clearTimeout(liveRunState.previewStatusTimer);
+    liveRunState.previewStatusTimer = null;
+  }
+}
+
+function startLivePreviewStatusPolling() {
+  stopLivePreviewStatusPolling();
+  const tick = async () => {
+    if (!liveRunState.runId || !liveRunState.previewStreamActive) {
+      liveRunState.previewStatusTimer = null;
+      return;
+    }
+    try {
+      await refreshLiveRunDetail(liveRunState.runId);
+    } catch (error) {
+      // Status polling is only used to keep preview metadata current.
+    }
+    if (liveRunState.runId && liveRunState.previewStreamActive) {
+      liveRunState.previewStatusTimer = window.setTimeout(tick, LIVE_PREVIEW_STATUS_POLL_MS);
+    } else {
+      liveRunState.previewStatusTimer = null;
+    }
+  };
+  liveRunState.previewStatusTimer = window.setTimeout(tick, LIVE_PREVIEW_STATUS_POLL_MS);
 }
 
 function revokeLivePreviewUrl() {
@@ -1562,6 +1652,7 @@ function revokeLivePreviewUrl() {
 }
 
 function clearLivePreviewImage() {
+  stopLivePreviewStatusPolling();
   revokeLivePreviewUrl();
   liveRunState.previewSize = null;
   liveRunState.previewSourceSize = null;
@@ -1582,6 +1673,7 @@ function clearLivePreviewImage() {
   if (livePreviewEmptyNode) {
     livePreviewEmptyNode.hidden = false;
   }
+  renderLivePreviewMeta();
   setSetupRecomputeState({ inFlight: false, detail: "" });
 }
 
@@ -1598,6 +1690,7 @@ function showLivePreviewStage() {
   if (livePreviewEmptyNode) {
     livePreviewEmptyNode.hidden = true;
   }
+  renderLivePreviewMeta();
   renderLiveToolPrompt();
 }
 
@@ -1882,7 +1975,7 @@ function convertDirectionAngleForCoordinateSpace(angleDeg, coordinateSpace = "pr
 function currentDirectionProjectionMode() {
   return isDirectionProjectionMode(liveRunState.resolvedDirectionProjectionMode)
     ? liveRunState.resolvedDirectionProjectionMode
-    : "auto";
+    : "max_chord";
 }
 
 function isDirectionProjectionMode(value) {
@@ -2477,7 +2570,7 @@ function seedLiveDefinitionDefaults(width, height) {
   liveRunState.roiConfirmed = false;
   liveRunState.confirmedRoiSignature = "";
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
@@ -2510,7 +2603,7 @@ function resetLiveDefinitionInputs() {
   liveRunState.activeTool = "";
   liveRunState.overlayDrag = null;
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   setSetupRecomputeState({ inFlight: false, detail: "" });
   renderLivePreviewOverlay();
   renderLiveToolPrompt();
@@ -2523,7 +2616,7 @@ function clearPointInputs() {
     }
   }
   liveRunState.directionProjectionOverlay = null;
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
 }
 
 function clearMetricBoxInputs() {
@@ -2670,6 +2763,7 @@ function renderLiveRunDetail(payload) {
   const serverPreview = payload.preview || {};
   liveRunState.detail = payload;
   liveRunState.runId = payload.run_id || "";
+  liveRunState.measurementSourceSize = readMeasurementSourceSize(payload);
   if (isDirectionProjectionMode(payload.definition?.direction_projection_mode)) {
     liveRunState.resolvedDirectionProjectionMode = payload.definition.direction_projection_mode;
   }
@@ -2684,12 +2778,7 @@ function renderLiveRunDetail(payload) {
   liveRunIdNode.textContent = liveRunState.runId || (currentLocale === "en" ? "Not created" : "尚未创建");
   liveRunStatusNode.textContent = localizeStateLabel(payload.status || "unknown");
   liveRunPresetNode.textContent = payload.preset || (liveRunPresetSelect ? liveRunPresetSelect.value : "balloon");
-  if (livePreviewRateNode) {
-    livePreviewRateNode.textContent = formatRateValue(payload.rates?.preview_display_fps, "fps");
-  }
-  if (liveMeasurementRateNode) {
-    liveMeasurementRateNode.textContent = formatRateValue(payload.rates?.measurement_sample_hz, "Hz");
-  }
+  renderLivePreviewMeta();
   const isRunActive = ["running", "invalidated", "stopping"].includes(String(payload.status || ""));
   if (payload.definition) {
     fillLiveDefinitionInputs(payload.definition, { updatePoints: !isRunActive });
@@ -3312,6 +3401,7 @@ async function startLivePreviewStream({ silent = false } = {}) {
     showLivePreviewStage();
     livePreviewImageNode.src = liveRunState.previewStreamUrl;
     updateLiveRunControls();
+    startLivePreviewStatusPolling();
     setActiveLiveTool("");
     setLivePointPickerStatus(
       currentLocale === "en" ? "Live preview is running. Press Freeze to capture an editable still frame." : "实时预览正在运行。按“冻结画面”抓取静帧。",
@@ -3332,6 +3422,7 @@ async function startLivePreviewStream({ silent = false } = {}) {
   } catch (error) {
     liveRunState.previewStreamActive = false;
     liveRunState.previewStreamUrl = "";
+    stopLivePreviewStatusPolling();
     if (!silent) {
       setLiveRunMessage(String(error), "error");
     }
@@ -3351,6 +3442,7 @@ async function recoverLivePreviewStreamError() {
   liveRunState.previewStreamRecovering = true;
   liveRunState.previewStreamActive = false;
   liveRunState.previewStreamUrl = "";
+  stopLivePreviewStatusPolling();
   if (livePreviewImageNode) {
     livePreviewImageNode.removeAttribute("src");
     livePreviewImageNode.hidden = true;
@@ -3401,6 +3493,7 @@ async function stopLivePreviewStream({ clearImage = false, silent = false } = {}
   const hydrateFrozenFrame = hadActiveStream && !clearImage && !silent;
   liveRunState.previewStreamActive = false;
   liveRunState.previewStreamUrl = "";
+  stopLivePreviewStatusPolling();
   if (hadActiveStream && livePreviewImageNode) {
     livePreviewImageNode.removeAttribute("src");
     livePreviewImageNode.hidden = true;
@@ -3474,6 +3567,7 @@ async function loadFrozenPreviewFrame({ runId, cached = false, refreshDetail = t
   liveRunState.previewSize = width > 0 && height > 0 ? { width, height } : null;
   liveRunState.previewSourceSize =
     sourceWidth > 0 && sourceHeight > 0 ? { width: sourceWidth, height: sourceHeight } : liveRunState.previewSize;
+  renderLivePreviewMeta();
   if (Number.isFinite(frameId) && frameId > 0) {
     liveRunState.lastPreviewFrameId = frameId;
   }
@@ -3535,7 +3629,7 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     liveRunState.directionProjectionOverlay = directionProjectionOverlayFromAutoPayload(payload);
     liveRunState.resolvedDirectionProjectionMode = isDirectionProjectionMode(payload.direction_projection_mode)
       ? String(payload.direction_projection_mode)
-      : "auto";
+      : "max_chord";
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);
     }
@@ -3625,7 +3719,7 @@ async function saveLiveDefinition() {
 }
 
 function updateLiveDefinitionAfterLocalEdit({ constrain = true } = {}) {
-  liveRunState.resolvedDirectionProjectionMode = "auto";
+  liveRunState.resolvedDirectionProjectionMode = "max_chord";
   if (constrain) {
     ensureMetricBoxWithinAnalysisRoi();
   }
@@ -4020,8 +4114,30 @@ async function runCameraProbe() {
       headers: { "Content-Type": "application/json" },
       body: requestPayload ? JSON.stringify(requestPayload) : null,
     });
-    const payload = await response.json();
-    renderCameraProbeResult(payload);
+    const cameraProbePayload = await response.json();
+    const alignmentDefinition = buildRealOfflineLiveProbeRequest();
+    const combinedPayload = {
+      camera_probe: cameraProbePayload,
+      real_offline_alignment_live_probe: null,
+      real_offline_alignment_definition_attached: Boolean(alignmentDefinition),
+    };
+    if (alignmentDefinition) {
+      const alignmentResponse = await fetch("/api/system/real-offline-alignment/live-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(alignmentDefinition),
+      });
+      combinedPayload.real_offline_alignment_live_probe = await alignmentResponse.json();
+    } else {
+      combinedPayload.real_offline_alignment_live_probe = {
+        status: "not_attempted",
+        detail:
+          currentLocale === "en"
+            ? "Draw and confirm ROI-local A/B before probing real-frame formal A/B alignment."
+            : "请先框选 ROI 并确认 ROI 内 A/B，再探测真机帧正式 A/B 对齐。",
+      };
+    }
+    renderCameraProbeResult(combinedPayload);
   } catch (error) {
     renderCameraProbeResult({ status: "fail", detail: String(error) });
   } finally {
@@ -6373,14 +6489,15 @@ if (livePreviewImageNode) {
       };
       if (!liveRunState.previewSourceSize) {
         liveRunState.previewSourceSize = {
-          width: livePreviewImageNode.naturalWidth,
-          height: livePreviewImageNode.naturalHeight,
+          width: liveRunState.measurementSourceSize?.width || livePreviewImageNode.naturalWidth,
+          height: liveRunState.measurementSourceSize?.height || livePreviewImageNode.naturalHeight,
         };
       }
       seedLiveDefinitionDefaults(liveRunState.previewSize.width, liveRunState.previewSize.height);
     }
     showLivePreviewStage();
     syncLiveDefinitionDirtyState();
+    renderLivePreviewMeta();
     renderLivePreviewOverlay();
     updateLiveRunControls();
   });

@@ -23,19 +23,19 @@ camera:
   setup_preview:
     trigger_mode: free_run
     pixel_format: mono8
-    exposure_us: 10000
-    gain_db: 18.0
+    exposure_us: 50000
+    gain_db: 12.0
     timeout_ms: 1000
     device_roi:
-      x: 1440
-      y: 1086
-      width: 1120
-      height: 620
+      x: 512
+      y: 342
+      width: 2048
+      height: 1364
   measurement:
     trigger_mode: free_run
     pixel_format: mono8
-    exposure_us: 10000
-    gain_db: 18.0
+    exposure_us: 50000
+    gain_db: 12.0
     timeout_ms: 1000
     device_roi:
       x: 512
@@ -49,10 +49,10 @@ temp:
     mock_ramp_step_celsius: 0.005
 run:
   preview_poll_ms: 50
-  capture_interval_ms: 50
+  capture_interval_ms: 100
   preview_target_fps: 20
-  measurement_target_hz: 20
-  artifact_capture_hz: 20
+  measurement_target_hz: 10
+  artifact_capture_hz: 10
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544

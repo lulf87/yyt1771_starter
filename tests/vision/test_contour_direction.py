@@ -45,6 +45,19 @@ def test_directional_contour_extracts_boundary_ab_from_main_component() -> None:
     assert result.component_area >= 20
 
 
+def test_directional_contour_config_defaults_match_offline_truth_ab_contract() -> None:
+    config = DirectionalContourConfig(
+        analysis_roi=RectRegion(x=0, y=0, width=2048, height=1364),
+        direction_angle_deg=0.0,
+    )
+
+    assert config.foreground_polarity == "dark_on_light"
+    assert config.threshold_mode == "adaptive"
+    assert config.ignore_internal_texture is False
+    assert config.min_target_area_px == 200
+    assert config.projection_mode == "max_chord"
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20
@@ -404,6 +417,42 @@ def test_directional_contour_refinement_keeps_points_inside_rotated_metric_box()
 
     assert _point_in_rotated_metric_box_with_tolerance(metric_box, result.point_a)
     assert _point_in_rotated_metric_box_with_tolerance(metric_box, result.point_b)
+    assert image[result.point_a.y, result.point_a.x] == 35
+    assert image[result.point_b.y, result.point_b.x] == 35
+
+
+def test_directional_contour_downsampled_refinement_avoids_second_full_component_pass(monkeypatch) -> None:
+    image = np.full((800, 1000), 230, dtype=np.uint8)
+    metric_box = MetricBox(center_x=500, center_y=350, width=420, height=160, angle_deg=30.0)
+    _paint_test_line_local(image, metric_box, -190.0, 190.0, width=15, value=35)
+    calls = 0
+    original = contour_direction._largest_component_mask
+
+    def counted_largest_component_mask(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(contour_direction, "_largest_component_mask", counted_largest_component_mask)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=240, y=80, width=520, height=540),
+            metric_box=metric_box,
+            direction_angle_deg=30.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            sensitivity=0.0,
+            component_bridge_kernel=1,
+            processing_max_side_px=120,
+            projection_mode="max_chord",
+        ),
+    )
+
+    assert calls == 1
     assert image[result.point_a.y, result.point_a.x] == 35
     assert image[result.point_b.y, result.point_b.x] == 35
 

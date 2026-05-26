@@ -127,18 +127,27 @@ desktop features unless the user explicitly reactivates the desktop track.
 
 ## Windows Config Interpretation
 
-`configs/prod_win.yaml` is still present, but in the `mac-finish` direction it
-is only a historical production-profile skeleton. It is not a verified
-Windows-ready profile for the current Web workstation.
+`configs/prod_win.yaml` is the tracked Windows production-profile baseline for
+the current Web workstation. It is locked to the accepted offline material's
+source-pixel contract so preset and live run enter contour/A-B detection with
+the same local `2048 x 1364` pixels used by `dev_lab` and
+`dev_offline_capture`.
+
+This does not mean `prod_win` is hardware-verified. Machine-specific camera
+identity, serial ports, logging paths, and any Windows-local runtime overrides
+must still live in ignored local config files, and the profile must be
+validated on the Windows machine that owns the camera SDK and LU92XX serial
+connection.
 
 For Windows migration work, prefer:
 
 1. start from `dev_lab`
-2. create or update `configs/dev_lab.local.yaml` on that Windows machine
+2. use `configs/prod_win.yaml` as the tracked production baseline and create
+   local overrides only for machine-specific identity/path/port values
 3. validate SDK import, camera open/read, LU92XX read/write, Web startup, ROI /
    A-B, live run, stop, and analysis
-4. only after that, decide whether to promote a cleaned Windows production
-   profile
+4. keep any production-profile changes aligned with `dev_lab` /
+   `dev_offline_capture` before promoting them as Windows-verified
 
 ## Windows Migration Checklist
 

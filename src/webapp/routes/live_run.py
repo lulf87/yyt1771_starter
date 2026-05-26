@@ -12,8 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from PIL import Image
 
+from src.application.camera_errors import normalize_camera_runtime_error
 from src.application.container import ApplicationContainer
 from src.application.preview_render import PreviewBitmap, build_preview_bitmap, enhance_preview_bitmap
+from src.application.real_offline_alignment_guard import (
+    RealOfflineAlignmentGuardError,
+    assert_real_offline_alignment_ready,
+    assert_real_offline_contour_request_ready,
+    is_real_offline_alignment_locked_profile,
+)
 from src.application.live_preview_service import compute_preview_interval_ms
 from src.core.enums import ObservationAxis, RunStatus
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, RunDraftRecord, TemperatureSettingsBundle
@@ -117,6 +124,11 @@ def save_measurement_definition(
     draft = registry.get(run_id)
     if draft is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
+    try:
+        assert_real_offline_alignment_ready(runtime_config, context="save_definition")
+        assert_real_offline_contour_request_ready(runtime_config, payload, context="save_definition")
+    except RealOfflineAlignmentGuardError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     definition = MeasurementDefinition(
         analysis_roi=RectRegion(
             x=payload.analysis_roi.x,
@@ -182,7 +194,7 @@ def fetch_preview_frame(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview frame fetch failed: {exc}",
+            detail=f"Preview frame fetch failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     if not tracking:
@@ -217,11 +229,14 @@ def stream_preview_frames(
         active_stream, first_frame = preview_service.start_stream(runtime_config, run_id=run_id)
     except RuntimeError as exc:
         status_code = status.HTTP_409_CONFLICT if "already active" in str(exc) else status.HTTP_503_SERVICE_UNAVAILABLE
-        raise HTTPException(status_code=status_code, detail=f"Preview stream start failed: {exc}") from exc
+        raise HTTPException(
+            status_code=status_code,
+            detail=f"Preview stream start failed: {normalize_camera_runtime_error(exc)}",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview stream start failed: {exc}",
+            detail=f"Preview stream start failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     registry.mark_preview_streaming(run_id)
@@ -324,13 +339,18 @@ def auto_detect_measurement_definition(
     record = registry.get(run_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
+    try:
+        assert_real_offline_alignment_ready(runtime_config, context="preset_auto_detect")
+        assert_real_offline_contour_request_ready(runtime_config, payload, context="preset_auto_detect")
+    except RealOfflineAlignmentGuardError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     try:
         frame = preview_service.fetch_frame(runtime_config, run_id=run_id, prefer_cached=True)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Preview frame fetch failed: {exc}",
+            detail=f"Preview frame fetch failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
 
     registry.mark_preview_frozen(run_id)
@@ -344,6 +364,28 @@ def auto_detect_measurement_definition(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Auto detection failed: {metric.meta.get('reason', 'unknown_error')}",
+        )
+    metric_box = None if payload.metric_box is None else MetricBox(
+        center_x=payload.metric_box.center_x,
+        center_y=payload.metric_box.center_y,
+        width=payload.metric_box.width,
+        height=payload.metric_box.height,
+        angle_deg=payload.metric_box.angle_deg,
+    )
+    if payload.direction_angle_deg is not None and not _directional_metric_is_acceptably_specific(
+        metric,
+        RectRegion(
+            x=payload.analysis_roi.x,
+            y=payload.analysis_roi.y,
+            width=payload.analysis_roi.width,
+            height=payload.analysis_roi.height,
+        ),
+        metric_box=metric_box,
+        quality_threshold=runtime_config.live.vision.quality_threshold,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Auto detection failed: {_directional_metric_rejection_reason(metric)}",
         )
     detail_parts: list[str] = []
     if threshold_mode_used != payload.threshold_mode and foreground_polarity_used != payload.foreground_polarity:
@@ -418,7 +460,7 @@ def start_live_run(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Live run failed: {exc}",
+            detail=f"Live run failed: {normalize_camera_runtime_error(exc)}",
         ) from exc
     return RunStartResponse(
         run_id=record.run_id,
@@ -460,7 +502,8 @@ def _best_auto_detect_metric(
     )
     observation_axis = ObservationAxis(payload.observation_axis)
     selection_strategy = "roi_local_horizontal_boundary" if payload.metric_box is not None else "axis_aligned_span"
-    threshold_modes = _candidate_threshold_modes(payload.threshold_mode)
+    locked_alignment_profile = is_real_offline_alignment_locked_profile(runtime_config)
+    threshold_modes = [payload.threshold_mode] if locked_alignment_profile else _candidate_threshold_modes(payload.threshold_mode)
     best_metric = None
     best_threshold_mode = payload.threshold_mode
     best_foreground_polarity = payload.foreground_polarity
@@ -513,11 +556,14 @@ def _best_auto_detect_metric(
             requested_polarity_best = candidate_metric
             requested_polarity_threshold = threshold_mode
 
-    if _auto_detect_metric_is_acceptably_specific(
-        requested_polarity_best,
-        analysis_roi,
-        metric_box=metric_box,
-        quality_threshold=runtime_config.live.vision.quality_threshold,
+    if requested_polarity_best is not None and (
+        locked_alignment_profile
+        or _auto_detect_metric_is_acceptably_specific(
+            requested_polarity_best,
+            analysis_roi,
+            metric_box=metric_box,
+            quality_threshold=runtime_config.live.vision.quality_threshold,
+        )
     ):
         return requested_polarity_best, requested_polarity_threshold, payload.foreground_polarity
 
@@ -542,7 +588,8 @@ def _best_directional_contour_metric(
     preset: str = "balloon",
 ):
     requested_threshold_mode = str(payload.threshold_mode)
-    threshold_modes = _candidate_threshold_modes(requested_threshold_mode)
+    locked_alignment_profile = is_real_offline_alignment_locked_profile(runtime_config)
+    threshold_modes = [requested_threshold_mode] if locked_alignment_profile else _candidate_threshold_modes(requested_threshold_mode)
     best_metric = None
     best_threshold_mode = requested_threshold_mode
     best_foreground_polarity = payload.foreground_polarity
@@ -555,7 +602,12 @@ def _best_directional_contour_metric(
         height=payload.metric_box.height,
         angle_deg=payload.metric_box.angle_deg,
     )
-    for foreground_polarity in _candidate_foreground_polarities(payload.foreground_polarity):
+    foreground_polarities = (
+        [payload.foreground_polarity]
+        if locked_alignment_profile
+        else _candidate_foreground_polarities(payload.foreground_polarity)
+    )
+    for foreground_polarity in foreground_polarities:
         candidate_metric = _extract_directional_auto_detect_metric(
             frame=frame,
             analysis_roi=analysis_roi,
@@ -576,16 +628,19 @@ def _best_directional_contour_metric(
         ):
             requested_metric = candidate_metric
             requested_foreground_polarity = foreground_polarity
-    if requested_metric is not None and _directional_metric_is_acceptably_specific(
-        requested_metric,
-        analysis_roi,
-        metric_box=metric_box,
-        quality_threshold=runtime_config.live.vision.quality_threshold,
+    if requested_metric is not None and (
+        locked_alignment_profile
+        or _directional_metric_is_acceptably_specific(
+            requested_metric,
+            analysis_roi,
+            metric_box=metric_box,
+            quality_threshold=runtime_config.live.vision.quality_threshold,
+        )
     ):
         return requested_metric, requested_threshold_mode, requested_foreground_polarity
     best_metric = requested_metric
     best_foreground_polarity = requested_foreground_polarity
-    for foreground_polarity in _candidate_foreground_polarities(payload.foreground_polarity):
+    for foreground_polarity in foreground_polarities:
         for threshold_mode in threshold_modes:
             if threshold_mode == requested_threshold_mode:
                 continue
@@ -835,6 +890,12 @@ def _directional_metric_is_acceptably_specific(
     return float(metric.quality or 0.0) >= float(quality_threshold)
 
 
+def _directional_metric_rejection_reason(metric) -> str:
+    if metric is None or metric.metric_raw is None or metric.point_a_px is None or metric.point_b_px is None:
+        return str(getattr(metric, "meta", {}).get("reason", "unknown_error"))
+    return "ambiguous_contour_or_roi_boundary"
+
+
 def _metric_direction_angle_deg(metric) -> float | None:
     value = getattr(metric, "meta", {}).get("direction_angle_deg")
     if value is None:
@@ -860,7 +921,7 @@ def _resolve_direction_projection_mode(payload, preset: str) -> str:
 
 
 def _default_direction_projection_mode_for_preset(preset: str) -> str:
-    return "auto"
+    return "max_chord"
 
 
 def _metric_selection_mode(metric) -> str | None:
@@ -1091,8 +1152,11 @@ def _build_run_detail(
         rates=RunRatesResponse(
             camera_resulting_fps=rate_payload.get("camera_resulting_fps"),
             preview_display_fps=rate_payload.get("preview_display_fps"),
+            preview_target_fps=None if runtime_config is None else runtime_config.live.run.preview_target_fps,
             measurement_sample_hz=rate_payload.get("measurement_sample_hz"),
+            measurement_target_hz=None if runtime_config is None else runtime_config.live.run.measurement_target_hz,
             artifact_capture_hz=rate_payload.get("artifact_capture_hz"),
+            artifact_target_hz=None if runtime_config is None else runtime_config.live.run.artifact_capture_hz,
             dropped_frame_count=int(rate_payload.get("dropped_frame_count", 0) or 0),
         ),
         measurement_profile=MeasurementProfileResponse(

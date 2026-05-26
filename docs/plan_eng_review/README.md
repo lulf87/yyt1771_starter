@@ -17,8 +17,11 @@ Use the files here when you need:
 
 Current authority set:
 
+- [real_offline_alignment_status_20260525.md](./real_offline_alignment_status_20260525.md)
 - [current_run_modes_20260524.md](./current_run_modes_20260524.md)
 - [web_on_windows_migration_status_20260525.md](./web_on_windows_migration_status_20260525.md)
+- [windows_web_installer_plan_20260525.md](./windows_web_installer_plan_20260525.md)
+- [windows_prereqs_manifest.example.json](./windows_prereqs_manifest.example.json)
 - [current_validation_state_20260524.md](./current_validation_state_20260524.md)
 - [cleanup_inventory_20260524.md](./cleanup_inventory_20260524.md)
 - [source_state_inventory_20260524.md](./source_state_inventory_20260524.md)

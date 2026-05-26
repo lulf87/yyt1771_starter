@@ -1,7 +1,13 @@
 import time
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
+
+from src.application.frame_pixel_contract import FramePixelContractError
 from src.application.live_preview_service import LivePreviewService, compute_preview_interval_ms
+from src.application.real_offline_alignment_guard import RealOfflineAlignmentGuardError
+from src.application.runtime_config import load_runtime_config
 from src.core.models import FramePacket
 
 
@@ -393,3 +399,216 @@ def test_fetch_frame_retries_retryable_hik_handle_creation_failures() -> None:
     assert frame.source == "retry_success_camera"
     assert failing_camera.closed is True
     assert success_camera.closed is True
+
+
+def test_fetch_frame_rejects_locked_profile_preview_pixels_that_differ_from_offline_material() -> None:
+    service = LivePreviewService()
+
+    class WrongSizeCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_000 + self.frame_id,
+                source="wrong_size_camera",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = WrongSizeCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="expected=2048x1364, actual=1120x620"):
+        service.fetch_frame(runtime_config, run_id="run-wrong-size", prefer_cached=False)
+
+    assert camera.closed is True
+
+
+def test_fetch_frame_blocks_locked_profile_alignment_drift_before_opening_camera() -> None:
+    service = LivePreviewService()
+    runtime_config = load_runtime_config("dev_lab")
+    runtime_config.live.run.preview_display_max_width = 800
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": (_ for _ in ()).throw(
+        AssertionError("camera should not open when preview alignment drifts")
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="preview_fetch_frame"):
+        service.fetch_frame(runtime_config, run_id="run-preview-guard", prefer_cached=False)
+
+
+def test_start_stream_blocks_locked_profile_alignment_drift_before_opening_camera() -> None:
+    service = LivePreviewService()
+    runtime_config = load_runtime_config("dev_lab")
+    runtime_config.live.run.preview_display_max_width = 800
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": (_ for _ in ()).throw(
+        AssertionError("camera should not open when preview alignment drifts")
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="preview_stream_start"):
+        service.start_stream(runtime_config, run_id="run-preview-stream-guard")
+
+
+def test_fetch_frame_rejects_locked_profile_preview_roi_that_differs_from_offline_material() -> None:
+    service = LivePreviewService()
+
+    class WrongRoiCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_500 + self.frame_id,
+                source="wrong_roi_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+                meta={"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = WrongRoiCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="expected_roi=x=512,y=342,width=2048,height=1364"):
+        service.fetch_frame(runtime_config, run_id="run-wrong-roi", prefer_cached=False)
+
+    assert camera.closed is True
+
+
+def test_fetch_frame_rejects_locked_profile_preview_without_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class MissingRoiMetaCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_700 + self.frame_id,
+                source="missing_roi_meta_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MissingRoiMetaCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="missing device_roi metadata"):
+        service.fetch_frame(runtime_config, run_id="run-missing-roi-meta", prefer_cached=False)
+
+    assert camera.closed is True
+
+
+def test_start_stream_rejects_locked_profile_first_frame_without_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class MissingRoiStreamCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=4_800 + self.frame_id,
+                source="missing_roi_stream_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MissingRoiStreamCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    with pytest.raises(FramePixelContractError, match="preview_stream_start"):
+        service.start_stream(runtime_config, run_id="run-stream-missing-roi-meta")
+
+    assert camera.closed is True
+
+
+def test_stream_reader_stops_locked_profile_when_later_frame_lacks_roi_metadata() -> None:
+    service = LivePreviewService()
+
+    class LaterMissingRoiCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            meta = {"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}} if self.frame_id == 1 else {}
+            return FramePacket(
+                timestamp_ms=4_900 + self.frame_id,
+                source="later_missing_roi_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+                meta=meta,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = LaterMissingRoiCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+    active_stream, first_frame = service.start_stream(runtime_config, run_id="run-stream-later-missing-roi")
+
+    assert first_frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
+    assert service.wait_for_stream_stop(run_id="run-stream-later-missing-roi", timeout_ms=1_000) is True
+    assert "preview_stream_frame" in active_stream.reader_error
+    assert "missing device_roi metadata" in active_stream.reader_error
+    assert camera.closed is True
+
+
+def test_fetch_frame_accepts_locked_profile_preview_pixels_that_match_offline_material() -> None:
+    service = LivePreviewService()
+
+    class MatchingSizeCamera:
+        def __init__(self) -> None:
+            self.closed = False
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=5_000 + self.frame_id,
+                source="matching_size_camera",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=self.frame_id,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    camera = MatchingSizeCamera()
+    runtime_config = load_runtime_config("dev_lab")
+    service.open_camera = lambda runtime_config, *, profile_name="setup_preview": camera
+
+    frame = service.fetch_frame(runtime_config, run_id="run-matching-size", prefer_cached=False)
+
+    assert frame.frame_id == 3
+    assert frame.meta["pixel_contract_width"] == 2048
+    assert frame.meta["pixel_contract_height"] == 1364
+    assert frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
+    assert camera.closed is True

@@ -178,6 +178,8 @@ Use this when you need:
 - the locked rule that ROI is now both the setup search region and the live deformation capture region
 - the locked rule that auto-detected `A-B` must be found along the ROI-local horizontal axis, not world-axis horizontal/vertical and not arbitrary diagonals
 - the locked rule that formal `A-B` points are the target object's real contour/boundary points, not projected/source-vs-axis duplicate points, and that live curves, telemetry, and analysis must all derive from that same point pair
+- the locked rule that accepted offline material is the truth source for real profiles: setup/live source pixels, acquisition parameters, Web display bounds, contour detection settings, live tracking policy, and formal `point_a_px / point_b_px` semantics must stay aligned before real hardware validation is claimed
+- the locked rule that accepted offline material and locked real profiles use the same `10 Hz` synchronized measurement cadence for temperature samples and formal `A-B`/shape samples: `capture_interval_ms=100`, `measurement_target_hz=10`, and `artifact_capture_hz=10`
 - the locked rule that any committed ROI geometry or sensitivity change must trigger recapture plus point recomputation
 - the locked trigger granularity that recapture + recompute fires on committed edits or explicit recompute, not on every intermediate drag sample
 - the locked requirement for a rotation handle on ROI, a visible ROI angle field, a current-temperature display, a bundled temperature-settings confirm action, and live A/B refresh during test
@@ -218,6 +220,7 @@ The canonical engineering-review files now live in the sibling
 - [live_run_execution_plan_v1.md](../plan_eng_review/live_run_execution_plan_v1.md)
 - [live_run_implementation_breakdown_v1.md](../plan_eng_review/live_run_implementation_breakdown_v1.md)
 - [live_run_task_status_v1.md](../plan_eng_review/live_run_task_status_v1.md)
+- [real_offline_alignment_goal_audit_20260526.md](../plan_eng_review/real_offline_alignment_goal_audit_20260526.md)
 - [live_run_test_plan_v1.md](../plan_eng_review/live_run_test_plan_v1.md)
 - [live_run_bench_validation_v1.md](../plan_eng_review/live_run_bench_validation_v1.md)
 

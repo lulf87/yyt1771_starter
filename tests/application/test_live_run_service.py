@@ -1,3 +1,4 @@
+from dataclasses import replace
 import threading
 
 import numpy as np
@@ -5,6 +6,7 @@ import numpy as np
 from src.application.live_preview_service import LivePreviewService
 from src.application.live_run_service import (
     _ActiveLiveRun,
+    _FramePixelContractCamera,
     _augment_telemetry_for_setup_preview,
     _coerce_native_bitmap_pixels,
     _composite_tracking_frame_into_setup_preview,
@@ -12,12 +14,14 @@ from src.application.live_run_service import (
     _measurement_capture_plan_payload,
     _preview_scaled_grayscale_image,
     _preview_point_from_tracking_frame_meta,
+    _runtime_config_with_measurement_profile,
     _runtime_config_with_operator_output_power,
     _should_cache_tracking_preview,
     _tracking_preview_min_interval_ms,
 )
 from src.application.device_factory import apply_measurement_acquisition_roi, build_measurement_capture_plan
-from src.application.runtime_config import RuntimeConfig, WebAppConfig
+from src.application.frame_pixel_contract import FramePixelContractError
+from src.application.runtime_config import RuntimeConfig, WebAppConfig, load_runtime_config
 from src.core.config_models import DeviceRoiConfig, RunRuntimeConfig
 from src.core.models import (
     FramePacket,
@@ -420,7 +424,7 @@ def test_augment_telemetry_for_setup_preview_preserves_existing_preview_points()
 
 def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_frame_preview() -> None:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="unit_lab_camera_mock_temp",
         platform="mac",
         mode="lab",
         webapp=WebAppConfig(host="127.0.0.1", port=8000),
@@ -447,6 +451,7 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
     requested_plan = build_measurement_capture_plan(runtime_config=runtime_config, definition=definition)
     applied_plan = apply_measurement_acquisition_roi(
         requested_plan,
+        runtime_config=runtime_config,
         definition=definition,
         applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
     )
@@ -481,22 +486,22 @@ def test_measurement_capture_plan_payload_uses_applied_roi_relative_to_full_fram
     assert payload["setup_to_requested_local_translation_px"] == {"dx": -840, "dy": -568}
 
 
-def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor_coordinates() -> None:
+def test_definition_in_setup_source_space_preserves_source_coordinates_even_in_display_bounds() -> None:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="dev_lab",
         platform="mac",
         mode="lab",
-        webapp=WebAppConfig(host="127.0.0.1", port=8000),
-        adapters={"camera": "hik_gige_mvs", "temp": "mock", "plc": "mock"},
+        webapp=WebAppConfig(host="127.0.0.1", port=8002),
+        adapters={"camera": "offline_capture", "temp": "offline_capture", "plc": "mock"},
     )
-    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig()
+    runtime_config.live.camera.setup_preview.device_roi = DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
     runtime_config.live.run.preview_display_max_width = 816
     runtime_config.live.run.preview_display_max_height = 544
     definition = MeasurementDefinition(
-        analysis_roi=RectRegion(x=360, y=110, width=220, height=360),
-        metric_box=MetricBox(center_x=470, center_y=290, width=180, height=90, angle_deg=0.0),
-        point_a_px=PixelPoint(x=380, y=290),
-        point_b_px=PixelPoint(x=560, y=290),
+        analysis_roi=RectRegion(x=120, y=90, width=360, height=260),
+        metric_box=MetricBox(center_x=300, center_y=220, width=280, height=120, angle_deg=12.0),
+        point_a_px=PixelPoint(x=170, y=230),
+        point_b_px=PixelPoint(x=430, y=220),
         foreground_polarity="dark_on_light",
         threshold_mode="otsu",
         ignore_internal_texture=True,
@@ -505,7 +510,7 @@ def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor
     frame = FramePacket(
         timestamp_ms=1_000,
         source="setup_preview",
-        image=_NativePreviewImage(source_width=3072, source_height=2048, preview_width=816, preview_height=544),
+        image=_NativePreviewImage(source_width=2048, source_height=1364, preview_width=816, preview_height=543),
         frame_id=1,
     )
 
@@ -516,18 +521,195 @@ def test_definition_in_setup_source_space_scales_preview_coordinates_into_sensor
         run_id="run-001",
     )
 
-    assert translated.analysis_roi.x == 1355
-    assert translated.analysis_roi.y == 414
-    assert translated.analysis_roi.width == 829
-    assert translated.analysis_roi.height == 1355
-    assert translated.metric_box.center_x == 1769
-    assert translated.metric_box.center_y == 1092
-    assert translated.metric_box.width == 678
-    assert translated.metric_box.height == 339
-    assert translated.point_a_px.x == 1431
-    assert translated.point_b_px.x == 2108
-    assert translated.point_a_px.y == 1092
-    assert translated.point_b_px.y == 1092
+    assert translated == definition
+
+
+def test_live_run_measurement_camera_rejects_pixels_that_differ_from_offline_material() -> None:
+    class WrongSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="wrong_size_measurement",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=1,
+            )
+
+    camera = _FramePixelContractCamera(
+        WrongSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected=2048x1364, actual=1120x620" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected locked live-run pixel contract failure")
+
+
+def test_live_run_measurement_camera_rejects_roi_that_differs_from_offline_material() -> None:
+    class WrongRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="wrong_roi_measurement",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 0, "y": 0, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        WrongRoiCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected_roi=x=512,y=342,width=2048,height=1364" in str(exc)
+        assert "actual_roi=x=0,y=0,width=2048,height=1364" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected locked live-run ROI contract failure")
+
+
+def test_live_run_measurement_camera_rejects_missing_roi_metadata() -> None:
+    class MissingRoiMetaCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="missing_roi_meta_measurement",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+            )
+
+    camera = _FramePixelContractCamera(
+        MissingRoiMetaCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "missing device_roi metadata" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected missing ROI metadata contract failure")
+
+
+def test_locked_profile_rejects_unknown_camera_profile_name() -> None:
+    class MatchingSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="matching_size_unknown_profile",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        MatchingSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="unknown_profile",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "unknown_profile" in str(exc)
+        assert "does not define a camera acquisition profile" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unknown camera profile contract failure")
+
+
+def test_live_run_measurement_camera_accepts_pixels_that_match_offline_material() -> None:
+    class MatchingSizeCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="matching_size_measurement",
+                image=np.zeros((1364, 2048), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        MatchingSizeCamera(),
+        runtime_config=load_runtime_config("dev_lab"),
+        profile_name="measurement",
+    )
+
+    frame = camera.read_frame()
+
+    assert frame.meta["pixel_contract_width"] == 2048
+    assert frame.meta["pixel_contract_height"] == 1364
+    assert frame.meta["pixel_contract_device_roi"] == {"x": 512, "y": 342, "width": 2048, "height": 1364}
+
+
+def test_live_run_measurement_camera_accepts_effective_applied_measurement_roi() -> None:
+    effective_roi = DeviceRoiConfig(x=832, y=560, width=360, height=184)
+    runtime_config = load_runtime_config("dev_lab")
+    effective_profile = replace(runtime_config.live.camera.measurement, device_roi=effective_roi)
+    effective_config = _runtime_config_with_measurement_profile(runtime_config, effective_profile)
+
+    class EffectiveRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="effective_roi_measurement",
+                image=np.zeros((184, 360), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 832, "y": 560, "width": 360, "height": 184}},
+            )
+
+    camera = _FramePixelContractCamera(
+        EffectiveRoiCamera(),
+        runtime_config=effective_config,
+        profile_name="measurement",
+    )
+
+    frame = camera.read_frame()
+
+    assert frame.meta["pixel_contract_width"] == 360
+    assert frame.meta["pixel_contract_height"] == 184
+    assert frame.meta["pixel_contract_device_roi"] == {"x": 832, "y": 560, "width": 360, "height": 184}
+
+
+def test_live_run_measurement_camera_rejects_stale_baseline_roi_after_effective_roi_applied() -> None:
+    effective_roi = DeviceRoiConfig(x=832, y=560, width=360, height=184)
+    runtime_config = load_runtime_config("dev_lab")
+    effective_profile = replace(runtime_config.live.camera.measurement, device_roi=effective_roi)
+    effective_config = _runtime_config_with_measurement_profile(runtime_config, effective_profile)
+
+    class StaleBaselineRoiCamera:
+        def read_frame(self) -> FramePacket:
+            return FramePacket(
+                timestamp_ms=2_000,
+                source="stale_baseline_roi_measurement",
+                image=np.zeros((184, 360), dtype=np.uint8),
+                frame_id=1,
+                meta={"device_roi": {"x": 512, "y": 342, "width": 2048, "height": 1364}},
+            )
+
+    camera = _FramePixelContractCamera(
+        StaleBaselineRoiCamera(),
+        runtime_config=effective_config,
+        profile_name="measurement",
+    )
+
+    try:
+        camera.read_frame()
+    except FramePixelContractError as exc:
+        assert "live_run_measurement_frame" in str(exc)
+        assert "expected_roi=x=832,y=560,width=360,height=184" in str(exc)
+        assert "actual_roi=x=512,y=342,width=2048,height=1364" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected stale baseline ROI contract failure")
 
 
 def test_should_cache_tracking_preview_honors_minimum_interval() -> None:

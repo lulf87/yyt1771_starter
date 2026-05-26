@@ -131,9 +131,10 @@ def remove_outliers(
             break
 
         mad = float(np.median(valid_devs))
-        if mad == 0 or np.isnan(mad):
-            data_range = float(np.nanmax(working_values) - np.nanmin(working_values))
-            mad = max(data_range * 0.01, 1.0)
+        if np.isnan(mad):
+            mad = 0.0
+        data_range = float(np.nanmax(working_values) - np.nanmin(working_values))
+        mad = max(mad, data_range * 0.01, 1.0)
 
         outlier_threshold = float(threshold) * mad
         new_mask = deviations > outlier_threshold

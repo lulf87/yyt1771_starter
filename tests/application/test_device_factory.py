@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from src.application.device_factory import (
     apply_measurement_acquisition_roi,
@@ -9,7 +10,8 @@ from src.application.device_factory import (
     build_metric_source,
     open_camera,
 )
-from src.application.runtime_config import RuntimeConfig, WebAppConfig
+from src.application.real_offline_alignment_guard import RealOfflineAlignmentGuardError
+from src.application.runtime_config import RuntimeConfig, WebAppConfig, load_runtime_config
 from src.core.config_models import DeviceRoiConfig
 from src.core.models import FramePacket, MeasurementDefinition, MetricBox, PixelPoint, RectRegion, TempReading, _metric_box_within_region
 
@@ -35,7 +37,7 @@ def _definition(*, x: int = 900, y: int = 600, width: int = 240, height: int = 1
 
 def _lab_runtime_config(*, camera_backend: str = "hik_gige_mvs") -> RuntimeConfig:
     runtime_config = RuntimeConfig(
-        profile="dev_lab_camera_mock_temp",
+        profile="unit_lab_camera_mock_temp",
         platform="mac",
         mode="lab",
         webapp=WebAppConfig(host="127.0.0.1", port=8000),
@@ -132,6 +134,14 @@ def test_open_mock_camera_uses_profile_device_roi_as_output_dimensions() -> None
     }
 
 
+def test_open_camera_blocks_locked_profile_alignment_drift_before_device_creation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    runtime_config.live.run.preview_display_max_width = 800
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="open_camera:setup_preview"):
+        open_camera(runtime_config, profile_name="setup_preview")
+
+
 def test_build_measurement_capture_plan_keeps_definition_when_measurement_roi_is_unconfigured() -> None:
     runtime_config = _lab_runtime_config(camera_backend="hik_rtsp_opencv")
     runtime_config.live.camera.measurement.device_roi = DeviceRoiConfig()
@@ -156,6 +166,7 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
     applied_plan = apply_measurement_acquisition_roi(
         requested_plan,
+        runtime_config=runtime_config,
         definition=definition,
         applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
     )
@@ -187,6 +198,46 @@ def test_apply_measurement_acquisition_roi_retranslates_definition_against_appli
     )
     assert applied_plan.metric_definition.point_a_px == PixelPoint(x=88, y=100)
     assert applied_plan.metric_definition.point_b_px == PixelPoint(x=288, y=100)
+
+
+def test_apply_measurement_acquisition_roi_blocks_locked_profile_stale_definition_before_retranslation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    good_definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=30.0,
+        direction_projection_mode="max_chord",
+    )
+    stale_definition = MeasurementDefinition(
+        analysis_roi=good_definition.analysis_roi,
+        metric_box=good_definition.metric_box,
+        point_a_px=good_definition.point_a_px,
+        point_b_px=good_definition.point_b_px,
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=30.0,
+        direction_projection_mode="mask_projection",
+    )
+    requested_plan = build_measurement_capture_plan(
+        runtime_config=runtime_config,
+        definition=good_definition,
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="apply_measurement_acquisition_roi"):
+        apply_measurement_acquisition_roi(
+            requested_plan,
+            runtime_config=runtime_config,
+            definition=stale_definition,
+            applied_device_roi=DeviceRoiConfig(x=832, y=560, width=360, height=184),
+        )
 
 
 def test_build_measurement_capture_plan_preserves_tall_analysis_roi_as_capture_region() -> None:
@@ -449,3 +500,217 @@ def test_build_metric_source_uses_frame_directional_contour_for_direction_defini
     assert metric.meta["selection_mode"] == "directional_contour_max_chord"
     assert metric.meta["tracking_mode"] == "prior_gated_reacquire"
     assert metric.meta["tracking_state"] == "bootstrapped"
+
+
+def test_build_metric_source_blocks_locked_profile_stale_definition_before_source_creation() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=220, height=80, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=0.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="build_metric_source"):
+        build_metric_source(
+            runtime_config=runtime_config,
+            definition=definition,
+            target_temperature_celsius=45.0,
+        )
+
+
+def test_real_and_offline_metric_sources_match_on_same_pixel_frame() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=320, height=160),
+        metric_box=MetricBox(center_x=160, center_y=80, width=220, height=80, angle_deg=0.0),
+        point_a_px=PixelPoint(x=80, y=80),
+        point_b_px=PixelPoint(x=240, y=80),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
+    )
+    image = [[220 for _ in range(320)] for _ in range(160)]
+    for row in range(60, 100):
+        for col in range(90, 230):
+            image[row][col] = 40
+    frame = FramePacket(timestamp_ms=1_000, source="fixture", image=image, frame_id=1)
+    temp = TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture")
+
+    real_source = build_metric_source(
+        runtime_config=_lab_runtime_config(camera_backend="hik_gige_mvs"),
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+    offline_source = build_metric_source(
+        runtime_config=_lab_runtime_config(camera_backend="offline_capture"),
+        definition=definition,
+        target_temperature_celsius=45.0,
+    )
+
+    real_metric = real_source.extract(frame, temp, sample_index=0, total_samples=1)
+    offline_metric = offline_source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert real_metric.meta["tracking_mode"] == "prior_gated_reacquire"
+    assert offline_metric.meta["tracking_mode"] == "prior_gated_reacquire"
+    assert real_metric.meta["selection_mode"] == offline_metric.meta["selection_mode"]
+    assert real_metric.point_a_px == offline_metric.point_a_px
+    assert real_metric.point_b_px == offline_metric.point_b_px
+    assert real_metric.metric_raw == offline_metric.metric_raw
+
+
+def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_definition() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=30.0,
+        direction_projection_mode="max_chord",
+    )
+
+    real_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_lab"),
+        definition=definition,
+    )
+    offline_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_offline_capture"),
+        definition=definition,
+    )
+
+    assert real_plan.measurement_profile.device_roi.width == offline_plan.measurement_profile.device_roi.width
+    assert real_plan.measurement_profile.device_roi.height == offline_plan.measurement_profile.device_roi.height
+    assert real_plan.metric_definition == offline_plan.metric_definition
+    assert real_plan.setup_preview_roi == DeviceRoiConfig(x=512, y=342, width=2048, height=1364)
+    assert offline_plan.setup_preview_roi == DeviceRoiConfig(x=0, y=0, width=2048, height=1364)
+    assert (
+        real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x
+        == offline_plan.measurement_profile.device_roi.x
+    )
+    assert (
+        real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
+        == offline_plan.measurement_profile.device_roi.y
+    )
+
+
+def test_build_measurement_capture_plan_blocks_locked_profile_stale_definition_before_pixel_planning() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=150,
+        direction_angle_deg=30.0,
+        direction_projection_mode="mask_projection",
+    )
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="build_measurement_capture_plan"):
+        build_measurement_capture_plan(runtime_config=runtime_config, definition=definition)
+
+
+@pytest.mark.parametrize("angle_deg", list(range(0, 360, 30)))
+def test_real_and_offline_profiles_share_metric_pixels_across_roi_angles(angle_deg: int) -> None:
+    center_x = 1024
+    center_y = 682
+    half_span = 420
+    angle_rad = np.deg2rad(angle_deg)
+    dx = int(round(np.cos(angle_rad) * half_span))
+    dy = int(round(np.sin(angle_rad) * half_span))
+    point_a = PixelPoint(x=center_x - dx, y=center_y - dy)
+    point_b = PixelPoint(x=center_x + dx, y=center_y + dy)
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=120, y=120, width=1800, height=1120),
+        metric_box=MetricBox(center_x=center_x, center_y=center_y, width=980, height=220, angle_deg=float(angle_deg)),
+        point_a_px=point_a,
+        point_b_px=point_b,
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=float(angle_deg),
+        direction_projection_mode="max_chord",
+    )
+
+    real_config = load_runtime_config("dev_lab")
+    offline_config = load_runtime_config("dev_offline_capture")
+    real_plan = build_measurement_capture_plan(runtime_config=real_config, definition=definition)
+    offline_plan = build_measurement_capture_plan(runtime_config=offline_config, definition=definition)
+
+    assert real_plan.metric_definition == offline_plan.metric_definition
+    assert real_plan.measurement_profile.device_roi.width == offline_plan.measurement_profile.device_roi.width
+    assert real_plan.measurement_profile.device_roi.height == offline_plan.measurement_profile.device_roi.height
+    assert (
+        real_plan.measurement_profile.device_roi.x - real_plan.setup_preview_roi.x
+        == offline_plan.measurement_profile.device_roi.x
+    )
+    assert (
+        real_plan.measurement_profile.device_roi.y - real_plan.setup_preview_roi.y
+        == offline_plan.measurement_profile.device_roi.y
+    )
+
+    image = np.full((1364, 2048), 240, dtype=np.uint8)
+    _paint_test_line(
+        image,
+        (real_plan.metric_definition.point_a_px.x, real_plan.metric_definition.point_a_px.y),
+        (real_plan.metric_definition.point_b_px.x, real_plan.metric_definition.point_b_px.y),
+        width=28,
+        value=30,
+    )
+    frame = FramePacket(timestamp_ms=1_000, source="fixture", image=image, frame_id=1)
+    temp = TempReading(timestamp_ms=1_005, celsius=25.0, source="fixture")
+
+    real_metric = build_metric_source(
+        runtime_config=real_config,
+        definition=real_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    ).extract(frame, temp, sample_index=0, total_samples=1)
+    offline_metric = build_metric_source(
+        runtime_config=offline_config,
+        definition=offline_plan.metric_definition,
+        target_temperature_celsius=45.0,
+    ).extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert real_metric.quality > 0.0
+    assert offline_metric.quality > 0.0
+    assert real_metric.meta["selection_mode"] == offline_metric.meta["selection_mode"]
+    assert real_metric.point_a_px == offline_metric.point_a_px
+    assert real_metric.point_b_px == offline_metric.point_b_px
+    assert real_metric.metric_raw == offline_metric.metric_raw
+
+
+def _paint_test_line(
+    image: np.ndarray,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    width: int,
+    value: int,
+) -> None:
+    x0, y0 = start
+    x1, y1 = end
+    steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+    radius = max(0, int(width) // 2)
+    for index in range(steps + 1):
+        ratio = index / steps
+        x = int(round(x0 + (x1 - x0) * ratio))
+        y = int(round(y0 + (y1 - y0) * ratio))
+        image[
+            max(0, y - radius) : min(image.shape[0], y + radius + 1),
+            max(0, x - radius) : min(image.shape[1], x + radius + 1),
+        ] = value

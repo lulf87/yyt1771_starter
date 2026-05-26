@@ -307,6 +307,16 @@ def _make_client(tmp_path: Path) -> TestClient:
     return TestClient(_make_app(tmp_path))
 
 
+def _make_locked_alignment_app(tmp_path: Path):
+    app = create_app(profile="dev_lab_camera_mock_temp")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+    app.state.live_run_service = app.state.application_container.build_live_run_service(
+        preview_service=app.state.live_preview_service
+    )
+    return app
+
+
 def _mock_definition_payload() -> dict[str, object]:
     return {
         "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
@@ -319,6 +329,20 @@ def _mock_definition_payload() -> dict[str, object]:
         "ignore_internal_texture": True,
         "min_target_area_px": 150,
     }
+
+
+def _locked_alignment_definition_payload() -> dict[str, object]:
+    payload = dict(_mock_definition_payload())
+    payload.update(
+        {
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "direction_projection_mode": "max_chord",
+        }
+    )
+    return payload
 
 
 def _offset_definition_payload(*, x: int, y: int, width: int = 96, height: int = 64) -> dict[str, object]:
@@ -484,8 +508,11 @@ def test_get_run_returns_saved_draft_without_definition(tmp_path: Path) -> None:
     assert payload["definition"] is None
     assert payload["definition_complete"] is False
     assert payload["capture_mode"] == "idle"
+    assert payload["rates"]["preview_target_fps"] == 8.0
     assert payload["rates"]["measurement_sample_hz"] is None
+    assert payload["rates"]["measurement_target_hz"] == 30.0
     assert payload["rates"]["artifact_capture_hz"] is None
+    assert payload["rates"]["artifact_target_hz"] == 5.0
     assert payload["measurement_profile"]["acquisition_roi"] == {
         "x": 512,
         "y": 342,
@@ -542,7 +569,7 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
     assert payload["temperature_settings_confirmed"] is False
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
     assert payload["definition"]["direction_angle_deg"] == 12.0
-    assert payload["definition"]["direction_projection_mode"] == "auto"
+    assert payload["definition"]["direction_projection_mode"] == "max_chord"
     assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
 
@@ -693,6 +720,78 @@ def test_preview_frame_uses_setup_preview_camera_profile(tmp_path: Path) -> None
 
     assert response.status_code == 200
     assert profile_names == ["setup_preview"]
+
+
+def test_preview_frame_fetch_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 503
+    assert "Hik MVS camera access denied" in response.json()["detail"]
+    assert "another camera client" in response.json()["detail"]
+    assert "0x80000203" in response.json()["detail"]
+
+
+def test_preview_frame_locked_contract_mismatch_returns_operator_error(tmp_path: Path) -> None:
+    app = create_app(profile="dev_lab")
+    app.state.runtime_config.storage["sqlite_path"] = str(tmp_path / "sessions.db")
+    app.state.runtime_config.storage["artifact_dir"] = str(tmp_path / "artifacts")
+
+    class WrongSizeCamera:
+        def __init__(self) -> None:
+            self.frame_id = 0
+
+        def read_frame(self) -> FramePacket:
+            self.frame_id += 1
+            return FramePacket(
+                timestamp_ms=1_000 + self.frame_id,
+                source="wrong_size_camera",
+                image=np.zeros((620, 1120), dtype=np.uint8),
+                frame_id=self.frame_id,
+            )
+
+        def close(self) -> None:
+            return None
+
+    app.state.live_preview_service.open_camera = (
+        lambda runtime_config, *, profile_name="setup_preview": WrongSizeCamera()
+    )
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(f"/api/runs/{run_id}/preview/frame")
+
+    assert response.status_code == 503
+    assert "Frame pixel contract mismatch" in response.json()["detail"]
+    assert "expected=2048x1364, actual=1120x620" in response.json()["detail"]
+
+
+def test_preview_stream_start_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    def fake_start_stream(runtime_config, *, run_id: str):
+        del runtime_config, run_id
+        raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+
+    app.state.live_preview_service.start_stream = fake_start_stream
+
+    response = client.get(f"/api/runs/{run_id}/preview/stream")
+
+    assert response.status_code == 503
+    assert "Hik MVS camera access denied" in response.json()["detail"]
+    assert "another camera client" in response.json()["detail"]
+    assert "0x80000203" in response.json()["detail"]
 
 
 def test_preview_frame_refreshes_with_new_capture_by_default(tmp_path: Path) -> None:
@@ -1063,6 +1162,7 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
             "threshold_mode": "adaptive",
             "ignore_internal_texture": True,
             "min_target_area_px": 150,
+            "direction_projection_mode": "max_chord",
         },
     )
 
@@ -1073,6 +1173,174 @@ def test_auto_detect_definition_returns_suggested_points_for_mock_preview(tmp_pa
     assert payload["metric_raw"] is not None
     assert payload["threshold_mode_used"] in {"adaptive", "binary", "otsu"}
     assert payload["foreground_polarity_used"] in {"dark_on_light", "light_on_dark"}
+
+
+def test_auto_detect_definition_blocks_locked_profile_when_alignment_contract_drifts(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    app.state.runtime_config.live.vision.threshold_mode = "binary"
+
+    def unexpected_fetch_frame(*_args, **_kwargs):
+        raise AssertionError("preview frame should not be fetched when the alignment guard fails")
+
+    app.state.live_preview_service.fetch_frame = unexpected_fetch_frame
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 150,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "contour detection could diverge" in response.json()["detail"]
+
+
+def test_auto_detect_definition_blocks_locked_profile_request_contour_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+
+    def unexpected_fetch_frame(*_args, **_kwargs):
+        raise AssertionError("preview frame should not be fetched when request contour settings drift")
+
+    app.state.live_preview_service.fetch_frame = unexpected_fetch_frame
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "foreground_polarity": "light_on_dark",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "direction_projection_mode": "max_chord",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request contour settings" in response.json()["detail"]
+
+
+def test_auto_detect_definition_blocks_locked_profile_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+
+    def unexpected_fetch_frame(*_args, **_kwargs):
+        raise AssertionError("preview frame should not be fetched when A/B selection settings drift")
+
+    app.state.live_preview_service.fetch_frame = unexpected_fetch_frame
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "direction_projection_mode": "mask_projection",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "preset_auto_detect blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
+
+
+def test_save_definition_blocks_locked_profile_request_contour_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    payload = _locked_alignment_definition_payload()
+    payload["threshold_mode"] = "binary"
+
+    response = client.put(f"/api/runs/{run_id}/definition", json=payload)
+
+    assert response.status_code == 409
+    assert "save_definition blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request contour settings" in response.json()["detail"]
+
+
+def test_save_definition_blocks_locked_profile_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    payload = _locked_alignment_definition_payload()
+    payload["direction_projection_mode"] = "auto"
+
+    response = client.put(f"/api/runs/{run_id}/definition", json=payload)
+
+    assert response.status_code == 409
+    assert "save_definition blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
+
+
+def test_locked_profile_auto_detect_uses_only_offline_truth_contour_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    app.state.live_preview_service.fetch_frame = lambda *_args, **_kwargs: FramePacket(
+        timestamp_ms=1_000,
+        source="unit_test_frame",
+        image=[[240 for _ in range(96)] for _ in range(64)],
+        frame_id=1,
+    )
+    client = TestClient(app)
+    run_id = client.post("/api/runs", json={"preset": "balloon"}).json()["run_id"]
+    candidates: list[tuple[str, str, bool, int]] = []
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            candidates.append(
+                (
+                    kwargs["foreground_polarity"],
+                    kwargs["threshold_mode"],
+                    bool(kwargs["ignore_internal_texture"]),
+                    int(kwargs["min_target_area_px"]),
+                )
+            )
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="two_point_distance",
+                metric_raw=71.0,
+                quality=0.64,
+                point_a_px=(12, 32),
+                point_b_px=(83, 32),
+                meta={"selection_mode": "roi_local_horizontal_boundary"},
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.RoiLongestSpanPointDetector", FakeDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 96, "height": 64},
+            "metric_box": {"center_x": 48, "center_y": 32, "width": 80, "height": 24, "angle_deg": 0.0},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 200,
+            "sensitivity": 50,
+            "direction_projection_mode": "max_chord",
+        },
+    )
+
+    assert response.status_code == 200
+    assert candidates == [("dark_on_light", "adaptive", False, 200)]
 
 
 def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is_provided(tmp_path: Path) -> None:
@@ -1106,8 +1374,8 @@ def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is
     assert response.status_code == 200
     payload = response.json()
     assert payload["direction_angle_deg"] == 90.0
-    assert payload["direction_projection_mode"] == "mask_projection"
-    assert payload["selection_mode"] == "directional_contour_boundary_span"
+    assert payload["direction_projection_mode"] == "max_chord"
+    assert payload["selection_mode"] == "directional_contour_max_chord"
     assert 13 <= payload["point_a_px"]["x"] <= 16
     assert 13 <= payload["point_b_px"]["x"] <= 16
     assert payload["point_a_px"]["y"] < payload["point_b_px"]["y"]
@@ -1193,6 +1461,59 @@ def test_auto_detect_definition_directional_contour_can_flip_from_border_hugging
     assert payload["threshold_mode_used"] == "binary"
     assert payload["point_a_px"] == {"x": 40, "y": 20}
     assert "selected dark_on_light polarity" in payload["detail"]
+
+
+def test_auto_detect_definition_directional_contour_rejects_only_roi_boundary_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[128] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            self.config = config
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=96.0,
+                quality=0.97,
+                point_a_px=(0, 0),
+                point_b_px=(96, 0),
+                meta={
+                    "component_area": 1_200,
+                    "selection_mode": "directional_contour_max_chord",
+                },
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "metric_box": {"center_x": 50, "center_y": 50, "width": 100, "height": 100, "angle_deg": 0.0},
+            "direction_angle_deg": 0.0,
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "ambiguous_contour_or_roi_boundary" in response.json()["detail"]
 
 
 def test_auto_detect_definition_directional_contour_keeps_requested_threshold_when_specific(
@@ -1558,8 +1879,78 @@ def test_start_live_run_passes_persisted_long_axis_definition_into_metric_source
     assert start_response.status_code == 200
     assert "metric_definition" in captured
     metric_definition = captured["metric_definition"]
+    assert metric_definition.analysis_roi == RectRegion(x=0, y=0, width=240, height=160)
+    assert metric_definition.metric_box.center_x == 120
+    assert metric_definition.metric_box.center_y == 80
     assert metric_definition.observation_axis == ObservationAxis.LONG_AXIS
     assert metric_definition.metric_box.angle_deg == -32.0
+
+
+def test_start_live_run_blocks_locked_profile_when_alignment_contract_drifts(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = _create_ready_run(client, definition_payload=_locked_alignment_definition_payload())
+    app.state.runtime_config.live.vision.threshold_mode = "binary"
+
+    def unexpected_open_camera(*_args, **_kwargs):
+        raise AssertionError("camera should not open when the alignment guard fails")
+
+    app.state.live_run_service.preview_service.open_camera = unexpected_open_camera
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+
+    assert response.status_code == 409
+    assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "contour detection could diverge" in response.json()["detail"]
+
+
+def test_start_live_run_blocks_locked_profile_saved_definition_contour_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = _create_ready_run(client, definition_payload=_locked_alignment_definition_payload())
+    record = app.state.live_run_registry.get(run_id)
+    assert record is not None and record.definition is not None
+    record.definition.threshold_mode = "binary"
+
+    def unexpected_open_camera(*_args, **_kwargs):
+        raise AssertionError("camera should not open when saved contour settings drift")
+
+    app.state.live_run_service.preview_service.open_camera = unexpected_open_camera
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+
+    assert response.status_code == 409
+    assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request contour settings" in response.json()["detail"]
+
+
+def test_start_live_run_blocks_locked_profile_saved_definition_ab_selection_drift(tmp_path: Path) -> None:
+    app = _make_locked_alignment_app(tmp_path)
+    client = TestClient(app)
+    run_id = _create_ready_run(client, definition_payload=_locked_alignment_definition_payload())
+    record = app.state.live_run_registry.get(run_id)
+    assert record is not None and record.definition is not None
+    record.definition.direction_projection_mode = "mask_projection"
+
+    def unexpected_open_camera(*_args, **_kwargs):
+        raise AssertionError("camera should not open when saved A/B selection settings drift")
+
+    app.state.live_run_service.preview_service.open_camera = unexpected_open_camera
+
+    response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+
+    assert response.status_code == 409
+    assert "live_run_start blocked by real/offline alignment guard" in response.json()["detail"]
+    assert "request A/B selection mode" in response.json()["detail"]
 
 
 def test_auto_detect_definition_selects_higher_confidence_threshold_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2134,7 +2525,7 @@ def test_start_live_run_uses_measurement_camera_profile(tmp_path: Path) -> None:
     _wait_for_run_status(client, run_id, "completed")
 
     assert start_response.status_code == 200
-    assert profile_names == ["setup_preview", "measurement"]
+    assert profile_names == ["measurement"]
 
 
 def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(tmp_path: Path) -> None:
@@ -2226,6 +2617,33 @@ def test_start_live_run_reduces_measurement_camera_roi_for_real_camera_profile(t
         "setup_to_effective_local_translation_px": {"dx": -864, "dy": -568},
         "setup_to_requested_local_translation_px": {"dx": -868, "dy": -568},
     }
+
+
+def test_failed_live_run_normalizes_hik_access_denied_error(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.state.runtime_config.adapters["camera"] = "hik_gige_mvs"
+
+    def fail_open_camera(runtime_config, *, profile_name: str = "setup_preview"):
+        del runtime_config
+        if profile_name == "measurement":
+            raise RuntimeError("Failed to open device via Hik MVS SDK (ret=0x80000203)")
+        return MockCamera(profile_name=profile_name)
+
+    app.state.live_run_service.preview_service.open_camera = fail_open_camera
+    client = TestClient(app)
+    run_id = _create_ready_run(client)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    _wait_for_run_status(client, run_id, "failed")
+    result_response = client.get(f"/api/runs/{run_id}/result")
+
+    assert start_response.status_code == 200
+    assert result_response.status_code == 200
+    assert "Hik MVS camera access denied" in result_response.json()["result_detail"]
+    assert "another camera client" in result_response.json()["result_detail"]
 
 
 def test_failed_live_run_uses_effective_measurement_roi_and_runtime_definition_artifacts(tmp_path: Path) -> None:

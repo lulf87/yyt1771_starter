@@ -327,11 +327,13 @@ def test_partial_terminal_execution_runs_afas_when_telemetry_is_available() -> N
     assert execution.result["as_value"] is not None
     assert execution.result["af_value"] is not None
     assert execution.result["point_count"] == 60
+    assert "target_temperature_not_reached" in execution.result["result_detail"]
     assert execution.result["artifacts"]["afas_dataset"] == "afas_dataset.json"
     assert any("terminal_failed" in warning for warning in execution.result["warnings"])
     assert execution.afas_dataset is not None
     assert execution.afas_dataset["live_result_snapshot"]["result_status"] == "ok"
     assert execution.afas_dataset["live_result_snapshot"]["terminal_state"] == "failed"
+    assert "target_temperature_not_reached" in execution.afas_dataset["live_result_snapshot"]["result_detail"]
 
 
 class FailingTempController(MockTempController):
@@ -741,7 +743,7 @@ def test_locked_definition_metric_source_uses_directional_contour_when_direction
     assert config.analysis_roi == definition.analysis_roi
     assert config.direction_angle_deg == 90.0
     assert config.metric_box == definition.metric_box
-    assert config.projection_mode == "auto"
+    assert config.projection_mode == "max_chord"
     assert config.processing_max_side_px >= 384
     assert config.threshold_mode == "binary"
     assert metric.metric_name == "directional_contour_span"

@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from src.application.runtime_config import RuntimeConfig
+from src.application.real_offline_alignment_guard import (
+    assert_real_offline_alignment_ready,
+    assert_real_offline_definition_ready,
+)
 from src.camera import HikGigeMvsCamera, HikRtspCamera, MockCamera, OfflineCaptureCamera, build_hik_rtsp_url
 from src.core.config_models import CameraAcquisitionProfileConfig, DeviceRoiConfig
 from src.core.models import MeasurementDefinition, MetricBox, PixelPoint, RectRegion, _metric_box_within_region
@@ -35,6 +39,7 @@ class MeasurementCapturePlan:
 
 
 def open_camera(runtime_config: RuntimeConfig, *, profile_name: str = "setup_preview") -> object:
+    assert_real_offline_alignment_ready(runtime_config, context=f"open_camera:{profile_name}")
     backend = str(runtime_config.adapters.get("camera", "") or "")
     profile = camera_profile_for_mode(runtime_config.live.camera, profile_name)
     if backend == "mock":
@@ -80,6 +85,8 @@ def build_metric_source(
     definition: MeasurementDefinition,
     target_temperature_celsius: float,
 ) -> object:
+    assert_real_offline_alignment_ready(runtime_config, context="build_metric_source")
+    assert_real_offline_definition_ready(runtime_config, definition, context="build_metric_source")
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
     if camera_backend == "mock":
         playback = _resolve_mock_afas_curve_playback(runtime_config)
@@ -104,6 +111,8 @@ def build_measurement_capture_plan(
     runtime_config: RuntimeConfig,
     definition: MeasurementDefinition,
 ) -> MeasurementCapturePlan:
+    assert_real_offline_alignment_ready(runtime_config, context="build_measurement_capture_plan")
+    assert_real_offline_definition_ready(runtime_config, definition, context="build_measurement_capture_plan")
     measurement_profile = camera_profile_for_mode(runtime_config.live.camera, "measurement")
     camera_backend = str(runtime_config.adapters.get("camera", "") or "")
     setup_preview_roi = _setup_preview_sensor_roi(runtime_config)
@@ -200,9 +209,12 @@ def build_measurement_capture_plan(
 def apply_measurement_acquisition_roi(
     plan: MeasurementCapturePlan,
     *,
+    runtime_config: RuntimeConfig,
     definition: MeasurementDefinition,
     applied_device_roi: DeviceRoiConfig,
 ) -> MeasurementCapturePlan:
+    assert_real_offline_alignment_ready(runtime_config, context="apply_measurement_acquisition_roi")
+    assert_real_offline_definition_ready(runtime_config, definition, context="apply_measurement_acquisition_roi")
     effective_profile = replace(
         plan.measurement_profile,
         device_roi=DeviceRoiConfig(

@@ -39,8 +39,10 @@ should not be treated as the main operator states unless this file is updated.
 - Windows migration means validating the Web workstation on Windows first
 - `src/desktop_app/` and D1-D7 desktop migration documents are paused legacy /
   fallback references, not formal active run states
-- `configs/prod_win.yaml` is a historical production-profile skeleton, not a
-  verified `mac-finish` Windows runtime profile
+- `configs/prod_win.yaml` is now a tracked Windows production-profile baseline
+  for the Web workstation, locked to the same source-pixel contract as
+  `dev_lab` / `dev_offline_capture`; it is still not hardware-verified until
+  a Windows machine with the real camera and LU92XX controller validates it
 
 ## State A - Real Camera And Real Temperature Controller
 
@@ -82,8 +84,10 @@ mode: lab
 web port: 8000
 measurement device ROI: x=512, y=342, width=2048, height=1364
 preview target fps: 20
-measurement target Hz: 20
+measurement target Hz: 10
+artifact capture Hz: 10
 manual_stop_max_samples: 0
+stop_on_invalid_tracking: false
 ```
 
 Current local temperature-controller highlights:
@@ -101,7 +105,7 @@ startup_power_percent: 100.0
 completion_mode: target_reached
 ```
 
-Current local run override:
+Current tracked/local run guard:
 
 ```text
 stop_on_invalid_tracking: false
@@ -228,5 +232,13 @@ Validation boundary:
    file and `configs/dev_offline_capture.yaml` together.
 5. If the real hardware profile changes from `dev_lab`, update this file before
    changing operator instructions.
-6. Do not treat `desktop_app` or `prod_win` as current migration entry points
-   unless the user explicitly reactivates that path.
+6. Do not treat `desktop_app` as the current migration entry point unless the
+   user explicitly reactivates that path.
+7. Keep `prod_win` aligned to the offline truth contract, but do not claim it
+   is hardware-verified until it passes Windows-side camera, LU92XX, Web, ROI,
+   A/B, live run, stop, and analysis validation.
+8. Treat offline truth alignment as a full measurement-chain contract, not only
+   a resolution check. Locked real profiles must continue to match
+   `dev_offline_capture` for setup/live source pixels, acquisition parameters,
+   preview display bounds, contour-detection settings, tracking policy, and
+   formal contour-boundary `point_a_px / point_b_px` semantics.
