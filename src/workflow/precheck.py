@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,11 @@ ALIGNMENT_TRACKING_POLICY = {
     "stop_on_invalid_tracking": False,
     "invalid_tracking_grace_samples": 5,
     "debug_locked_points_tracking": False,
+}
+ALIGNMENT_MEASUREMENT_TIMING = {
+    "capture_interval_ms": 100,
+    "measurement_target_hz": 10.0,
+    "artifact_capture_hz": 10.0,
 }
 ALIGNMENT_AB_SELECTION = {
     "formal_point_source": "target_contour_boundary",
@@ -90,6 +97,13 @@ def _check_sqlite_path(sqlite_path: Any, project_root: Path) -> dict[str, str]:
     if not sqlite_path:
         return {"name": "sqlite_path", "status": "fail", "detail": "storage.sqlite_path is not configured"}
 
+    if _is_foreign_windows_absolute_path(str(sqlite_path)):
+        return {
+            "name": "sqlite_path",
+            "status": "ok",
+            "detail": f"{sqlite_path} is a Windows runtime path; writability is not checked on this platform",
+        }
+
     resolved_path = _resolve_path(str(sqlite_path), project_root)
     try:
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +120,13 @@ def _check_sqlite_path(sqlite_path: Any, project_root: Path) -> dict[str, str]:
 def _check_artifact_dir(artifact_dir: Any, project_root: Path) -> dict[str, str]:
     if not artifact_dir:
         return {"name": "artifact_dir", "status": "fail", "detail": "storage.artifact_dir is not configured"}
+
+    if _is_foreign_windows_absolute_path(str(artifact_dir)):
+        return {
+            "name": "artifact_dir",
+            "status": "ok",
+            "detail": f"{artifact_dir} is a Windows runtime path; writability is not checked on this platform",
+        }
 
     resolved_path = _resolve_path(str(artifact_dir), project_root)
     try:
@@ -269,6 +290,22 @@ def _check_active_profile_pixel_alignment(
                 f"offline truth tracking policy {ALIGNMENT_TRACKING_POLICY}; live A/B acceptance could diverge"
             ),
         }
+    measurement_timing = _measurement_timing(run_config)
+    if measurement_timing is None:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": f"{profile_name} must provide measurement timing for real/offline 10 Hz sampling alignment",
+        }
+    if measurement_timing != ALIGNMENT_MEASUREMENT_TIMING:
+        return {
+            "name": "real_offline_pixel_alignment",
+            "status": "fail",
+            "detail": (
+                f"{profile_name} measurement timing {measurement_timing} does not match the "
+                f"offline truth 10 Hz temperature/A-B sampling contract {ALIGNMENT_MEASUREMENT_TIMING}"
+            ),
+        }
     preview_size = _preview_display_size(run_config)
     if preview_size is None:
         return {
@@ -292,6 +329,7 @@ def _check_active_profile_pixel_alignment(
     )
     vision_detail = _format_vision_detail(vision)
     tracking_detail = _format_tracking_detail(tracking_policy)
+    timing_detail = _format_measurement_timing_detail(measurement_timing)
     ab_detail = (
         ", ab_points=formal target-contour point_a_px/point_b_px"
         f" direction_projection_mode={ALIGNMENT_AB_SELECTION['direction_projection_mode']}"
@@ -302,7 +340,7 @@ def _check_active_profile_pixel_alignment(
         "detail": (
             f"{profile_name} setup/live source pixels and algorithm settings match the offline truth contract: "
             f"origin={origin}, size={size}{preview_detail}{acquisition_detail}"
-            f"{vision_detail}{tracking_detail}{ab_detail}"
+            f"{vision_detail}{tracking_detail}{timing_detail}{ab_detail}"
         ),
     }
 
@@ -368,6 +406,19 @@ def _tracking_policy(run_config: Any | None) -> dict[str, Any] | None:
         return None
 
 
+def _measurement_timing(run_config: Any | None) -> dict[str, Any] | None:
+    if run_config is None:
+        return None
+    try:
+        return {
+            "capture_interval_ms": int(_get_config_value(run_config, "capture_interval_ms")),
+            "measurement_target_hz": float(_get_config_value(run_config, "measurement_target_hz")),
+            "artifact_capture_hz": float(_get_config_value(run_config, "artifact_capture_hz")),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
 def _format_vision_detail(vision: dict[str, Any] | None) -> str:
     if vision is None:
         return ", vision not provided to precheck"
@@ -388,6 +439,16 @@ def _format_tracking_detail(tracking_policy: dict[str, Any] | None) -> str:
         f", tracking={stop_mode}"
         f" grace={tracking_policy['invalid_tracking_grace_samples']}"
         f" debug_locked_points={tracking_policy['debug_locked_points_tracking']}"
+    )
+
+
+def _format_measurement_timing_detail(measurement_timing: dict[str, Any] | None) -> str:
+    if measurement_timing is None:
+        return ", measurement timing not provided to precheck"
+    return (
+        f", measurement_timing={measurement_timing['measurement_target_hz']}Hz"
+        f" artifact={measurement_timing['artifact_capture_hz']}Hz"
+        f" interval={measurement_timing['capture_interval_ms']}ms"
     )
 
 
@@ -561,3 +622,7 @@ def _resolve_path(value: str, project_root: Path) -> Path:
     if path.is_absolute():
         return path
     return project_root / path
+
+
+def _is_foreign_windows_absolute_path(value: str) -> bool:
+    return os.name != "nt" and re.match(r"^[A-Za-z]:[\\/]", value) is not None

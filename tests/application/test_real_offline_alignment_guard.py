@@ -40,6 +40,14 @@ def test_alignment_guard_blocks_locked_profile_when_vision_drifts() -> None:
         assert_real_offline_alignment_ready(runtime_config, context="unit_test")
 
 
+def test_alignment_guard_blocks_locked_profile_when_measurement_timing_drifts() -> None:
+    runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
+    runtime_config.live.run.measurement_target_hz = 20.0
+
+    with pytest.raises(RealOfflineAlignmentGuardError, match="10 Hz temperature/A-B sampling contract"):
+        assert_real_offline_alignment_ready(runtime_config, context="unit_test")
+
+
 def test_contour_request_guard_blocks_locked_profile_request_drift() -> None:
     runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
 

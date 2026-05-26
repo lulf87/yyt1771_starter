@@ -285,6 +285,9 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
   内部纹理处理、最小目标面积和质量阈值
 - live tracking 的失效处理策略必须与离线素材保持一致，包括是否因低质量
   tracking 中止、grace samples 和 locked-points debug 行为
+- 温度样本与正式 `A-B`/形变量样本必须使用同一套 `10 Hz` synchronized
+  measurement cadence：`capture_interval_ms=100`、
+  `measurement_target_hz=10`、`artifact_capture_hz=10`
 - formal `point_a_px / point_b_px` 必须继续表示目标物体真实轮廓/边界点；
   不得把投影点、轴向辅助点或内部候选点作为正式 `A-B`
 - locked real profiles 的 preset auto-detect、definition save、live run start

@@ -30,6 +30,9 @@ class DirectionalContourConfig:
     projection_mode: str = "max_chord"
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
+    max_chord_prior_point_a: PixelPoint | None = None
+    max_chord_prior_point_b: PixelPoint | None = None
+    max_chord_prior_endpoint_tolerance_px: float | None = None
     processing_max_side_px: int = 384
 
 
@@ -181,6 +184,9 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     elif projection_mode == "max_chord":
         lateral_prior_px = _max_chord_axis_prior_lateral_px(config, processing)
         lateral_prior_tolerance_px = _max_chord_axis_prior_tolerance_px(config, processing)
+        endpoint_prior_a = _max_chord_prior_point(config.max_chord_prior_point_a, processing)
+        endpoint_prior_b = _max_chord_prior_point(config.max_chord_prior_point_b, processing)
+        endpoint_prior_tolerance_px = _max_chord_endpoint_prior_tolerance_px(config, processing)
         projection = measure_component_max_chord_along_direction(
             boundary_mask,
             processing_roi,
@@ -189,6 +195,9 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             clip_region=processing_roi,
             lateral_prior_px=lateral_prior_px,
             lateral_prior_tolerance_px=lateral_prior_tolerance_px,
+            endpoint_prior_a=endpoint_prior_a,
+            endpoint_prior_b=endpoint_prior_b,
+            endpoint_prior_tolerance_px=endpoint_prior_tolerance_px,
         )
         projection_point_mode = "max_chord"
     else:
@@ -312,6 +321,9 @@ def measure_component_max_chord_along_direction(
     normal_bin_width_px: float = 1.0,
     lateral_prior_px: float | None = None,
     lateral_prior_tolerance_px: float | None = None,
+    endpoint_prior_a: np.ndarray | None = None,
+    endpoint_prior_b: np.ndarray | None = None,
+    endpoint_prior_tolerance_px: float | None = None,
 ) -> DirectionalProjection:
     rows, cols = np.where(np.asarray(component_mask) > 0)
     if len(rows) == 0:
@@ -337,15 +349,28 @@ def measure_component_max_chord_along_direction(
         span = float(ordered_along[-1] - ordered_along[0])
         if span <= 0.0:
             continue
+        min_index = int(ordered[0])
+        max_index = int(ordered[-1])
         axis_offset = float(np.median(lateral[ordered]))
+        endpoint_prior_distance = _max_chord_endpoint_prior_distance(
+            points[min_index],
+            points[max_index],
+            endpoint_prior_a,
+            endpoint_prior_b,
+        )
         candidate = {
             "span": span,
             "count": int(len(ordered)),
             "axis_offset": axis_offset,
-            "min_index": int(ordered[0]),
-            "max_index": int(ordered[-1]),
+            "min_index": min_index,
+            "max_index": max_index,
             "center_distance": abs(axis_offset - median_lateral),
             "prior_distance": None if lateral_prior_px is None else abs(axis_offset - float(lateral_prior_px)),
+            "endpoint_prior_distance": endpoint_prior_distance,
+            "endpoint_prior_within": _max_chord_endpoint_prior_within(
+                endpoint_prior_distance,
+                endpoint_prior_tolerance_px,
+            ),
         }
         candidates.append(candidate)
         if _max_chord_candidate_is_better(candidate, best):
@@ -497,6 +522,17 @@ def _max_chord_candidate_is_better(candidate: dict[str, Any], current: dict[str,
 def _max_chord_prior_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
     if current is None:
         return True
+    candidate_endpoint_distance = candidate.get("endpoint_prior_distance")
+    current_endpoint_distance = current.get("endpoint_prior_distance")
+    if candidate_endpoint_distance is not None and current_endpoint_distance is not None:
+        candidate_within = bool(candidate.get("endpoint_prior_within"))
+        current_within = bool(current.get("endpoint_prior_within"))
+        if candidate_within != current_within:
+            return candidate_within
+        if candidate_within and current_within:
+            endpoint_delta = float(candidate_endpoint_distance) - float(current_endpoint_distance)
+            if abs(endpoint_delta) > 2.0:
+                return endpoint_delta < 0.0
     span_delta = float(candidate["span"]) - float(current["span"])
     meaningful_span_delta = max(8.0, float(current["span"]) * 0.05)
     if abs(span_delta) > meaningful_span_delta:
@@ -538,6 +574,54 @@ def _max_chord_axis_prior_tolerance_px(
     if tolerance_px is None:
         return None
     return max(0.0, float(tolerance_px) * float(geometry.scale))
+
+
+def _max_chord_prior_point(
+    point: PixelPoint | None,
+    geometry: _ProcessingGeometry,
+) -> np.ndarray | None:
+    if point is None:
+        return None
+    roi = geometry.original_roi
+    return np.array(
+        [
+            (float(point.x) - float(roi.x)) * float(geometry.scale_x),
+            (float(point.y) - float(roi.y)) * float(geometry.scale_y),
+        ],
+        dtype=float,
+    )
+
+
+def _max_chord_endpoint_prior_tolerance_px(
+    config: DirectionalContourConfig,
+    geometry: _ProcessingGeometry,
+) -> float | None:
+    tolerance_px = config.max_chord_prior_endpoint_tolerance_px
+    if tolerance_px is None:
+        return None
+    return max(0.0, float(tolerance_px) * float(geometry.scale))
+
+
+def _max_chord_endpoint_prior_distance(
+    point_a_xy: np.ndarray,
+    point_b_xy: np.ndarray,
+    prior_a_xy: np.ndarray | None,
+    prior_b_xy: np.ndarray | None,
+) -> float | None:
+    if prior_a_xy is None or prior_b_xy is None:
+        return None
+    direct = float(np.linalg.norm(point_a_xy - prior_a_xy) + np.linalg.norm(point_b_xy - prior_b_xy))
+    swapped = float(np.linalg.norm(point_a_xy - prior_b_xy) + np.linalg.norm(point_b_xy - prior_a_xy))
+    return min(direct, swapped)
+
+
+def _max_chord_endpoint_prior_within(
+    endpoint_prior_distance: float | None,
+    endpoint_prior_tolerance_px: float | None,
+) -> bool:
+    if endpoint_prior_distance is None or endpoint_prior_tolerance_px is None:
+        return False
+    return float(endpoint_prior_distance) <= float(endpoint_prior_tolerance_px) * 2.0
 
 
 def _max_projection_display_index(projections: np.ndarray, normal_coords: np.ndarray) -> int:
@@ -653,43 +737,43 @@ def _refine_projection_on_original_axis(
     if crop.size == 0:
         return projection
     try:
-        raw_mask, threshold_value = _threshold_mask(cv2, crop, config)
-        original_geometry = _ProcessingGeometry(crop=crop, original_roi=roi)
-        allowed_mask = _processing_metric_box_mask(cv2, original_geometry, config.metric_box)
-        if allowed_mask is not None:
-            raw_mask = _apply_allowed_mask(cv2, raw_mask, allowed_mask)
-        source_mask = _source_foreground_mask(cv2, crop, raw_mask, threshold_value, config)
-        if allowed_mask is not None:
-            source_mask = _apply_allowed_mask(cv2, source_mask, allowed_mask)
-        mask = _cleanup_mask(cv2, raw_mask, config)
-        component_mask = _largest_component_mask(
-            cv2,
-            mask,
-            min_target_area_px=int(config.min_target_area_px),
-            direction_angle_deg=float(config.direction_angle_deg),
-            component_bridge_kernel=int(config.component_bridge_kernel),
-        )
-        boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
-        axis_offset_px = float(projection.axis_offset_px)
-        axis_tolerance_px = _original_axis_refinement_tolerance_px(geometry)
-        if projection_point_mode == "max_chord":
-            return measure_component_max_chord_along_direction(
-                boundary_mask,
+        if projection_point_mode == "mask_projection":
+            return _refine_mask_projection_on_original_axis(
+                cv2,
+                crop,
+                gray,
                 roi,
-                float(config.direction_angle_deg),
-                image_shape=gray.shape,
-                clip_region=roi,
-                lateral_prior_px=axis_offset_px,
-                lateral_prior_tolerance_px=axis_tolerance_px,
+                config,
+                projection,
+                geometry,
             )
-        return project_component_mask_onto_direction(
-            boundary_mask,
-            roi,
-            float(config.direction_angle_deg),
-            image_shape=gray.shape,
-            clip_region=roi,
-            axis_offset_px=axis_offset_px,
-            axis_tolerance_px=axis_tolerance_px,
+        radius_px = _original_endpoint_refinement_radius_px(geometry)
+        point_a = _snap_projection_endpoint_to_original_foreground(
+            cv2,
+            gray,
+            config,
+            projection.point_a,
+            radius_px=radius_px,
+        )
+        point_b = _snap_projection_endpoint_to_original_foreground(
+            cv2,
+            gray,
+            config,
+            projection.point_b,
+            radius_px=radius_px,
+        )
+        if point_a == point_b:
+            return projection
+        return DirectionalProjection(
+            point_a=point_a,
+            point_b=point_b,
+            source_point_a=point_a,
+            source_point_b=point_b,
+            axis_point_a=point_a,
+            axis_point_b=point_b,
+            metric_raw=_distance_between(point_a, point_b),
+            direction_angle_deg=float(projection.direction_angle_deg),
+            axis_offset_px=float(projection.axis_offset_px),
         )
     except DirectionalContourDetectionError:
         return projection
@@ -713,6 +797,105 @@ def _axis_offset_to_original_space(
 def _original_axis_refinement_tolerance_px(geometry: _ProcessingGeometry) -> float:
     inverse_scale = 1.0 / max(float(geometry.scale), 1e-9)
     return max(3.0, min(24.0, inverse_scale * 2.5))
+
+
+def _original_endpoint_refinement_radius_px(geometry: _ProcessingGeometry) -> int:
+    inverse_scale = 1.0 / max(float(geometry.scale), 1e-9)
+    return max(6, min(32, int(math.ceil(inverse_scale * 4.0))))
+
+
+def _refine_mask_projection_on_original_axis(
+    cv2: Any | None,
+    crop: np.ndarray,
+    gray: np.ndarray,
+    roi: RectRegion,
+    config: DirectionalContourConfig,
+    projection: DirectionalProjection,
+    geometry: _ProcessingGeometry,
+) -> DirectionalProjection:
+    if cv2 is None:
+        return projection
+    raw_mask, threshold_value = _threshold_mask(cv2, crop, config)
+    original_geometry = _ProcessingGeometry(crop=crop, original_roi=roi)
+    allowed_mask = _processing_metric_box_mask(cv2, original_geometry, config.metric_box)
+    if allowed_mask is not None:
+        raw_mask = _apply_allowed_mask(cv2, raw_mask, allowed_mask)
+    source_mask = _source_foreground_mask(cv2, crop, raw_mask, threshold_value, config)
+    if allowed_mask is not None:
+        source_mask = _apply_allowed_mask(cv2, source_mask, allowed_mask)
+    return project_component_mask_onto_direction(
+        source_mask,
+        roi,
+        float(config.direction_angle_deg),
+        image_shape=gray.shape,
+        clip_region=roi,
+        axis_offset_px=float(projection.axis_offset_px),
+        axis_tolerance_px=_original_axis_refinement_tolerance_px(geometry),
+    )
+
+
+def _snap_projection_endpoint_to_original_foreground(
+    cv2: Any | None,
+    gray: np.ndarray,
+    config: DirectionalContourConfig,
+    point: PixelPoint,
+    *,
+    radius_px: int,
+) -> PixelPoint:
+    if cv2 is None:
+        return point
+    height, width = gray.shape[:2]
+    if height <= 0 or width <= 0:
+        return point
+    center_x = max(0, min(width - 1, int(point.x)))
+    center_y = max(0, min(height - 1, int(point.y)))
+    radius = max(1, int(radius_px))
+    x0 = max(0, center_x - radius)
+    x1 = min(width, center_x + radius + 1)
+    y0 = max(0, center_y - radius)
+    y1 = min(height, center_y + radius + 1)
+    patch = gray[y0:y1, x0:x1]
+    if patch.size == 0:
+        return point
+
+    mask, threshold_value = _threshold_mask(cv2, patch, config)
+    patch_roi = RectRegion(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
+    allowed_mask = _processing_metric_box_mask(
+        cv2,
+        _ProcessingGeometry(crop=patch, original_roi=patch_roi),
+        config.metric_box,
+    )
+    if allowed_mask is not None:
+        mask = _apply_allowed_mask(cv2, mask, allowed_mask)
+    foreground_mask = _source_foreground_mask(cv2, patch, mask, threshold_value, config)
+    if allowed_mask is not None:
+        foreground_mask = _apply_allowed_mask(cv2, foreground_mask, allowed_mask)
+    foreground = np.asarray(foreground_mask) > 0
+    if not bool(foreground.any()):
+        return point
+
+    boundary = _foreground_boundary_mask(foreground)
+    candidate_mask = boundary if bool(boundary.any()) else foreground
+    ys, xs = np.nonzero(candidate_mask)
+    if len(xs) == 0:
+        return point
+    global_x = xs.astype(float) + float(x0)
+    global_y = ys.astype(float) + float(y0)
+    distances = (global_x - float(point.x)) ** 2 + (global_y - float(point.y)) ** 2
+    best_index = int(np.argmin(distances))
+    return PixelPoint(x=int(round(global_x[best_index])), y=int(round(global_y[best_index])))
+
+
+def _foreground_boundary_mask(foreground: np.ndarray) -> np.ndarray:
+    mask = np.asarray(foreground, dtype=bool)
+    if mask.size == 0:
+        return mask
+    eroded = ndimage.binary_erosion(
+        mask,
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    return mask & ~eroded
 
 
 def _point_from_processing_space(

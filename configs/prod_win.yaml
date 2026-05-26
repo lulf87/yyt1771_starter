@@ -82,10 +82,10 @@ storage:
   artifact_dir: C:/yyt1771/artifacts
 run:
   preview_poll_ms: 50
-  capture_interval_ms: 50
+  capture_interval_ms: 100
   preview_target_fps: 20
-  measurement_target_hz: 20
-  artifact_capture_hz: 20
+  measurement_target_hz: 10
+  artifact_capture_hz: 10
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544

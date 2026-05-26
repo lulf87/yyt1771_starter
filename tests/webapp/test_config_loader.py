@@ -85,7 +85,9 @@ def test_load_runtime_config_reads_lab_camera_mock_temp_profile() -> None:
     assert runtime_config.live.camera.measurement.device_roi.height == 1364
     assert runtime_config.live.camera.setup_preview.device_roi == runtime_config.live.camera.measurement.device_roi
     assert runtime_config.live.run.preview_target_fps == 20.0
-    assert runtime_config.live.run.measurement_target_hz == 20.0
+    assert runtime_config.live.run.capture_interval_ms == 100
+    assert runtime_config.live.run.measurement_target_hz == 10.0
+    assert runtime_config.live.run.artifact_capture_hz == 10.0
     assert runtime_config.live.run.manual_stop_max_samples == 0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
     assert runtime_config.live.run.invalid_tracking_grace_samples == 5
@@ -137,6 +139,9 @@ def test_active_real_and_offline_profiles_keep_measurement_pixels_aligned() -> N
         assert real_config["run"]["manual_stop_max_samples"] == 0
         assert real_config["run"]["stop_on_invalid_tracking"] is False
         assert real_config["run"]["invalid_tracking_grace_samples"] == 5
+        assert real_config["run"]["capture_interval_ms"] == 100
+        assert real_config["run"]["measurement_target_hz"] == 10
+        assert real_config["run"]["artifact_capture_hz"] == 10
 
     assert offline_setup_roi == offline_measurement_roi
     assert _roi_size(offline_setup_roi) == (2048, 1364)
@@ -146,6 +151,9 @@ def test_active_real_and_offline_profiles_keep_measurement_pixels_aligned() -> N
     assert offline_config["run"]["manual_stop_max_samples"] == 0
     assert offline_config["run"]["stop_on_invalid_tracking"] is False
     assert offline_config["run"]["invalid_tracking_grace_samples"] == 5
+    assert offline_config["run"]["capture_interval_ms"] == 100
+    assert offline_config["run"]["measurement_target_hz"] == 10
+    assert offline_config["run"]["artifact_capture_hz"] == 10
 
 
 def test_load_runtime_config_keeps_dev_lab_baseline_without_local_override(
@@ -208,10 +216,10 @@ temp:
     mock_ramp_step_celsius: 0.5
 run:
   preview_poll_ms: 50
-  capture_interval_ms: 50
+  capture_interval_ms: 100
   preview_target_fps: 20
-  measurement_target_hz: 20
-  artifact_capture_hz: 20
+  measurement_target_hz: 10
+  artifact_capture_hz: 10
   manual_stop_max_samples: 0
   preview_display_max_width: 816
   preview_display_max_height: 544
@@ -261,9 +269,9 @@ replay:
     assert runtime_config.live.run.manual_stop_max_samples == 0
     assert runtime_config.live.run.preview_display_max_width == 816
     assert runtime_config.live.run.preview_display_max_height == 544
-    assert runtime_config.live.run.capture_interval_ms == 50
-    assert runtime_config.live.run.measurement_target_hz == 20.0
-    assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.capture_interval_ms == 100
+    assert runtime_config.live.run.measurement_target_hz == 10.0
+    assert runtime_config.live.run.artifact_capture_hz == 10.0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
     assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False
@@ -613,13 +621,13 @@ def test_load_runtime_config_reads_prod_camera_contract() -> None:
     assert runtime_config.live.temp.control.completion_mode == "target_reached"
     assert runtime_config.live.temp.control.mock_ramp_step_celsius == 10.0
     assert runtime_config.live.run.preview_poll_ms == 50
-    assert runtime_config.live.run.capture_interval_ms == 50
+    assert runtime_config.live.run.capture_interval_ms == 100
     assert runtime_config.live.run.manual_stop_max_samples == 0
     assert runtime_config.live.run.preview_target_fps == 20.0
     assert runtime_config.live.run.preview_display_max_width == 816
     assert runtime_config.live.run.preview_display_max_height == 544
-    assert runtime_config.live.run.measurement_target_hz == 20.0
-    assert runtime_config.live.run.artifact_capture_hz == 20.0
+    assert runtime_config.live.run.measurement_target_hz == 10.0
+    assert runtime_config.live.run.artifact_capture_hz == 10.0
     assert runtime_config.live.run.stop_on_invalid_tracking is False
     assert runtime_config.live.run.invalid_tracking_grace_samples == 5
     assert runtime_config.live.run.debug_locked_points_tracking is False

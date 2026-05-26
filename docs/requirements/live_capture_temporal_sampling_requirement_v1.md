@@ -233,7 +233,27 @@ Sources:
 - downsample/encode 开销
 - 浏览器显示路径
 
-### R4. Measurement mode must target synchronized 50 Hz as the minimum locked goal
+### R4. Historical 50 Hz goal is superseded for the current mac-finish locked profiles
+
+2026-05-26 amendment:
+
+当前 `mac-finish` Web 交付状态以真实相机原始像素链路和已接受离线素材为
+优先约束。为了保持离线素材、真实相机、温度采样、正式 `A-B` 点和曲线数据
+来源完全一致，locked profiles 的当前正式采样契约冻结为：
+
+- `capture_interval_ms=100`
+- `measurement_target_hz=10`
+- `artifact_capture_hz=10`
+
+这里的 `10 Hz` 是温度样本与正式 `A-B`/shape metric 样本的共同 measurement
+cadence。任何真实 profile 或离线 profile 如改回 `20 Hz`、`50 Hz` 或其它值，
+都必须先更新当前 requirement 与 real/offline alignment audit，再重新完成
+离线和真机验证。
+
+历史上的 `50 Hz synchronized measurement` 仍可作为后续性能优化方向，但不再
+是当前 `mac-finish` locked profiles 的验收基线。
+
+### R4-old. Deferred 50 Hz measurement target
 
 系统必须提供一个 measurement-oriented live mode，其目标是：
 

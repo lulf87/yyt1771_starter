@@ -196,6 +196,7 @@ def test_precheck_api_reports_dev_lab_alignment_as_ready_without_device_access(
     assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
     assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
     assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
+    assert "measurement_timing=10.0Hz" in items["real_offline_pixel_alignment"]["detail"]
     assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
     assert "direction_projection_mode=max_chord" in items["real_offline_pixel_alignment"]["detail"]
     assert "does not attempt live device access" in items["camera_sdk_runtime"]["detail"]
@@ -218,6 +219,7 @@ def test_precheck_api_reports_real_offline_contract_scope_without_device_access(
     assert "acquisition=mono8/50000us/12.0dB" in detail
     assert "vision=dark_on_light/adaptive edge=10.0 min_area=200 quality=0.75 internal_texture=False" in detail
     assert "tracking=continue_on_invalid grace=5 debug_locked_points=False" in detail
+    assert "measurement_timing=10.0Hz artifact=10.0Hz interval=100ms" in detail
     assert "ab_points=formal target-contour point_a_px/point_b_px" in detail
     assert "direction_projection_mode=max_chord" in detail
 
@@ -241,6 +243,7 @@ def test_precheck_api_reports_lab_camera_mock_temp_alignment_as_ready_without_de
     assert "acquisition=mono8/50000us/12.0dB" in items["real_offline_pixel_alignment"]["detail"]
     assert "vision=dark_on_light/adaptive" in items["real_offline_pixel_alignment"]["detail"]
     assert "tracking=continue_on_invalid" in items["real_offline_pixel_alignment"]["detail"]
+    assert "measurement_timing=10.0Hz" in items["real_offline_pixel_alignment"]["detail"]
     assert "ab_points=formal target-contour point_a_px/point_b_px" in items["real_offline_pixel_alignment"]["detail"]
 
 
@@ -297,6 +300,24 @@ def test_precheck_api_fails_when_locked_profile_tracking_policy_drifts_from_offl
     assert items["real_offline_pixel_alignment"]["status"] == "fail"
     assert "tracking policy" in items["real_offline_pixel_alignment"]["detail"]
     assert "offline truth tracking policy" in items["real_offline_pixel_alignment"]["detail"]
+
+
+def test_precheck_api_fails_when_locked_profile_measurement_timing_drifts_from_offline_truth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client = _make_client(tmp_path, profile="dev_lab_camera_mock_temp")
+    monkeypatch.setattr(precheck_module, "import_hik_mvs_sdk_module", lambda: object())
+    client.app.state.runtime_config.live.run.measurement_target_hz = 20.0
+
+    response = client.get("/api/system/precheck")
+
+    assert response.status_code == 200
+    payload = response.json()
+    items = {item["name"]: item for item in payload["items"]}
+    assert items["real_offline_pixel_alignment"]["status"] == "fail"
+    assert "measurement timing" in items["real_offline_pixel_alignment"]["detail"]
+    assert "10 Hz temperature/A-B sampling contract" in items["real_offline_pixel_alignment"]["detail"]
 
 
 def test_real_offline_alignment_api_returns_audit_without_device_access(tmp_path: Path) -> None:

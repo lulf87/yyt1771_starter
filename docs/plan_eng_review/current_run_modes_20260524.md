@@ -84,7 +84,8 @@ mode: lab
 web port: 8000
 measurement device ROI: x=512, y=342, width=2048, height=1364
 preview target fps: 20
-measurement target Hz: 20
+measurement target Hz: 10
+artifact capture Hz: 10
 manual_stop_max_samples: 0
 stop_on_invalid_tracking: false
 ```

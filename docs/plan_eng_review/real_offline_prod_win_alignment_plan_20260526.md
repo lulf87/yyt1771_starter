@@ -105,7 +105,7 @@ Expected before test update: FAIL because the test still expects the old `prod_w
 
 - [x] **Step 2: Update config-loader assertions**
 
-Assert `prod_win` uses `2048 x 1364` setup/live ROI, `816 x 544` display bounds, 20 Hz profile cadence, no fixed manual-stop sample cap, and `stop_on_invalid_tracking: false`.
+Assert `prod_win` uses `2048 x 1364` setup/live ROI, `816 x 544` display bounds, 10 Hz profile cadence, no fixed manual-stop sample cap, and `stop_on_invalid_tracking: false`.
 
 - [x] **Step 3: Update precheck assertions**
 

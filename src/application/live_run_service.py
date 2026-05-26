@@ -256,13 +256,6 @@ class LiveRunService:
             self._store_error(active_run, exc.detail)
             self._update_status(active_run, registry, RunStatus.INVALIDATED, payload={"reason": exc.reason})
             self._update_status(active_run, registry, RunStatus.STOPPING, payload={"reason": exc.reason})
-            self._update_status(
-                active_run,
-                registry,
-                RunStatus.ABORTED,
-                payload={"reason": exc.reason},
-                capture_mode=CaptureMode.POST_RUN_REVIEW,
-            )
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
@@ -272,17 +265,17 @@ class LiveRunService:
                 terminal_state=RunStatus.ABORTED,
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
+            )
+            self._update_status(
+                active_run,
+                registry,
+                RunStatus.ABORTED,
+                payload={"reason": exc.reason},
+                capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
         except LiveRunStopRequested as exc:
             self._store_error(active_run, exc.detail)
             self._update_status(active_run, registry, RunStatus.STOPPING, payload={"reason": exc.reason})
-            self._update_status(
-                active_run,
-                registry,
-                RunStatus.ABORTED,
-                payload={"reason": exc.reason},
-                capture_mode=CaptureMode.POST_RUN_REVIEW,
-            )
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
@@ -293,16 +286,16 @@ class LiveRunService:
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
             )
-        except Exception as exc:
-            normalized_detail = normalize_camera_runtime_error(exc)
-            self._store_error(active_run, normalized_detail)
             self._update_status(
                 active_run,
                 registry,
-                RunStatus.FAILED,
-                payload={"reason": normalized_detail},
+                RunStatus.ABORTED,
+                payload={"reason": exc.reason},
                 capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
+        except Exception as exc:
+            normalized_detail = normalize_camera_runtime_error(exc)
+            self._store_error(active_run, normalized_detail)
             self._persist_partial_terminal_execution(
                 active_run=active_run,
                 record=record,
@@ -312,6 +305,13 @@ class LiveRunService:
                 terminal_state=RunStatus.FAILED,
                 terminal_reason="runtime_error",
                 terminal_detail=normalized_detail,
+            )
+            self._update_status(
+                active_run,
+                registry,
+                RunStatus.FAILED,
+                payload={"reason": normalized_detail},
+                capture_mode=CaptureMode.POST_RUN_REVIEW,
             )
         else:
             with self._state_lock:

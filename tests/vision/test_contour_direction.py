@@ -421,6 +421,42 @@ def test_directional_contour_refinement_keeps_points_inside_rotated_metric_box()
     assert image[result.point_b.y, result.point_b.x] == 35
 
 
+def test_directional_contour_downsampled_refinement_avoids_second_full_component_pass(monkeypatch) -> None:
+    image = np.full((800, 1000), 230, dtype=np.uint8)
+    metric_box = MetricBox(center_x=500, center_y=350, width=420, height=160, angle_deg=30.0)
+    _paint_test_line_local(image, metric_box, -190.0, 190.0, width=15, value=35)
+    calls = 0
+    original = contour_direction._largest_component_mask
+
+    def counted_largest_component_mask(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(contour_direction, "_largest_component_mask", counted_largest_component_mask)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=240, y=80, width=520, height=540),
+            metric_box=metric_box,
+            direction_angle_deg=30.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            sensitivity=0.0,
+            component_bridge_kernel=1,
+            processing_max_side_px=120,
+            projection_mode="max_chord",
+        ),
+    )
+
+    assert calls == 1
+    assert image[result.point_a.y, result.point_a.x] == 35
+    assert image[result.point_b.y, result.point_b.x] == 35
+
+
 def test_directional_contour_quality_uses_rotated_metric_box_reference() -> None:
     image = np.full((800, 1000), 230, dtype=np.uint8)
     metric_box = MetricBox(center_x=500, center_y=350, width=420, height=160, angle_deg=30.0)

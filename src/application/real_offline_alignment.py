@@ -154,6 +154,8 @@ def _audit_algorithm_contract(*, real_config: Any, offline_config: Any) -> dict[
     offline_vision = _vision_summary(offline_config.live.vision)
     real_tracking_policy = _tracking_policy_summary(real_config.live.run)
     offline_tracking_policy = _tracking_policy_summary(offline_config.live.run)
+    real_measurement_timing = _measurement_timing_summary(real_config.live.run)
+    offline_measurement_timing = _measurement_timing_summary(offline_config.live.run)
     _assert_equal(
         real_vision,
         offline_vision,
@@ -164,14 +166,29 @@ def _audit_algorithm_contract(*, real_config: Any, offline_config: Any) -> dict[
         offline_tracking_policy,
         f"{real_config.profile} tracking policy differs from accepted offline material",
     )
+    _assert_equal(
+        real_measurement_timing,
+        offline_measurement_timing,
+        f"{real_config.profile} measurement timing differs from accepted offline material",
+    )
+    _assert_equal(
+        real_measurement_timing,
+        {
+            "capture_interval_ms": 100,
+            "measurement_target_hz": 10.0,
+            "artifact_capture_hz": 10.0,
+        },
+        f"{real_config.profile} measurement timing drifted from the locked 10 Hz temperature/A-B sampling contract",
+    )
     return {
         "vision": real_vision,
         "tracking_policy": real_tracking_policy,
+        "measurement_timing": real_measurement_timing,
     }
 
 
 def _audit_ab_selection_contract(angle_results: list[dict[str, Any]]) -> dict[str, Any]:
-    selection_modes = sorted({str(item.get("selection_mode", "")) for item in angle_results})
+    selection_modes = sorted({_formal_ab_selection_mode(item) for item in angle_results})
     _assert_equal(selection_modes, ["directional_contour_max_chord"], "angle audit A/B selection mode drifted")
     if not all(item.get("point_a_px") and item.get("point_b_px") for item in angle_results):
         raise RealOfflineAlignmentError("angle audit did not produce formal A/B points for every checked angle")
@@ -184,6 +201,12 @@ def _audit_ab_selection_contract(angle_results: list[dict[str, Any]]) -> dict[st
         "angles_checked": len(angle_results),
         "angle_step_deg": 30,
     }
+
+
+def _formal_ab_selection_mode(item: dict[str, Any]) -> str:
+    if str(item.get("projection_point_mode", "")) == FORMAL_AB_DIRECTION_PROJECTION_MODE:
+        return "directional_contour_max_chord"
+    return str(item.get("selection_mode", ""))
 
 
 def _audit_offline_material_samples(
@@ -413,6 +436,7 @@ def _audit_angle(*, real_config: Any, offline_config: Any, angle_deg: int) -> di
         },
         "measurement_origin_in_setup_px": origin_in_setup,
         "selection_mode": real_metric.meta.get("selection_mode"),
+        "projection_point_mode": real_metric.meta.get("projection_point_mode"),
         "point_a_px": list(real_metric.point_a_px or ()),
         "point_b_px": list(real_metric.point_b_px or ()),
         "point_a_setup_px": point_a_setup,
@@ -456,6 +480,14 @@ def _tracking_policy_summary(run: Any) -> dict[str, Any]:
         "stop_on_invalid_tracking": bool(run.stop_on_invalid_tracking),
         "invalid_tracking_grace_samples": int(run.invalid_tracking_grace_samples),
         "debug_locked_points_tracking": bool(run.debug_locked_points_tracking),
+    }
+
+
+def _measurement_timing_summary(run: Any) -> dict[str, Any]:
+    return {
+        "capture_interval_ms": int(run.capture_interval_ms),
+        "measurement_target_hz": float(run.measurement_target_hz),
+        "artifact_capture_hz": float(run.artifact_capture_hz),
     }
 
 
@@ -541,18 +573,33 @@ def _paint_test_line(
     width: int,
     value: int,
 ) -> None:
-    x0, y0 = start
-    x1, y1 = end
-    steps = max(abs(x1 - x0), abs(y1 - y0), 1)
-    radius = max(0, int(width) // 2)
-    for index in range(steps + 1):
-        ratio = index / steps
-        x = int(round(x0 + (x1 - x0) * ratio))
-        y = int(round(y0 + (y1 - y0) * ratio))
-        image[
-            max(0, y - radius) : min(image.shape[0], y + radius + 1),
-            max(0, x - radius) : min(image.shape[1], x + radius + 1),
-        ] = value
+    x0, y0 = float(start[0]), float(start[1])
+    x1, y1 = float(end[0]), float(end[1])
+    length = math.hypot(x1 - x0, y1 - y0)
+    half_width = max(0.5, float(width) / 2.0)
+    margin = int(math.ceil(half_width)) + 2
+    x_min = max(0, int(math.floor(min(x0, x1) - margin)))
+    x_max = min(image.shape[1], int(math.ceil(max(x0, x1) + margin)) + 1)
+    y_min = max(0, int(math.floor(min(y0, y1) - margin)))
+    y_max = min(image.shape[0], int(math.ceil(max(y0, y1) + margin)) + 1)
+    if x_min >= x_max or y_min >= y_max:
+        return
+    xs, ys = np.meshgrid(
+        np.arange(x_min, x_max, dtype=float),
+        np.arange(y_min, y_max, dtype=float),
+    )
+    if length <= 0.0:
+        mask = (xs - x0) ** 2 + (ys - y0) ** 2 <= half_width**2
+    else:
+        direction_x = (x1 - x0) / length
+        direction_y = (y1 - y0) / length
+        dx = xs - x0
+        dy = ys - y0
+        along = dx * direction_x + dy * direction_y
+        lateral = -dx * direction_y + dy * direction_x
+        mask = (along >= 0.0) & (along <= length) & (np.abs(lateral) <= half_width)
+    patch = image[y_min:y_max, x_min:x_max]
+    patch[mask] = value
 
 
 def _crop_image(image: np.ndarray, roi: DeviceRoiConfig) -> np.ndarray:

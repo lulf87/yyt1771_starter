@@ -40,6 +40,11 @@ def test_run_alignment_audit_confirms_pixels_contours_and_ab_points() -> None:
         "invalid_tracking_grace_samples": 5,
         "debug_locked_points_tracking": False,
     }
+    assert payload["algorithm_contract"]["measurement_timing"] == {
+        "capture_interval_ms": 100,
+        "measurement_target_hz": 10.0,
+        "artifact_capture_hz": 10.0,
+    }
     assert payload["algorithm_contract"]["ab_selection"] == {
         "formal_point_source": "target_contour_boundary",
         "formal_point_fields": ["point_a_px", "point_b_px"],
@@ -151,6 +156,15 @@ def test_run_all_alignment_audits_confirms_every_locked_real_profile_without_dev
             "stop_on_invalid_tracking": False,
             "invalid_tracking_grace_samples": 5,
             "debug_locked_points_tracking": False,
+        }
+        for item in payload["profile_results"]
+    )
+    assert all(
+        item["algorithm_contract"]["measurement_timing"]
+        == {
+            "capture_interval_ms": 100,
+            "measurement_target_hz": 10.0,
+            "artifact_capture_hz": 10.0,
         }
         for item in payload["profile_results"]
     )

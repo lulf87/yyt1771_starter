@@ -70,6 +70,64 @@ def test_remove_outliers_repairs_isolated_spike_with_neighbor_interpolation() ->
     assert repaired_values.tolist()[5] == pytest.approx(102.5)
 
 
+def test_remove_outliers_keeps_short_quantized_smooth_curve_intact() -> None:
+    temperatures = [1.2 + index * 0.1 for index in range(41)]
+    values = [
+        1009.024360,
+        1009.854383,
+        1010.391433,
+        1008.333333,
+        1008.000000,
+        1007.622310,
+        1007.708333,
+        1005.933571,
+        1005.176900,
+        1005.750331,
+        1005.416853,
+        1005.500062,
+        1005.583271,
+        1005.250083,
+        1005.400000,
+        1004.500207,
+        1005.000021,
+        1004.833333,
+        1004.222361,
+        1004.500000,
+        1004.333458,
+        1003.487359,
+        1004.389055,
+        1003.000000,
+        1001.533800,
+        1002.250083,
+        1000.718551,
+        1001.208770,
+        1001.305583,
+        1002.250083,
+        1002.166708,
+        1002.142952,
+        1001.305583,
+        1001.055556,
+        1000.667229,
+        999.555927,
+        998.250543,
+        998.942730,
+        998.547643,
+        997.944482,
+        995.435212,
+    ]
+
+    _, repaired_values, outlier_mask = remove_outliers(
+        temperatures,
+        values,
+        window=11,
+        threshold=5.0,
+        max_iterations=3,
+    )
+
+    assert outlier_mask.tolist() == [False] * len(values)
+    assert repaired_values.tolist() == pytest.approx(values)
+
+
 def test_smooth_data_matches_expected_length_and_preserves_temperatures() -> None:
     temperatures, smoothed_values = smooth_data(
         [20.0, 21.0, 22.0, 23.0, 24.0],

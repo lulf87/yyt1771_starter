@@ -290,7 +290,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "applyStaticTranslations" in response.text
     assert "setLocale" in response.text
     assert "startLiveTrackingLoop" in response.text
-    assert "const LIVE_TRACKING_POLL_MS = 50" in response.text
+    assert "const LIVE_TRACKING_POLL_MS = 200" in response.text
     assert "renderLiveProcessTelemetry" in response.text
     assert "live-process-chart-line" in response.text
     assert "live-process-chart-smooth-line" in response.text
