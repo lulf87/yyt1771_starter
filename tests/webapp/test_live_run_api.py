@@ -574,6 +574,36 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
 
 
+def test_put_definition_syncs_direction_angle_to_metric_box_angle(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+
+    # The client sends a stale direction_angle_deg that disagrees with the rotated
+    # metric box. The saved definition must adopt the metric box angle so live run
+    # measures along the ROI direction.
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 1280, "height": 720},
+            "metric_box": {"center_x": 640, "center_y": 360, "width": 900, "height": 120, "angle_deg": 12.0},
+            "point_a_px": {"x": 210, "y": 320},
+            "point_b_px": {"x": 980, "y": 402},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 200,
+            "direction_angle_deg": 0.0,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
+    assert payload["definition"]["direction_angle_deg"] == 12.0
+
+
 def test_put_definition_rejects_invalid_payload_with_422(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     created = client.post("/api/runs", json={"preset": "balloon"})

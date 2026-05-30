@@ -1022,6 +1022,13 @@ code {
   pointer-events: none;
 }
 
+.live-overlay-envelope-source {
+  fill: rgba(120, 196, 255, 0.55);
+  stroke: rgba(120, 196, 255, 0.9);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
 .live-process-panel {
   margin-top: 18px;
 }

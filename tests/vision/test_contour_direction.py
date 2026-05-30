@@ -322,6 +322,146 @@ def test_envelope_max_width_respects_60deg_rotated_roi() -> None:
     assert result.side_guard_foreground_area > 0
 
 
+def _segment_angle_deg(point_a, point_b) -> float:
+    return math.degrees(math.atan2(float(point_b.y - point_a.y), float(point_b.x - point_a.x)))
+
+
+def _angle_diff_deg(angle_a: float, angle_b: float) -> float:
+    delta = abs((float(angle_a) - float(angle_b)) % 180.0)
+    return min(delta, 180.0 - delta)
+
+
+def test_envelope_axis_projection_horizontal_ab_is_parallel() -> None:
+    # Two filaments whose extreme foreground pixels sit at different rows. The
+    # axis-projected A/B must still be perfectly horizontal (angle 0).
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[40:46, 40:120] = 30
+    image[70:76, 110:182] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=200, height=100, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert _angle_diff_deg(_segment_angle_deg(result.point_a, result.point_b), 0.0) <= 1.0
+    assert result.point_a.y == result.point_b.y
+    assert result.point_a == result.axis_point_a
+    assert result.point_b == result.axis_point_b
+
+
+@pytest.mark.parametrize("box_angle", [10.0, 30.0])
+def test_envelope_axis_projection_rotated_ab_matches_metric_box_angle(box_angle: float) -> None:
+    image = np.full((240, 260), 240, dtype=np.uint8)
+    box = MetricBox(center_x=130, center_y=120, width=180, height=90, angle_deg=box_angle)
+    # Two filaments offset laterally so their extreme foreground pixels are not
+    # collinear with the measurement axis; the displayed A/B must still align to
+    # the metric box angle.
+    _paint_test_line_local(image, box, -64, 0, local_y=-10.0, width=4, value=30)
+    _paint_test_line_local(image, box, 0, 64, local_y=10.0, width=4, value=30)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=260, height=240),
+            metric_box=box,
+            direction_angle_deg=box_angle,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert _angle_diff_deg(_segment_angle_deg(result.point_a, result.point_b), box_angle) <= 1.0
+
+
+def test_envelope_source_points_may_differ_but_display_points_stay_parallel() -> None:
+    # Two filaments that fall in the same lateral measurement window but at
+    # slightly different rows: the left filament is a few px higher than the right
+    # one. The source extremes are therefore on a tilted segment, while the
+    # axis-projected display segment must stay parallel to the measurement axis.
+    image = np.full((120, 240), 240, dtype=np.uint8)
+    image[40:44, 40:122] = 30
+    image[50:54, 118:190] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=120, center_y=60, width=220, height=100, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    source_angle = _segment_angle_deg(result.source_point_a, result.source_point_b)
+    display_angle = _segment_angle_deg(result.point_a, result.point_b)
+    assert _angle_diff_deg(display_angle, 0.0) <= 1.0
+    # The source support segment is meaningfully tilted off the axis here.
+    assert _angle_diff_deg(source_angle, 0.0) > 2.0
+    assert (result.point_a, result.point_b) == (result.axis_point_a, result.axis_point_b)
+
+
+def test_envelope_uses_metric_box_angle_over_stale_direction_angle() -> None:
+    # The metric box is the source of truth: a stale direction_angle_deg must not
+    # change the measurement direction, and a mismatch is flagged in the result.
+    image = np.full((240, 260), 240, dtype=np.uint8)
+    box = MetricBox(center_x=130, center_y=120, width=180, height=90, angle_deg=30.0)
+    _paint_test_line_local(image, box, -60, 0, local_y=0.0, width=4, value=30)
+    _paint_test_line_local(image, box, 0, 60, local_y=0.0, width=4, value=30)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=260, height=240),
+            metric_box=box,
+            direction_angle_deg=0.0,  # stale, disagrees with the box angle
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.resolved_measurement_angle_deg == pytest.approx(30.0, abs=1e-6)
+    assert result.angle_mismatch_warning is True
+    assert result.angle_delta_deg == pytest.approx(30.0, abs=1e-6)
+    assert _angle_diff_deg(_segment_angle_deg(result.point_a, result.point_b), 30.0) <= 1.0
+
+
 def test_envelope_metric_meta_exposes_debug_fields() -> None:
     image = np.full((80, 160), 240, dtype=np.uint8)
     image[38:41, 32:68] = 30

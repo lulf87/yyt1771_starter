@@ -21,6 +21,7 @@ from src.core.models import (
     SyncPoint,
     TempReading,
     resolve_envelope_min_support_px,
+    resolve_measurement_angle_deg,
 )
 from src.curve.af95 import normalize_sync_points
 from src.curve.afas import AfasAnalysisResult, analyze_afas
@@ -258,9 +259,13 @@ class LockedDefinitionMetricSource:
         self._envelope_axis_prior_tolerance_provider = envelope_axis_prior_tolerance_provider
         self._extractor = None
         if definition.direction_angle_deg is not None:
+            # Measure along the metric box angle (single source of truth). The
+            # config still carries direction_angle_deg so vision can warn if a
+            # stale value disagrees with the box, but it self-heals to the box.
+            measurement_angle_deg = float(resolve_measurement_angle_deg(definition))
             self._directional_config = DirectionalContourConfig(
                 analysis_roi=definition.analysis_roi,
-                direction_angle_deg=float(definition.direction_angle_deg),
+                direction_angle_deg=measurement_angle_deg,
                 metric_box=definition.metric_box,
                 foreground_polarity=definition.foreground_polarity,
                 threshold_mode=definition.threshold_mode,
@@ -269,7 +274,7 @@ class LockedDefinitionMetricSource:
                 sensitivity=definition.sensitivity,
                 component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
                     definition.sensitivity,
-                    direction_angle_deg=definition.direction_angle_deg,
+                    direction_angle_deg=measurement_angle_deg,
                 ),
                 projection_mode=definition.direction_projection_mode,
                 target_geometry_mode=definition.target_geometry_mode,
@@ -608,11 +613,11 @@ class PriorTrackingMetricSource:
             max(4.0, float(definition.metric_box.height) * 0.02),
         )
         if definition.direction_angle_deg is not None or self._allows_axis_lateral_stabilization:
-            axis_angle_deg = (
-                float(definition.direction_angle_deg)
-                if definition.direction_angle_deg is not None
-                else float(definition.metric_box.angle_deg)
-            )
+            # The metric box angle is the single source of truth for the
+            # measurement direction; direction_angle_deg is a compat field kept in
+            # sync with it. Use the resolved angle so prior-tracking geometry stays
+            # consistent with the rotated ROI even if direction_angle_deg is stale.
+            axis_angle_deg = float(resolve_measurement_angle_deg(definition))
             angle_rad = math.radians(axis_angle_deg)
             direction_x = math.cos(angle_rad)
             direction_y = math.sin(angle_rad)
@@ -632,7 +637,7 @@ class PriorTrackingMetricSource:
             self._directional_base_component_bridge_kernel = (
                 _directional_component_bridge_kernel_for_sensitivity(
                     definition.sensitivity,
-                    direction_angle_deg=definition.direction_angle_deg,
+                    direction_angle_deg=resolve_measurement_angle_deg(definition),
                 )
             )
             self._directional_retry_component_bridge_kernel = (

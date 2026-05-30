@@ -9,8 +9,25 @@ from src.core.models import (
     RunRateSnapshot,
     RunDraftRecord,
     ShapeMetric,
+    resolve_measurement_angle_deg,
 )
 from src.vision.metric_end_displacement import EndDisplacementMetricExtractor
+
+
+def test_resolve_measurement_angle_uses_metric_box_over_stale_direction_angle() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=400, height=160),
+        metric_box=MetricBox(center_x=200, center_y=75, width=300, height=80, angle_deg=27.0),
+        point_a_px=PixelPoint(x=60, y=70),
+        point_b_px=PixelPoint(x=320, y=70),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=200,
+        direction_angle_deg=0.0,  # stale, disagrees with the rotated box
+    )
+
+    assert resolve_measurement_angle_deg(definition) == 27.0
 
 
 def test_frame_packet_supports_image_field() -> None:

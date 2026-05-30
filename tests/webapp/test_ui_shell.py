@@ -270,6 +270,11 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "renderEnvelopeDebugOverlay" in response.text
     assert "live-overlay-envelope-side-guard" in response.text
     assert "live-overlay-envelope-bin" in response.text
+    # Envelope overlay draws the axis-projected A/B (point_a_px/point_b_px) as the
+    # final segment, and the foreground support points only as debug markers.
+    assert 'display_point_mode: "axis_projected"' in response.text
+    assert "live-overlay-envelope-source" in response.text
+    assert "previewSourcePointFromTelemetryArray" in response.text
     assert "buildRealOfflineLiveProbeRequest" in response.text
     assert "real_offline_alignment_definition_attached" in response.text
     assert 'buildLiveDefinitionPayload({ coordinateSpace: "source" })' in response.text

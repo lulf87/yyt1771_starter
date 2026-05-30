@@ -2307,7 +2307,17 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     side_guard_foreground_area: payload.side_guard_foreground_area ?? null,
     envelope_reject_reason: payload.envelope_reject_reason ?? null,
     tracking_state: payload.tracking_state ?? null,
+    display_point_mode: "axis_projected",
+    source_point_a_px: previewSourcePointFromObject(payload.source_point_a_px),
+    source_point_b_px: previewSourcePointFromObject(payload.source_point_b_px),
   };
+}
+
+function previewSourcePointFromObject(point) {
+  if (!point || !Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) {
+    return null;
+  }
+  return convertPointToPreview({ x: Number(point.x), y: Number(point.y) });
 }
 
 function previewPointFromTelemetryArray(point) {
@@ -2337,9 +2347,19 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     last_good_axis_offset: latestTelemetry.last_good_axis_offset ?? null,
     candidate_axis_jump_px: latestTelemetry.candidate_axis_jump_px ?? null,
     tracking_state: latestTelemetry.tracking_state ?? null,
+    display_point_mode: "axis_projected",
     point_a_px: pointA,
     point_b_px: pointB,
+    source_point_a_px: previewSourcePointFromTelemetryArray(latestTelemetry.source_point_a_px),
+    source_point_b_px: previewSourcePointFromTelemetryArray(latestTelemetry.source_point_b_px),
   };
+}
+
+function previewSourcePointFromTelemetryArray(point) {
+  if (!Array.isArray(point) || point.length !== 2) {
+    return null;
+  }
+  return convertPointToPreview({ x: Number(point[0]), y: Number(point[1]) });
 }
 
 function ensureMetricBoxWithinAnalysisRoi() {
@@ -2550,6 +2570,20 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
   if (pointA && pointB) {
     fragments.push(
       `<line class="live-overlay-envelope-bin" x1="${pointA.x}" y1="${pointA.y}" x2="${pointB.x}" y2="${pointB.y}"></line>`,
+    );
+  }
+  // Debug-only: the foreground support points the span was measured from. They
+  // are drawn as small distinct markers and never as the final A/B segment.
+  const sourceA = overlay.source_point_a_px;
+  const sourceB = overlay.source_point_b_px;
+  if (sourceA && Number.isFinite(sourceA.x) && Number.isFinite(sourceA.y)) {
+    fragments.push(
+      `<circle class="live-overlay-envelope-source" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
+    );
+  }
+  if (sourceB && Number.isFinite(sourceB.x) && Number.isFinite(sourceB.y)) {
+    fragments.push(
+      `<circle class="live-overlay-envelope-source" cx="${sourceB.x}" cy="${sourceB.y}" r="3"></circle>`,
     );
   }
 }

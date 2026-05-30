@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Any
 
@@ -102,6 +102,10 @@ class DirectionalContourResult:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    resolved_measurement_angle_deg: float | None = None
+    metric_box_angle_deg: float | None = None
+    angle_delta_deg: float | None = None
+    angle_mismatch_warning: bool = False
 
 
 class DirectionalContourDetectionError(RuntimeError):
@@ -146,6 +150,54 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                 },
             )
 
+        meta: dict[str, Any] = {
+            "direction_angle_deg": float(result.direction_angle_deg),
+            "resolved_measurement_angle_deg": (
+                None
+                if result.resolved_measurement_angle_deg is None
+                else float(result.resolved_measurement_angle_deg)
+            ),
+            "metric_box_angle_deg": (
+                None if result.metric_box_angle_deg is None else float(result.metric_box_angle_deg)
+            ),
+            "angle_delta_deg": (
+                None if result.angle_delta_deg is None else float(result.angle_delta_deg)
+            ),
+            "angle_mismatch_warning": bool(result.angle_mismatch_warning),
+            "component_area": int(result.component_area),
+            "threshold_value": result.threshold_value,
+            "raw_component_fill_ratio": result.raw_component_fill_ratio,
+            "target_geometry_mode": result.target_geometry_mode,
+            "projection_point_mode": result.projection_point_mode,
+            "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
+            "selected_component_count": result.selected_component_count,
+            "rejected_component_count": result.rejected_component_count,
+            "envelope_candidate_count": result.envelope_candidate_count,
+            "side_guard_foreground_area": result.side_guard_foreground_area,
+            "envelope_support_px": result.envelope_support_px,
+            "endpoint_support_left_px": result.endpoint_support_left_px,
+            "endpoint_support_right_px": result.endpoint_support_right_px,
+            "selected_candidate_score": result.selected_candidate_score,
+            "selected_candidate_span": result.metric_raw,
+            "selected_candidate_axis_offset": result.axis_offset_px,
+            "envelope_reject_reason": result.envelope_reject_reason,
+            "axis_offset_px": result.axis_offset_px,
+        }
+        if result.projection_point_mode == "envelope_max_width":
+            # The displayed A/B is axis-projected; the foreground support points are
+            # surfaced separately for debug overlays and must never be drawn as the
+            # final A/B segment.
+            meta.update(
+                {
+                    "source_point_a_px": (result.source_point_a.x, result.source_point_a.y),
+                    "source_point_b_px": (result.source_point_b.x, result.source_point_b.y),
+                    "axis_point_a_px": (result.axis_point_a.x, result.axis_point_a.y),
+                    "axis_point_b_px": (result.axis_point_b.x, result.axis_point_b.y),
+                    "display_point_mode": "axis_projected",
+                    "source_point_mode": "foreground_support",
+                    "metric_raw_mode": "along_axis_span",
+                }
+            )
         return ShapeMetric(
             timestamp_ms=frame.timestamp_ms,
             metric_name="directional_contour_span",
@@ -154,27 +206,7 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
             roi=_roi_tuple(result.roi),
             point_a_px=(result.point_a.x, result.point_a.y),
             point_b_px=(result.point_b.x, result.point_b.y),
-            meta={
-                "direction_angle_deg": float(result.direction_angle_deg),
-                "component_area": int(result.component_area),
-                "threshold_value": result.threshold_value,
-                "raw_component_fill_ratio": result.raw_component_fill_ratio,
-                "target_geometry_mode": result.target_geometry_mode,
-                "projection_point_mode": result.projection_point_mode,
-                "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
-                "selected_component_count": result.selected_component_count,
-                "rejected_component_count": result.rejected_component_count,
-                "envelope_candidate_count": result.envelope_candidate_count,
-                "side_guard_foreground_area": result.side_guard_foreground_area,
-                "envelope_support_px": result.envelope_support_px,
-                "endpoint_support_left_px": result.endpoint_support_left_px,
-                "endpoint_support_right_px": result.endpoint_support_right_px,
-                "selected_candidate_score": result.selected_candidate_score,
-                "selected_candidate_span": result.metric_raw,
-                "selected_candidate_axis_offset": result.axis_offset_px,
-                "envelope_reject_reason": result.envelope_reject_reason,
-                "axis_offset_px": result.axis_offset_px,
-            },
+            meta=meta,
         )
 
 
@@ -184,6 +216,16 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     crop = gray[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
     if crop.size == 0:
         raise DirectionalContourDetectionError("roi_outside_image")
+
+    # The rotated metric box angle is the authoritative measurement direction.
+    # ``direction_angle_deg`` is a compatibility field; if a caller passes a stale
+    # value while a metric box is present we self-heal to the box angle and warn,
+    # so a rotated ROI is always measured along its own angle.
+    configured_angle_deg = float(config.direction_angle_deg)
+    metric_box_angle_deg = None if config.metric_box is None else float(config.metric_box.angle_deg)
+    resolved_angle_deg = metric_box_angle_deg if metric_box_angle_deg is not None else configured_angle_deg
+    angle_delta_deg = abs(resolved_angle_deg - configured_angle_deg)
+    angle_mismatch_warning = angle_delta_deg > 0.5
 
     cv2 = _try_import_cv2()
     processing = _prepare_processing_geometry(cv2, crop, roi, config)
@@ -221,7 +263,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         projection = measure_component_envelope_max_width(
             boundary_mask,
             processing_roi,
-            float(config.direction_angle_deg),
+            resolved_angle_deg,
             image_shape=gray.shape,
             clip_region=processing_roi,
             allowed_mask=allowed_mask,
@@ -261,7 +303,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             cv2,
             mask,
             min_target_area_px=int(config.min_target_area_px),
-            direction_angle_deg=float(config.direction_angle_deg),
+            direction_angle_deg=resolved_angle_deg,
             component_bridge_kernel=int(config.component_bridge_kernel),
         )
         raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
@@ -272,7 +314,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         projection_mode = choose_component_direction_projection_mode(
             boundary_mask,
             processing_roi,
-            float(config.direction_angle_deg),
+            resolved_angle_deg,
             raw_component_fill_ratio=raw_component_fill_ratio if config.ignore_internal_texture else None,
         )
     if projection_mode == "envelope_max_width":
@@ -283,7 +325,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         projection = project_component_mask_onto_direction(
             boundary_mask,
             processing_roi,
-            float(config.direction_angle_deg),
+            resolved_angle_deg,
             image_shape=gray.shape,
             clip_region=processing_roi,
             axis_offset_px=axis_prior_px,
@@ -299,7 +341,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         projection = measure_component_max_chord_along_direction(
             boundary_mask,
             processing_roi,
-            float(config.direction_angle_deg),
+            resolved_angle_deg,
             image_shape=gray.shape,
             clip_region=processing_roi,
             lateral_prior_px=lateral_prior_px,
@@ -321,6 +363,16 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         projection,
         projection_point_mode=projection_point_mode,
     )
+    if projection_point_mode == "envelope_max_width":
+        # Guarantee the displayed A/B is strictly parallel to the measurement
+        # direction by re-projecting both endpoints onto the same axis line in
+        # original-image coordinates. The foreground support points are kept
+        # untouched (debug only); the metric is the along-axis span.
+        projection = _project_envelope_endpoints_onto_axis(
+            projection,
+            resolved_angle_deg,
+            image_shape=gray.shape,
+        )
     contour_xy = _contour_to_original_roi(contour_xy, processing)
 
     component_area = int(round(float(np.count_nonzero(component_mask)) / max(processing.scale_x * processing.scale_y, 1e-9)))
@@ -340,7 +392,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         metric_raw=projection.metric_raw,
         quality=quality,
         roi=roi,
-        direction_angle_deg=float(config.direction_angle_deg),
+        direction_angle_deg=resolved_angle_deg,
         component_area=component_area,
         contour_xy=contour_xy,
         component_mask=component_mask,
@@ -358,6 +410,46 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         selected_candidate_score=selected_candidate_score,
         envelope_reject_reason=envelope_reject_reason,
         axis_offset_px=float(projection.axis_offset_px),
+        resolved_measurement_angle_deg=resolved_angle_deg,
+        metric_box_angle_deg=metric_box_angle_deg,
+        angle_delta_deg=angle_delta_deg,
+        angle_mismatch_warning=angle_mismatch_warning,
+    )
+
+
+def _project_envelope_endpoints_onto_axis(
+    projection: DirectionalProjection,
+    angle_deg: float,
+    *,
+    image_shape: tuple[int, ...],
+) -> DirectionalProjection:
+    """Pin both endpoints to one axis line so A/B is parallel to ``angle_deg``.
+
+    Works in the final (original-image) coordinate space. Each endpoint keeps its
+    own along-direction coordinate but shares a single lateral offset, so the
+    resulting A/B segment is collinear with the measurement direction. The metric
+    becomes the absolute along-axis span and the source foreground points are
+    preserved unchanged for debugging.
+    """
+    direction = directional_unit_vector(float(angle_deg))
+    normal = np.array([-direction[1], direction[0]], dtype=float)
+    point_a_xy = np.array([float(projection.point_a.x), float(projection.point_a.y)], dtype=float)
+    point_b_xy = np.array([float(projection.point_b.x), float(projection.point_b.y)], dtype=float)
+    along_a = float(point_a_xy @ direction)
+    along_b = float(point_b_xy @ direction)
+    axis_offset = float(projection.axis_offset_px)
+    axis_a_xy = direction * along_a + normal * axis_offset
+    axis_b_xy = direction * along_b + normal * axis_offset
+    axis_point_a = _pixel_point_from_xy(axis_a_xy, image_shape=image_shape)
+    axis_point_b = _pixel_point_from_xy(axis_b_xy, image_shape=image_shape)
+    return replace(
+        projection,
+        point_a=axis_point_a,
+        point_b=axis_point_b,
+        axis_point_a=axis_point_a,
+        axis_point_b=axis_point_b,
+        metric_raw=abs(along_b - along_a),
+        direction_angle_deg=float(angle_deg),
     )
 
 
@@ -652,6 +744,8 @@ def measure_component_envelope_max_width(
             "axis_offset": axis_offset,
             "low_index": low_index,
             "high_index": high_index,
+            "low_value": low_value,
+            "high_value": high_value,
             "center_distance": abs(axis_offset - median_lateral),
             "endpoint_support_left": endpoint_support_left,
             "endpoint_support_right": endpoint_support_right,
@@ -674,6 +768,9 @@ def measure_component_envelope_max_width(
         raise DirectionalContourDetectionError("direction_projection_unavailable")
     best = chosen
 
+    # Foreground support points: the actual extreme pixels, kept for debug and
+    # support verification only. They may sit on different filaments and are NOT
+    # used as the final A/B display segment.
     source_point_a = _pixel_point_from_xy(
         points[int(best["low_index"])],
         image_shape=image_shape,
@@ -684,16 +781,23 @@ def measure_component_envelope_max_width(
         image_shape=image_shape,
         clip_region=clip_region,
     )
+    # Axis-projected measurement points: same lateral (axis_offset), differing
+    # only along the measurement direction, so A/B is strictly parallel to it.
+    best_axis_offset = float(best["axis_offset"])
+    axis_a_xy = direction * float(best["low_value"]) + normal * best_axis_offset
+    axis_b_xy = direction * float(best["high_value"]) + normal * best_axis_offset
+    axis_point_a = _pixel_point_from_xy(axis_a_xy, image_shape=image_shape, clip_region=clip_region)
+    axis_point_b = _pixel_point_from_xy(axis_b_xy, image_shape=image_shape, clip_region=clip_region)
     return DirectionalProjection(
-        point_a=source_point_a,
-        point_b=source_point_b,
+        point_a=axis_point_a,
+        point_b=axis_point_b,
         source_point_a=source_point_a,
         source_point_b=source_point_b,
-        axis_point_a=source_point_a,
-        axis_point_b=source_point_b,
-        metric_raw=_distance_between(source_point_a, source_point_b),
+        axis_point_a=axis_point_a,
+        axis_point_b=axis_point_b,
+        metric_raw=float(best["high_value"]) - float(best["low_value"]),
         direction_angle_deg=float(angle_deg),
-        axis_offset_px=float(best["axis_offset"]),
+        axis_offset_px=best_axis_offset,
         envelope_support_px=int(best["support"]),
         envelope_candidate_count=int(candidate_count),
         side_guard_foreground_area=int(guard_area),
@@ -1255,6 +1359,12 @@ def _refine_projection_on_original_axis(
     *,
     projection_point_mode: str,
 ) -> DirectionalProjection:
+    if projection_point_mode == "envelope_max_width":
+        # Envelope A/B are analytic axis points, not foreground pixels. Snapping
+        # each endpoint independently to the nearest original-frame foreground
+        # would re-tilt the segment off the measurement axis, so skip it; the
+        # dedicated axis re-projection keeps A/B parallel instead.
+        return projection
     if (
         cv2 is None
         or (

@@ -132,6 +132,21 @@ def resolve_envelope_min_support_px(target_geometry_mode: str, configured: int |
     return max(2, value)
 
 
+def resolve_measurement_angle_deg(definition: "MeasurementDefinition") -> float:
+    """Authoritative measurement direction, in degrees, for directional modes.
+
+    The rotated metric box angle is the single source of truth for the
+    measurement direction. ``direction_angle_deg`` is kept as a backward
+    compatible field that callers must always keep in sync with
+    ``metric_box.angle_deg``; no caller may independently decide which angle to
+    use for ``envelope_max_width``, ``max_chord``, ``mask_projection`` or
+    ``auto`` projection modes. ``direction_angle_deg is None`` still selects the
+    non-directional ROI-local path; this helper is only meaningful once a
+    directional mode is active.
+    """
+    return float(definition.metric_box.angle_deg)
+
+
 @dataclass(slots=True)
 class RunDraftRecord:
     """Mutable live-run draft stored outside replay/session history."""

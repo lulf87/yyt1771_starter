@@ -1785,6 +1785,48 @@ def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
     assert recovered.point_b_px == (80, 32)
 
 
+def test_locked_definition_envelope_resolves_metric_box_angle_and_parallel_ab() -> None:
+    # A horizontal line bundle with a stale direction_angle_deg of 90 deg. The
+    # metric box angle (0 deg) is authoritative, so the live extractor must
+    # measure horizontally and emit an A/B segment parallel to the box angle
+    # (identical y), not along the stale 90 deg direction.
+    image = np.full((64, 120), 240, dtype=np.uint8)
+    image[26:30, 20:96] = 30
+    image[34:38, 24:100] = 30
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=120, height=64),
+        metric_box=MetricBox(center_x=60, center_y=32, width=110, height=48, angle_deg=0.0),
+        point_a_px=PixelPoint(x=20, y=32),
+        point_b_px=PixelPoint(x=99, y=32),
+        foreground_polarity="dark_on_light",
+        threshold_mode="binary",
+        ignore_internal_texture=True,
+        min_target_area_px=20,
+        direction_angle_deg=90.0,  # stale: disagrees with the metric box angle
+        direction_projection_mode="envelope_max_width",
+        target_geometry_mode="line_bundle",
+        envelope_min_support_px=6,
+    )
+    source = LockedDefinitionMetricSource(definition=definition)
+
+    frame = FramePacket(timestamp_ms=1, source="fixture", image=image, frame_id=1)
+    temp = TempReading(timestamp_ms=1, celsius=25.0, source="fixture")
+    metric = source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert metric.point_a_px is not None and metric.point_b_px is not None
+    # A/B parallel to the metric box angle (0 deg): equal y within rounding.
+    assert abs(metric.point_a_px[1] - metric.point_b_px[1]) <= 1
+    # The horizontal span is recovered (measured along x, not the stale 90 deg).
+    assert metric.metric_raw == pytest.approx(76.0, abs=8.0)
+    # The live source resolves the metric box angle before vision, so vision sees
+    # a consistent angle (no mismatch warning) and measures along 0 deg.
+    assert metric.meta["resolved_measurement_angle_deg"] == pytest.approx(0.0, abs=1e-6)
+    assert metric.meta["angle_mismatch_warning"] is False
+    assert metric.meta["display_point_mode"] == "axis_projected"
+    assert metric.meta["metric_raw_mode"] == "along_axis_span"
+    assert "source_point_a_px" in metric.meta
+
+
 def test_prior_tracking_envelope_first_frame_holds_preset_axis_for_near_tie_bottom(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

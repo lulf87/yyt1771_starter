@@ -150,7 +150,11 @@ def save_measurement_definition(
         ignore_internal_texture=payload.ignore_internal_texture,
         min_target_area_px=payload.min_target_area_px,
         sensitivity=payload.sensitivity,
-        direction_angle_deg=payload.direction_angle_deg,
+        direction_angle_deg=(
+            None
+            if payload.direction_angle_deg is None
+            else float(payload.metric_box.angle_deg)
+        ),
         direction_projection_mode=_resolve_direction_projection_mode(payload, draft.preset),
         target_geometry_mode=payload.target_geometry_mode,
         side_guard_ratio=payload.side_guard_ratio,
@@ -718,10 +722,14 @@ def _extract_directional_auto_detect_metric(
         height=payload.metric_box.height,
         angle_deg=payload.metric_box.angle_deg,
     )
+    # The metric box angle is authoritative; measure along it when a box exists.
+    measurement_angle_deg = (
+        float(metric_box.angle_deg) if metric_box is not None else float(payload.direction_angle_deg)
+    )
     detector = DirectionalContourMetricExtractor(
         DirectionalContourConfig(
             analysis_roi=analysis_roi,
-            direction_angle_deg=float(payload.direction_angle_deg),
+            direction_angle_deg=measurement_angle_deg,
             metric_box=metric_box,
             foreground_polarity=foreground_polarity,
             threshold_mode=threshold_mode,
@@ -731,7 +739,7 @@ def _extract_directional_auto_detect_metric(
             sensitivity=payload.sensitivity,
             component_bridge_kernel=_directional_component_bridge_kernel_for_sensitivity(
                 payload.sensitivity,
-                direction_angle_deg=payload.direction_angle_deg,
+                direction_angle_deg=measurement_angle_deg,
             ),
             projection_mode=_resolve_direction_projection_mode(payload, preset),
             target_geometry_mode=payload.target_geometry_mode,
