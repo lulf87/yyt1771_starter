@@ -1007,6 +1007,21 @@ code {
   stroke-dasharray: 6 4;
 }
 
+.live-overlay-envelope-side-guard {
+  fill: rgba(196, 164, 164, 0.2);
+  stroke: rgba(196, 164, 164, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}
+
+.live-overlay-envelope-bin {
+  stroke: rgba(243, 223, 196, 0.92);
+  stroke-width: 3;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
 .live-process-panel {
   margin-top: 18px;
 }

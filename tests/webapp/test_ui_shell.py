@@ -71,12 +71,30 @@ def test_static_app_js_defaults_formal_ab_selection_to_max_chord() -> None:
 
     body = _js_function_body(app_js, "currentDirectionProjectionMode")
     auto_detect_body = _js_function_body(app_js, "autoDetectLiveDefinition")
+    mode_guard_body = _js_function_body(app_js, "isDirectionProjectionMode")
 
     assert 'resolvedDirectionProjectionMode: "max_chord"' in app_js
     assert 'liveRunState.resolvedDirectionProjectionMode = "auto";' not in app_js
     assert ': "max_chord";' in body
     assert 'payload.direction_projection_mode' in auto_detect_body
     assert ': "max_chord";' in auto_detect_body
+    assert 'value === "envelope_max_width"' in mode_guard_body
+
+
+def test_static_app_js_sends_envelope_detection_fields() -> None:
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+
+    payload_body = _js_function_body(app_js, "buildLiveDefinitionBasePayload")
+    normalize_body = _js_function_body(app_js, "normalizeDefinitionForComparison")
+    fill_body = _js_function_body(app_js, "fillLiveDefinitionInputs")
+
+    assert "target_geometry_mode: currentTargetGeometryMode()" in payload_body
+    assert "side_guard_ratio: currentSideGuardRatio()" in payload_body
+    assert "target_geometry_mode: definition.target_geometry_mode || currentTargetGeometryMode()" in normalize_body
+    assert "side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio())" in normalize_body
+    assert "liveDirectionProjectionModeSelect.value = uiDefinition.direction_projection_mode ||" in fill_body
+    assert "liveTargetGeometryModeSelect.value = uiDefinition.target_geometry_mode ||" in fill_body
+    assert "liveSideGuardRatioInput.value = String(uiDefinition.side_guard_ratio ?? 0)" in fill_body
 
 
 def test_static_app_js_rotates_roi_without_resizing() -> None:
@@ -173,6 +191,12 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-point-b-y"' in response.text
     assert 'id="live-sensitivity"' in response.text
     assert 'id="live-ignore-internal-texture"' in response.text
+    assert 'id="live-direction-projection-mode"' in response.text
+    assert 'value="envelope_max_width"' in response.text
+    assert 'id="live-target-geometry-mode"' in response.text
+    assert 'value="line_bundle"' in response.text
+    assert 'value="mesh_lattice"' in response.text
+    assert 'id="live-side-guard-ratio"' in response.text
     ignore_texture_control = response.text[
         response.text.index('id="live-ignore-internal-texture"') :
         response.text.index('id="live-ignore-internal-texture"') + 180
@@ -239,6 +263,13 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "switchFixtureVideo" in response.text
     assert "resolvedDirectionProjectionMode" in response.text
     assert "payload.direction_projection_mode" in response.text
+    assert "currentTargetGeometryMode" in response.text
+    assert "currentSideGuardRatio" in response.text
+    assert "target_geometry_mode" in response.text
+    assert "side_guard_ratio" in response.text
+    assert "renderEnvelopeDebugOverlay" in response.text
+    assert "live-overlay-envelope-side-guard" in response.text
+    assert "live-overlay-envelope-bin" in response.text
     assert "buildRealOfflineLiveProbeRequest" in response.text
     assert "real_offline_alignment_definition_attached" in response.text
     assert 'buildLiveDefinitionPayload({ coordinateSpace: "source" })' in response.text

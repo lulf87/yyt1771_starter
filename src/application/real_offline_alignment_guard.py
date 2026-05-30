@@ -93,11 +93,11 @@ def _read_field(payload: Any, name: str) -> Any:
 
 
 def _assert_formal_ab_request_ready(request: Any, *, context: str) -> None:
-    expected_mode = "max_chord"
+    expected_modes = {"max_chord", "envelope_max_width"}
     actual_mode = str(_read_field(request, "direction_projection_mode") or "auto")
-    if actual_mode == expected_mode:
+    if actual_mode in expected_modes:
         return
     raise RealOfflineAlignmentGuardError(
         f"{context} blocked by real/offline alignment guard: request A/B selection mode {actual_mode!r} "
-        f"must match offline truth formal contour-boundary mode {expected_mode!r}"
+        f"must match one of the formal contour-boundary modes {sorted(expected_modes)!r}"
     )

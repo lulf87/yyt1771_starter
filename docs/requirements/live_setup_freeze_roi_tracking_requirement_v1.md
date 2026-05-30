@@ -258,11 +258,42 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 
 - `point_a_px / point_b_px` 必须表示目标物体轮廓或边界上的真实点
 - 系统不得把沿 ROI 方向的数学投影点显示、保存或下发为正式 `A-B`
-- 当前正式选点实现锁定为 `direction_projection_mode=max_chord`，即沿 ROI
+- 当前默认正式选点实现锁定为 `direction_projection_mode=max_chord`，即沿 ROI
   局部测量方向寻找目标物体最大有效弦长对应的两端真实轮廓点；真实 profile
   不得回退到 `auto` 或 `mask_projection` 作为正式 `A-B` 选择模式
+- 对于 `line_bundle` 与 `mesh_lattice` 这类非单一实体轮廓样品，系统允许显式启用
+  `direction_projection_mode=envelope_max_width`。该模式仍必须输出同一套正式
+  `point_a_px / point_b_px`，但它的目标不再是单连通组件上的最大弦长，而是
+  ROI 内沿局部测量方向的整体外包络最宽边界点
 - 如需在算法内部使用方向坐标、排序或跨度比较，只能作为临时计算量，不得形成第二套对外可见的 `source A/B`、`axis A/B` 或 `projected A/B`
 - 实时画面、实时曲线、落盘 telemetry、数据分析入口都必须以同一对正式 `A-B` 为来源
+
+### R6.1.1. Overall envelope width mode for sparse or porous targets
+
+`envelope_max_width` 是 `max_chord` 之外的显式样品几何模式，用于：
+
+- `line_bundle`：多根细丝 / 线束，允许分叉、孤立和内部空隙
+- `mesh_lattice`：网格 / 支架结构，允许内部孔洞与空隙
+
+该模式的正式语义是：
+
+> 在 ROI 旋转坐标系内，沿 `direction_angle_deg` 方向按 lateral bin 扫描目标
+> 外包络，选择 span 最大且支持度足够的一条候选，并将这条候选两端落在真实
+> 目标像素/边界上的点作为正式 `A-B`。
+
+这意味着：
+
+- `envelope_max_width` 不是 convex hull
+- `envelope_max_width` 不是简单填洞后取单一连通域
+- `line_bundle` 应使用多组件 union 构造 `envelope_target_mask`
+- `mesh_lattice` 应以主体组件 union 为基础，允许适度 close / fill small holes，
+  但不得把 ROI 左右留白或边界杂物并入目标外包络
+- 操作员保证 ROI 本地测量方向的左右两端有背景留白；系统可使用
+  `side_guard_ratio` 统计左右 guard 区域前景面积，用于过滤边界杂物和避免
+  endpoint 落在非样品区域
+- live run 中 `envelope_max_width` 必须允许 A/B 随当前帧整体外包络全局更新，
+  不得被上一帧 endpoint prior 卡在旧位置；但仍需保留 gross outlier 保护，
+  避免明显非目标候选写入曲线
 
 ### R6.2. Accepted offline material is the truth source for real profiles
 

@@ -58,6 +58,144 @@ def test_directional_contour_config_defaults_match_offline_truth_ab_contract() -
     assert config.projection_mode == "max_chord"
 
 
+def test_envelope_max_width_line_bundle_uses_multi_component_union() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[49:52, 40:82] = 30
+    image[49:52, 150:192] = 30
+    image[64:67, 52:96] = 30
+    image[64:67, 134:178] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.08,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert result.target_geometry_mode == "line_bundle"
+    assert result.point_a.x == pytest.approx(40, abs=1)
+    assert result.point_b.x == pytest.approx(191, abs=1)
+    assert result.point_a.y == pytest.approx(50, abs=1)
+    assert result.point_b.y == pytest.approx(50, abs=1)
+    assert result.metric_raw == pytest.approx(151.0, abs=2.0)
+    assert result.selected_component_count >= 2
+    assert result.envelope_candidate_count >= 2
+    assert result.envelope_support_px >= 6
+
+
+def test_envelope_max_width_mesh_lattice_ignores_internal_holes() -> None:
+    image = np.full((150, 240), 240, dtype=np.uint8)
+    image[35:38, 54:186] = 30
+    image[74:77, 54:186] = 30
+    image[113:116, 54:186] = 30
+    image[35:116, 54:58] = 30
+    image[35:116, 92:96] = 30
+    image[35:116, 144:148] = 30
+    image[35:116, 182:186] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=150),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=10,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="mesh_lattice",
+            side_guard_ratio=0.10,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert result.target_geometry_mode == "mesh_lattice"
+    assert result.point_a.x == pytest.approx(54, abs=2)
+    assert result.point_b.x == pytest.approx(185, abs=2)
+    assert result.metric_raw == pytest.approx(131.0, abs=3.0)
+    assert result.selected_component_count >= 1
+    assert result.envelope_candidate_count >= 3
+    assert result.envelope_support_px >= 8
+
+
+def test_envelope_max_width_respects_rotated_roi_and_side_guard_noise() -> None:
+    image = np.full((180, 240), 240, dtype=np.uint8)
+    box = MetricBox(center_x=120, center_y=90, width=180, height=82, angle_deg=30.0)
+    _paint_test_line_local(image, box, -66, -18, local_y=0.0, width=3, value=30)
+    _paint_test_line_local(image, box, 18, 70, local_y=0.0, width=3, value=30)
+    _paint_test_line_local(image, box, -82, -76, local_y=-30.0, width=5, value=30)
+    _paint_test_line_local(image, box, 76, 84, local_y=28.0, width=5, value=30)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=180),
+            metric_box=box,
+            direction_angle_deg=box.angle_deg,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.12,
+            processing_max_side_px=0,
+        ),
+    )
+
+    local_a = _point_local_coords(box, result.point_a)
+    local_b = _point_local_coords(box, result.point_b)
+    assert local_a[0] == pytest.approx(-66, abs=2.5)
+    assert local_b[0] == pytest.approx(70, abs=2.5)
+    assert abs(local_a[1]) <= 2.5
+    assert abs(local_b[1]) <= 2.5
+    assert result.metric_raw == pytest.approx(136.0, abs=4.0)
+    assert result.side_guard_foreground_area > 0
+    assert result.envelope_candidate_count >= 1
+
+
+def test_envelope_metric_meta_exposes_debug_fields() -> None:
+    image = np.full((80, 160), 240, dtype=np.uint8)
+    image[38:41, 32:68] = 30
+    image[38:41, 96:132] = 30
+    extractor = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=160, height=80),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=6,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.10,
+            processing_max_side_px=0,
+        )
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=123, source="fixture", image=image))
+
+    assert metric.metric_raw == pytest.approx(99.0, abs=2.0)
+    assert metric.meta["target_geometry_mode"] == "line_bundle"
+    assert metric.meta["projection_point_mode"] == "envelope_max_width"
+    assert metric.meta["selected_component_count"] >= 2
+    assert metric.meta["envelope_candidate_count"] >= 1
+    assert metric.meta["side_guard_foreground_area"] == 0
+    assert metric.meta["envelope_support_px"] >= 6
+    assert metric.meta["axis_offset_px"] == pytest.approx(39.0, abs=1.0)
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20
@@ -908,6 +1046,17 @@ def _point_in_rotated_metric_box_with_tolerance(box: MetricBox, point: PixelPoin
     local_x = translated_x * cos_theta + translated_y * sin_theta
     local_y = -translated_x * sin_theta + translated_y * cos_theta
     return abs(local_x) <= float(box.width) / 2.0 + epsilon and abs(local_y) <= float(box.height) / 2.0 + epsilon
+
+
+def _point_local_coords(box: MetricBox, point: PixelPoint) -> tuple[float, float]:
+    angle_rad = math.radians(float(box.angle_deg))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = float(point.x) - float(box.center_x)
+    translated_y = float(point.y) - float(box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    return local_x, local_y
 
 
 def _paint_test_line_local(

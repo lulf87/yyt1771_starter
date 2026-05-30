@@ -2344,6 +2344,38 @@ def test_invalid_definition_does_not_overwrite_saved_locked_definition(tmp_path:
     assert detail_response.json()["definition"]["point_b_px"] == {"x": 83, "y": 32}
 
 
+def test_put_definition_accepts_envelope_max_width_geometry_fields(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    created = client.post("/api/runs", json={"preset": "line_bundle"})
+    run_id = created.json()["run_id"]
+
+    response = client.put(
+        f"/api/runs/{run_id}/definition",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 160, "height": 80},
+            "metric_box": {"center_x": 80, "center_y": 40, "width": 140, "height": 52, "angle_deg": 0.0},
+            "point_a_px": {"x": 28, "y": 40},
+            "point_b_px": {"x": 132, "y": 40},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": False,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+            "direction_angle_deg": 0.0,
+            "direction_projection_mode": "envelope_max_width",
+            "target_geometry_mode": "line_bundle",
+            "side_guard_ratio": 0.12,
+        },
+    )
+
+    assert response.status_code == 200
+    definition = response.json()["definition"]
+    assert definition["direction_projection_mode"] == "envelope_max_width"
+    assert definition["target_geometry_mode"] == "line_bundle"
+    assert definition["side_guard_ratio"] == pytest.approx(0.12)
+
+
 def test_put_definition_rejects_points_outside_analysis_roi(tmp_path: Path) -> None:
     client = _make_client(tmp_path)
     created = client.post("/api/runs", json={"preset": "balloon"})
@@ -2438,6 +2470,13 @@ def test_start_live_run_completes_and_persists_result_bundle(tmp_path: Path) -> 
     assert telemetry_payload["latest"]["point_b_px"] is not None
     assert telemetry_payload["latest"]["selection_mode"] in {"mock_tracking", "mock_afas_curve_playback"}
     assert telemetry_payload["latest"]["tracking_state"] is None
+    assert "target_geometry_mode" in telemetry_payload["latest"]
+    assert "projection_point_mode" in telemetry_payload["latest"]
+    assert "selected_component_count" in telemetry_payload["latest"]
+    assert "envelope_candidate_count" in telemetry_payload["latest"]
+    assert "side_guard_foreground_area" in telemetry_payload["latest"]
+    assert "envelope_support_px" in telemetry_payload["latest"]
+    assert "axis_offset_px" in telemetry_payload["latest"]
     assert telemetry_payload["latest"]["reason"] is None
     assert telemetry_payload["curve"][1]["sample_interval_ms"] is not None
     temp_response = client.get("/api/system/temp/current")

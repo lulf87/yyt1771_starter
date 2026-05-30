@@ -71,6 +71,9 @@ const livePointBXInput = document.getElementById("live-point-b-x");
 const livePointBYInput = document.getElementById("live-point-b-y");
 const liveForegroundPolaritySelect = document.getElementById("live-foreground-polarity");
 const liveThresholdModeSelect = document.getElementById("live-threshold-mode");
+const liveDirectionProjectionModeSelect = document.getElementById("live-direction-projection-mode");
+const liveTargetGeometryModeSelect = document.getElementById("live-target-geometry-mode");
+const liveSideGuardRatioInput = document.getElementById("live-side-guard-ratio");
 const liveIgnoreInternalTextureInput = document.getElementById("live-ignore-internal-texture");
 const liveMinTargetAreaInput = document.getElementById("live-min-target-area");
 const liveSensitivityInput = document.getElementById("live-sensitivity");
@@ -455,6 +458,15 @@ const TRANSLATIONS = {
     "home.options.threshold_adaptive": "Adaptive",
     "home.options.threshold_binary": "Binary",
     "home.options.threshold_otsu": "Otsu",
+    "home.sections.detection.projection_mode": "Point Mode",
+    "home.options.projection_max_chord": "Max Chord",
+    "home.options.projection_envelope_max_width": "Envelope Width",
+    "home.options.projection_mask_projection": "Mask Projection",
+    "home.sections.detection.target_geometry": "Target Type",
+    "home.options.geometry_single_component": "Single Body",
+    "home.options.geometry_line_bundle": "Line Bundle",
+    "home.options.geometry_mesh_lattice": "Mesh / Lattice",
+    "home.sections.detection.side_guard": "Side Guard Ratio",
     "home.sections.detection.min_area": "Min Area",
     "home.sections.detection.ignore_texture": "Ignore Texture",
     "home.sections.ab.title": "A/B Status",
@@ -1973,13 +1985,26 @@ function convertDirectionAngleForCoordinateSpace(angleDeg, coordinateSpace = "pr
 }
 
 function currentDirectionProjectionMode() {
+  if (liveDirectionProjectionModeSelect && isDirectionProjectionMode(liveDirectionProjectionModeSelect.value)) {
+    return liveDirectionProjectionModeSelect.value;
+  }
   return isDirectionProjectionMode(liveRunState.resolvedDirectionProjectionMode)
     ? liveRunState.resolvedDirectionProjectionMode
     : "max_chord";
 }
 
 function isDirectionProjectionMode(value) {
-  return value === "auto" || value === "max_chord" || value === "mask_projection";
+  return value === "auto" || value === "max_chord" || value === "mask_projection" || value === "envelope_max_width";
+}
+
+function currentTargetGeometryMode() {
+  const value = liveTargetGeometryModeSelect ? liveTargetGeometryModeSelect.value : "";
+  return value === "line_bundle" || value === "mesh_lattice" || value === "single_component" ? value : "single_component";
+}
+
+function currentSideGuardRatio() {
+  const rawValue = getNumericInputValue(liveSideGuardRatioInput, 0);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 0, 0, 0.45);
 }
 
 function mapDefinitionToCoordinateSpace(definition, coordinateSpace = "preview") {
@@ -2123,6 +2148,8 @@ function normalizeDefinitionForComparison(definition) {
     sensitivity: Number(definition.sensitivity ?? 50),
     direction_angle_deg: definition.direction_angle_deg == null ? null : Number(definition.direction_angle_deg),
     direction_projection_mode: definition.direction_projection_mode || currentDirectionProjectionMode(),
+    target_geometry_mode: definition.target_geometry_mode || currentTargetGeometryMode(),
+    side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio()),
   };
 }
 
@@ -2183,7 +2210,16 @@ function previewPointFromPayload(point) {
 }
 
 function directionProjectionOverlayFromAutoPayload(payload) {
-  return null;
+  if (payload?.direction_projection_mode !== "envelope_max_width") {
+    return null;
+  }
+  return {
+    projection_point_mode: "envelope_max_width",
+    target_geometry_mode: payload.target_geometry_mode || currentTargetGeometryMode(),
+    side_guard_ratio: Number(payload.side_guard_ratio ?? currentSideGuardRatio()),
+    envelope_support_px: payload.envelope_support_px ?? null,
+    envelope_candidate_count: payload.envelope_candidate_count ?? null,
+  };
 }
 
 function previewPointFromTelemetryArray(point) {
@@ -2194,7 +2230,18 @@ function previewPointFromTelemetryArray(point) {
 }
 
 function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB) {
-  return null;
+  if (latestTelemetry?.projection_point_mode !== "envelope_max_width") {
+    return null;
+  }
+  return {
+    projection_point_mode: "envelope_max_width",
+    target_geometry_mode: latestTelemetry.target_geometry_mode || currentTargetGeometryMode(),
+    side_guard_ratio: Number(latestTelemetry.side_guard_ratio ?? currentSideGuardRatio()),
+    envelope_support_px: latestTelemetry.envelope_support_px ?? null,
+    envelope_candidate_count: latestTelemetry.envelope_candidate_count ?? null,
+    point_a_px: pointA,
+    point_b_px: pointB,
+  };
 }
 
 function ensureMetricBoxWithinAnalysisRoi() {
@@ -2360,6 +2407,7 @@ function renderLivePreviewOverlay() {
       `<line class="live-overlay-centerline" x1="${leftAnchor.x}" y1="${leftAnchor.y}" x2="${rightAnchor.x}" y2="${rightAnchor.y}"></line>`,
     );
   }
+  renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB);
   if (pointA) {
     fragments.push(`<circle class="live-overlay-point" cx="${pointA.x}" cy="${pointA.y}" r="6"></circle>`);
     fragments.push(`<text class="live-overlay-point-label" x="${pointA.x + 10}" y="${pointA.y - 10}">A</text>`);
@@ -2373,6 +2421,46 @@ function renderLivePreviewOverlay() {
     fragments.push(playbackBadge);
   }
   livePreviewOverlayNode.innerHTML = fragments.join("");
+}
+
+function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
+  const overlay = liveRunState.directionProjectionOverlay || {};
+  const projectionMode = overlay.projection_point_mode || currentDirectionProjectionMode();
+  if (!directionBox || projectionMode !== "envelope_max_width") {
+    return;
+  }
+  const sideGuardRatio = clamp(Number(overlay.side_guard_ratio ?? currentSideGuardRatio()), 0, 0.45);
+  if (sideGuardRatio > 0) {
+    const guardWidth = Number(directionBox.width) * sideGuardRatio;
+    const halfWidth = Number(directionBox.width) / 2;
+    const halfHeight = Number(directionBox.height) / 2;
+    const leftGuard = metricBoxLocalPolygon(directionBox, [
+      [-halfWidth, -halfHeight],
+      [-halfWidth + guardWidth, -halfHeight],
+      [-halfWidth + guardWidth, halfHeight],
+      [-halfWidth, halfHeight],
+    ]);
+    const rightGuard = metricBoxLocalPolygon(directionBox, [
+      [halfWidth - guardWidth, -halfHeight],
+      [halfWidth, -halfHeight],
+      [halfWidth, halfHeight],
+      [halfWidth - guardWidth, halfHeight],
+    ]);
+    fragments.push(`<polygon class="live-overlay-envelope-side-guard" points="${leftGuard}"></polygon>`);
+    fragments.push(`<polygon class="live-overlay-envelope-side-guard" points="${rightGuard}"></polygon>`);
+  }
+  if (pointA && pointB) {
+    fragments.push(
+      `<line class="live-overlay-envelope-bin" x1="${pointA.x}" y1="${pointA.y}" x2="${pointB.x}" y2="${pointB.y}"></line>`,
+    );
+  }
+}
+
+function metricBoxLocalPolygon(box, localPoints) {
+  return localPoints
+    .map(([localX, localY]) => worldPointFromMetricBoxLocal(box, localX, localY))
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ");
 }
 
 function liveRunPlaybackBadge(width) {
@@ -2535,6 +2623,15 @@ function fillLiveDefinitionInputs(definition, { updatePoints = true } = {}) {
   if (liveThresholdModeSelect) {
     liveThresholdModeSelect.value = uiDefinition.threshold_mode;
   }
+  if (liveDirectionProjectionModeSelect) {
+    liveDirectionProjectionModeSelect.value = uiDefinition.direction_projection_mode || "max_chord";
+  }
+  if (liveTargetGeometryModeSelect) {
+    liveTargetGeometryModeSelect.value = uiDefinition.target_geometry_mode || "single_component";
+  }
+  if (liveSideGuardRatioInput) {
+    liveSideGuardRatioInput.value = String(uiDefinition.side_guard_ratio ?? 0);
+  }
   if (liveIgnoreInternalTextureInput) {
     liveIgnoreInternalTextureInput.checked = Boolean(uiDefinition.ignore_internal_texture);
   }
@@ -2567,10 +2664,28 @@ function seedLiveDefinitionDefaults(width, height) {
   if (liveSensitivityInput && !liveSensitivityInput.value) {
     liveSensitivityInput.value = "50";
   }
+  if (liveDirectionProjectionModeSelect) {
+    liveDirectionProjectionModeSelect.value = "max_chord";
+  }
+  if (liveTargetGeometryModeSelect) {
+    liveTargetGeometryModeSelect.value = "single_component";
+  }
+  if (liveSideGuardRatioInput) {
+    liveSideGuardRatioInput.value = "0";
+  }
   liveRunState.roiConfirmed = false;
   liveRunState.confirmedRoiSignature = "";
   liveRunState.directionProjectionOverlay = null;
   liveRunState.resolvedDirectionProjectionMode = "max_chord";
+  if (liveDirectionProjectionModeSelect) {
+    liveDirectionProjectionModeSelect.value = "max_chord";
+  }
+  if (liveTargetGeometryModeSelect) {
+    liveTargetGeometryModeSelect.value = "single_component";
+  }
+  if (liveSideGuardRatioInput) {
+    liveSideGuardRatioInput.value = "0";
+  }
   setSetupRecomputeState({ inFlight: false, detail: "" });
   syncLiveDefinitionDirtyState();
   renderLivePreviewOverlay();
@@ -3286,6 +3401,8 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     observation_axis: "long_axis",
     foreground_polarity: liveForegroundPolaritySelect ? liveForegroundPolaritySelect.value : "dark_on_light",
     threshold_mode: liveThresholdModeSelect ? liveThresholdModeSelect.value : "adaptive",
+    target_geometry_mode: currentTargetGeometryMode(),
+    side_guard_ratio: currentSideGuardRatio(),
     ignore_internal_texture: liveIgnoreInternalTextureInput ? liveIgnoreInternalTextureInput.checked : false,
     min_target_area_px: getNumericInputValue(liveMinTargetAreaInput, 200),
     sensitivity: getNumericInputValue(liveSensitivityInput, 50),
@@ -3630,6 +3747,15 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     liveRunState.resolvedDirectionProjectionMode = isDirectionProjectionMode(payload.direction_projection_mode)
       ? String(payload.direction_projection_mode)
       : "max_chord";
+    if (liveDirectionProjectionModeSelect) {
+      liveDirectionProjectionModeSelect.value = liveRunState.resolvedDirectionProjectionMode;
+    }
+    if (liveTargetGeometryModeSelect && payload.target_geometry_mode) {
+      liveTargetGeometryModeSelect.value = String(payload.target_geometry_mode);
+    }
+    if (liveSideGuardRatioInput && payload.side_guard_ratio != null) {
+      liveSideGuardRatioInput.value = String(payload.side_guard_ratio);
+    }
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);
     }
@@ -6447,12 +6573,27 @@ if (drawAnalysisRoiButton) {
 for (const liveInput of [
   liveForegroundPolaritySelect,
   liveThresholdModeSelect,
+  liveDirectionProjectionModeSelect,
+  liveTargetGeometryModeSelect,
+  liveSideGuardRatioInput,
   liveIgnoreInternalTextureInput,
   liveMinTargetAreaInput,
 ]) {
   if (liveInput) {
     liveInput.addEventListener("input", updateLiveDefinitionAfterLocalEdit);
     liveInput.addEventListener("change", updateLiveDefinitionAfterLocalEdit);
+  }
+}
+for (const envelopeInput of [liveDirectionProjectionModeSelect, liveTargetGeometryModeSelect, liveSideGuardRatioInput]) {
+  if (envelopeInput) {
+    envelopeInput.addEventListener("change", () => {
+      scheduleRoiPointRecompute({
+        message:
+          currentLocale === "en"
+            ? "Detection mode updated. Captured a new frame and recomputed ROI-local A/B."
+            : "检测模式已更新，已抓取新画面并重新计算 ROI 内 A/B。",
+      });
+    });
   }
 }
 for (const roiInput of [

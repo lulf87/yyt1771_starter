@@ -503,6 +503,8 @@ def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: 
         sensitivity=float(definition.sensitivity),
         direction_angle_deg=definition.direction_angle_deg,
         direction_projection_mode=definition.direction_projection_mode,
+        target_geometry_mode=definition.target_geometry_mode,
+        side_guard_ratio=definition.side_guard_ratio,
         observation_axis=definition.observation_axis,
     )
 
@@ -561,6 +563,8 @@ def _normalize_definition_to_local_frame(
         sensitivity=translated.sensitivity,
         direction_angle_deg=translated.direction_angle_deg,
         direction_projection_mode=translated.direction_projection_mode,
+        target_geometry_mode=translated.target_geometry_mode,
+        side_guard_ratio=translated.side_guard_ratio,
         observation_axis=translated.observation_axis,
     )
 

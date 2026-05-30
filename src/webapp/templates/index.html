@@ -156,6 +156,28 @@
                     <option value="binary" data-i18n="home.options.threshold_binary">二值</option>
                     <option value="otsu" data-i18n="home.options.threshold_otsu">大津法</option>
                   </select>
+                  <label for="live-direction-projection-mode" data-i18n="home.sections.detection.projection_mode">取点模式</label>
+                  <select id="live-direction-projection-mode" data-testid="live-direction-projection-mode">
+                    <option value="max_chord" data-i18n="home.options.projection_max_chord">轮廓最长弦</option>
+                    <option value="envelope_max_width" data-i18n="home.options.projection_envelope_max_width">整体外包络宽度</option>
+                    <option value="mask_projection" data-i18n="home.options.projection_mask_projection">掩膜投影</option>
+                  </select>
+                  <label for="live-target-geometry-mode" data-i18n="home.sections.detection.target_geometry">样品类型</label>
+                  <select id="live-target-geometry-mode" data-testid="live-target-geometry-mode">
+                    <option value="single_component" data-i18n="home.options.geometry_single_component">单一主体</option>
+                    <option value="line_bundle" data-i18n="home.options.geometry_line_bundle">线束/细丝</option>
+                    <option value="mesh_lattice" data-i18n="home.options.geometry_mesh_lattice">网格/支架</option>
+                  </select>
+                  <label for="live-side-guard-ratio" data-i18n="home.sections.detection.side_guard">侧边留白比例</label>
+                  <input
+                    id="live-side-guard-ratio"
+                    data-testid="live-side-guard-ratio"
+                    type="number"
+                    min="0"
+                    max="0.45"
+                    step="0.01"
+                    value="0"
+                  />
                   <label for="live-min-target-area" data-i18n="home.sections.detection.min_area">最小面积</label>
                   <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
                   <label for="live-ignore-internal-texture" data-i18n="home.sections.detection.ignore_texture">忽略内部纹理</label>

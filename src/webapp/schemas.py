@@ -143,7 +143,9 @@ class MeasurementDefinitionRequest(BaseModel):
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
+    side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -179,7 +181,9 @@ class AutoDetectDefinitionRequest(BaseModel):
     ignore_internal_texture: bool
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
+    side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -204,8 +208,16 @@ class AutoDetectDefinitionResponse(BaseModel):
     threshold_mode_used: Literal["adaptive", "binary", "otsu"]
     foreground_polarity_used: Literal["dark_on_light", "light_on_dark"]
     direction_angle_deg: float | None = None
-    direction_projection_mode: Literal["auto", "max_chord", "mask_projection"] = "max_chord"
+    direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
+    side_guard_ratio: float = 0.0
     selection_mode: str | None = None
+    selected_component_count: int | None = None
+    envelope_candidate_count: int | None = None
+    side_guard_foreground_area: int | None = None
+    envelope_support_px: int | None = None
+    axis_offset_px: float | None = None
+    tracking_state: str | None = None
     detail: str = ""
 
 
@@ -296,6 +308,13 @@ class RunTelemetryPointResponse(BaseModel):
     tracking_mode: str | None = None
     tracking_state: str | None = None
     selection_mode: str | None = None
+    target_geometry_mode: str | None = None
+    projection_point_mode: str | None = None
+    selected_component_count: int | None = None
+    envelope_candidate_count: int | None = None
+    side_guard_foreground_area: int | None = None
+    envelope_support_px: int | None = None
+    axis_offset_px: float | None = None
     reason: str | None = None
     observation_selection_mode: str | None = None
     observation_reason: str | None = None

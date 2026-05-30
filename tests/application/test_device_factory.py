@@ -605,6 +605,37 @@ def test_real_and_offline_capture_plans_share_live_local_pixels_for_same_setup_d
     )
 
 
+def test_measurement_capture_plan_preserves_envelope_geometry_fields() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=650, y=220, width=1100, height=740),
+        metric_box=MetricBox(center_x=1200, center_y=590, width=1060, height=660, angle_deg=30.0),
+        point_a_px=PixelPoint(x=760, y=745),
+        point_b_px=PixelPoint(x=1625, y=745),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=False,
+        min_target_area_px=200,
+        direction_angle_deg=30.0,
+        direction_projection_mode="envelope_max_width",
+        target_geometry_mode="mesh_lattice",
+        side_guard_ratio=0.14,
+    )
+
+    real_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_lab"),
+        definition=definition,
+    )
+    offline_plan = build_measurement_capture_plan(
+        runtime_config=load_runtime_config("dev_offline_capture"),
+        definition=definition,
+    )
+
+    assert real_plan.metric_definition == offline_plan.metric_definition
+    assert real_plan.metric_definition.direction_projection_mode == "envelope_max_width"
+    assert real_plan.metric_definition.target_geometry_mode == "mesh_lattice"
+    assert real_plan.metric_definition.side_guard_ratio == pytest.approx(0.14)
+
+
 def test_build_measurement_capture_plan_blocks_locked_profile_stale_definition_before_pixel_planning() -> None:
     runtime_config = load_runtime_config("dev_lab_camera_mock_temp")
     definition = MeasurementDefinition(

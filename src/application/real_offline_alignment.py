@@ -552,6 +552,8 @@ def _measurement_definition_from_payload(
             if direction_projection_mode is None
             else str(direction_projection_mode)
         ),
+        target_geometry_mode=str(payload.get("target_geometry_mode", "single_component")),
+        side_guard_ratio=float(payload.get("side_guard_ratio", 0.0) or 0.0),
         observation_axis=ObservationAxis(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value)),
     )
 

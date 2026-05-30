@@ -267,6 +267,8 @@ class LockedDefinitionMetricSource:
                     direction_angle_deg=definition.direction_angle_deg,
                 ),
                 projection_mode=definition.direction_projection_mode,
+                target_geometry_mode=definition.target_geometry_mode,
+                side_guard_ratio=definition.side_guard_ratio,
                 processing_max_side_px=_directional_processing_max_side_px(
                     working_max_width,
                     working_max_height,
@@ -424,6 +426,10 @@ def _directional_config_with_axis_prior(
         component_bridge_kernel=config.component_bridge_kernel,
         open_kernel=config.open_kernel,
         projection_mode=config.projection_mode,
+        target_geometry_mode=config.target_geometry_mode,
+        side_guard_ratio=config.side_guard_ratio,
+        envelope_min_support_px=config.envelope_min_support_px,
+        envelope_quantile=config.envelope_quantile,
         max_chord_axis_prior_point=axis_prior_point,
         max_chord_axis_prior_tolerance_px=axis_prior_tolerance_px,
         max_chord_prior_point_a=point_a_prior,
@@ -450,6 +456,10 @@ def _directional_config_with_component_bridge_kernel(
         component_bridge_kernel=_directional_odd_kernel(float(component_bridge_kernel)),
         open_kernel=config.open_kernel,
         projection_mode=config.projection_mode,
+        target_geometry_mode=config.target_geometry_mode,
+        side_guard_ratio=config.side_guard_ratio,
+        envelope_min_support_px=config.envelope_min_support_px,
+        envelope_quantile=config.envelope_quantile,
         max_chord_axis_prior_point=config.max_chord_axis_prior_point,
         max_chord_axis_prior_tolerance_px=config.max_chord_axis_prior_tolerance_px,
         max_chord_prior_point_a=config.max_chord_prior_point_a,
@@ -475,6 +485,9 @@ class PriorTrackingMetricSource:
     ) -> None:
         self._tracking_mode = "prior_gated_reacquire"
         self._direction_projection_mode = definition.direction_projection_mode
+        self._is_envelope_max_width = definition.direction_projection_mode == "envelope_max_width"
+        if self._is_envelope_max_width:
+            self._tracking_mode = "global_envelope_reacquire"
         self._is_directional_max_chord = (
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode == "max_chord"
@@ -639,6 +652,14 @@ class PriorTrackingMetricSource:
             total_samples=total_samples,
         )
         diagnostics = self._tracking_diagnostics(observation)
+        if self._is_envelope_max_width and observation.metric_raw is not None:
+            if not self._envelope_candidate_is_gross_outlier(observation, diagnostics):
+                return self._accept_envelope_metric(
+                    observation,
+                    diagnostics,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                )
         if observation.metric_raw is not None and observation.point_a_px is not None and observation.point_b_px is not None and not self._has_runtime_lock:
             if self._should_attempt_bootstrap_max_chord_component_bridge_retry(observation, diagnostics):
                 retry_metric = self._directional_component_bridge_retry(
@@ -867,6 +888,54 @@ class PriorTrackingMetricSource:
             "max_soft_frame_span_jump_px": self._max_soft_frame_span_jump_px,
             "consecutive_misses": self._consecutive_misses,
         }
+
+    def _envelope_candidate_is_gross_outlier(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> bool:
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return True
+        if float(observation.quality or 0.0) <= 0.0:
+            return True
+        if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
+            return True
+        box_span = max(float(self._analysis_roi.width), float(self._analysis_roi.height), 1.0)
+        if observation.roi is not None:
+            box_span = max(float(observation.roi[2]), float(observation.roi[3]), box_span)
+        if float(observation.metric_raw) > box_span * 1.10:
+            return True
+        if float(observation.metric_raw) < max(2.0, box_span * 0.01):
+            return True
+        if not self._has_runtime_lock:
+            return False
+        span_change_ratio = diagnostics.get("span_change_ratio")
+        midpoint_drift_px = diagnostics.get("midpoint_drift_px")
+        if span_change_ratio is None or midpoint_drift_px is None:
+            return False
+        return (
+            float(span_change_ratio) > max(0.50, self._max_span_change_ratio * 4.0)
+            and float(midpoint_drift_px) > max(self._max_midpoint_drift_px * 4.0, 48.0)
+        )
+
+    def _accept_envelope_metric(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        *,
+        sample_index: int,
+        total_samples: int,
+    ) -> ShapeMetric:
+        relocated = self._has_runtime_lock and not self._candidate_within_prior(diagnostics)
+        self._remember(observation)
+        self._consecutive_misses = 0
+        self._clear_pending_reacquire()
+        observation.meta["tracking_mode"] = self._tracking_mode
+        observation.meta["tracking_state"] = "envelope_relocated" if relocated else "accepted_global_envelope"
+        observation.meta["sample_index"] = sample_index
+        observation.meta["total_samples"] = total_samples
+        observation.meta.update(diagnostics)
+        return observation
 
     def _directional_midpoint_shift(
         self,
@@ -2400,6 +2469,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "sensitivity": definition.sensitivity,
         "direction_angle_deg": definition.direction_angle_deg,
         "direction_projection_mode": definition.direction_projection_mode,
+        "target_geometry_mode": definition.target_geometry_mode,
+        "side_guard_ratio": definition.side_guard_ratio,
     }
 
 
@@ -2441,6 +2512,13 @@ def _telemetry_row(
         "tracking_mode": metric_meta.get("tracking_mode"),
         "tracking_state": metric_meta.get("tracking_state"),
         "selection_mode": metric_meta.get("selection_mode"),
+        "target_geometry_mode": metric_meta.get("target_geometry_mode"),
+        "projection_point_mode": metric_meta.get("projection_point_mode"),
+        "selected_component_count": metric_meta.get("selected_component_count"),
+        "envelope_candidate_count": metric_meta.get("envelope_candidate_count"),
+        "side_guard_foreground_area": metric_meta.get("side_guard_foreground_area"),
+        "envelope_support_px": metric_meta.get("envelope_support_px"),
+        "axis_offset_px": metric_meta.get("axis_offset_px"),
         "reason": metric_meta.get("reason"),
         "observation_selection_mode": metric_meta.get("observation_selection_mode"),
         "observation_reason": metric_meta.get("observation_reason"),

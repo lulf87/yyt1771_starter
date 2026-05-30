@@ -107,6 +107,13 @@ def test_telemetry_row_includes_direction_projection_points() -> None:
                 "source_point_b_px": (290, 72),
                 "axis_point_a_px": (80, 92),
                 "axis_point_b_px": (280, 92),
+                "target_geometry_mode": "line_bundle",
+                "projection_point_mode": "envelope_max_width",
+                "selected_component_count": 3,
+                "envelope_candidate_count": 5,
+                "side_guard_foreground_area": 2,
+                "envelope_support_px": 17,
+                "axis_offset_px": 92.0,
             },
         ),
     )
@@ -117,6 +124,13 @@ def test_telemetry_row_includes_direction_projection_points() -> None:
     assert row["source_point_b_px"] == [290, 72]
     assert row["axis_point_a_px"] == [80, 92]
     assert row["axis_point_b_px"] == [280, 92]
+    assert row["target_geometry_mode"] == "line_bundle"
+    assert row["projection_point_mode"] == "envelope_max_width"
+    assert row["selected_component_count"] == 3
+    assert row["envelope_candidate_count"] == 5
+    assert row["side_guard_foreground_area"] == 2
+    assert row["envelope_support_px"] == 17
+    assert row["axis_offset_px"] == 92.0
 
 
 class LowQualityMetricSource:
@@ -1444,6 +1458,92 @@ def test_prior_tracking_metric_source_accepts_directional_relocation_when_span_i
     assert relocated.meta["tracking_state"] == "accepted_relocated"
     assert relocated.point_a_px == (90, 32)
     assert relocated.point_b_px == (150, 32)
+
+
+def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without_endpoint_prior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations = iter(
+        [
+            ShapeMetric(
+                timestamp_ms=1,
+                metric_name="directional_contour_span",
+                metric_raw=60.0,
+                quality=0.95,
+                point_a_px=(20, 32),
+                point_b_px=(80, 32),
+                meta={
+                    "selection_mode": "directional_contour_envelope_max_width",
+                    "projection_point_mode": "envelope_max_width",
+                },
+            ),
+            ShapeMetric(
+                timestamp_ms=2,
+                metric_name="directional_contour_span",
+                metric_raw=60.0,
+                quality=0.95,
+                point_a_px=(20, 54),
+                point_b_px=(80, 54),
+                meta={
+                    "selection_mode": "directional_contour_envelope_max_width",
+                    "projection_point_mode": "envelope_max_width",
+                },
+            ),
+        ]
+    )
+
+    class FakeDirectionalExtractor:
+        def __init__(self, config):
+            assert config.projection_mode == "envelope_max_width"
+            assert config.target_geometry_mode == "line_bundle"
+            assert config.max_chord_axis_prior_point is None
+            assert config.max_chord_prior_point_a is None
+
+        def extract(self, frame):
+            del frame
+            return next(observations)
+
+    monkeypatch.setattr("src.workflow.live_run.DirectionalContourMetricExtractor", FakeDirectionalExtractor)
+
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=160, height=80),
+        metric_box=MetricBox(center_x=80, center_y=40, width=140, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=20, y=32),
+        point_b_px=PixelPoint(x=80, y=32),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=20,
+        direction_angle_deg=0.0,
+        direction_projection_mode="envelope_max_width",
+        target_geometry_mode="line_bundle",
+        side_guard_ratio=0.10,
+    )
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=5.0,
+        max_span_change_ratio=0.02,
+    )
+
+    first = source.extract(
+        FramePacket(timestamp_ms=1, source="fixture", image=[[0]], frame_id=1),
+        TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
+        sample_index=0,
+        total_samples=2,
+    )
+    relocated = source.extract(
+        FramePacket(timestamp_ms=2, source="fixture", image=[[0]], frame_id=2),
+        TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
+        sample_index=1,
+        total_samples=2,
+    )
+
+    assert first.meta["tracking_state"] == "accepted_global_envelope"
+    assert relocated.meta["tracking_state"] == "envelope_relocated"
+    assert relocated.meta["selection_mode"] == "directional_contour_envelope_max_width"
+    assert relocated.point_a_px == (20, 54)
+    assert relocated.point_b_px == (80, 54)
 
 
 def test_prior_tracking_metric_source_rejects_directional_relocation_when_span_collapses(

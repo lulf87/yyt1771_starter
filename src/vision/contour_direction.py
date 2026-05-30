@@ -28,6 +28,10 @@ class DirectionalContourConfig:
     component_bridge_kernel: int = 11
     open_kernel: int = 1
     projection_mode: str = "max_chord"
+    target_geometry_mode: str = "single_component"
+    side_guard_ratio: float = 0.0
+    envelope_min_support_px: int = 3
+    envelope_quantile: float = 0.0
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
     max_chord_prior_point_a: PixelPoint | None = None
@@ -47,6 +51,9 @@ class DirectionalProjection:
     metric_raw: float
     direction_angle_deg: float
     axis_offset_px: float
+    envelope_support_px: int | None = None
+    envelope_candidate_count: int | None = None
+    side_guard_foreground_area: int | None = None
 
 
 @dataclass(slots=True)
@@ -67,6 +74,12 @@ class DirectionalContourResult:
     threshold_value: float | None
     projection_point_mode: str
     raw_component_fill_ratio: float | None = None
+    target_geometry_mode: str = "single_component"
+    selected_component_count: int = 1
+    envelope_candidate_count: int | None = None
+    side_guard_foreground_area: int | None = None
+    envelope_support_px: int | None = None
+    axis_offset_px: float | None = None
 
 
 class DirectionalContourDetectionError(RuntimeError):
@@ -124,8 +137,14 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                 "component_area": int(result.component_area),
                 "threshold_value": result.threshold_value,
                 "raw_component_fill_ratio": result.raw_component_fill_ratio,
+                "target_geometry_mode": result.target_geometry_mode,
                 "projection_point_mode": result.projection_point_mode,
                 "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
+                "selected_component_count": result.selected_component_count,
+                "envelope_candidate_count": result.envelope_candidate_count,
+                "side_guard_foreground_area": result.side_guard_foreground_area,
+                "envelope_support_px": result.envelope_support_px,
+                "axis_offset_px": result.axis_offset_px,
             },
         )
 
@@ -149,18 +168,49 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     if allowed_mask is not None:
         source_mask = _apply_allowed_mask(cv2, source_mask, allowed_mask)
     raw_mask = mask
-    mask = _cleanup_mask(cv2, mask, config)
-    component_mask = _largest_component_mask(
-        cv2,
-        mask,
-        min_target_area_px=int(config.min_target_area_px),
-        direction_angle_deg=float(config.direction_angle_deg),
-        component_bridge_kernel=int(config.component_bridge_kernel),
-    )
-    raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
-    boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
-    contour_xy = _component_contour_xy(cv2, boundary_mask, processing_roi)
     projection_mode = str(config.projection_mode or "max_chord")
+    mask = _cleanup_mask(cv2, mask, config)
+    target_geometry_mode = str(config.target_geometry_mode or "single_component")
+    selected_component_count = 1
+    envelope_candidate_count: int | None = None
+    side_guard_foreground_area: int | None = None
+    envelope_support_px: int | None = None
+    if projection_mode == "envelope_max_width":
+        component_mask, selected_component_count = _envelope_target_mask(
+            mask,
+            config,
+            cv2=cv2,
+        )
+        raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
+        boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
+        projection = measure_component_envelope_max_width(
+            boundary_mask,
+            processing_roi,
+            float(config.direction_angle_deg),
+            image_shape=gray.shape,
+            clip_region=processing_roi,
+            allowed_mask=allowed_mask,
+            side_guard_ratio=float(config.side_guard_ratio),
+            min_support_px=int(config.envelope_min_support_px),
+            quantile=float(config.envelope_quantile),
+        )
+        projection_point_mode = "envelope_max_width"
+        envelope_candidate_count = projection.envelope_candidate_count
+        side_guard_foreground_area = projection.side_guard_foreground_area
+        envelope_support_px = projection.envelope_support_px
+        contour_xy = _component_boundary_xy_numpy(boundary_mask, processing_roi)
+    else:
+        component_mask = _largest_component_mask(
+            cv2,
+            mask,
+            min_target_area_px=int(config.min_target_area_px),
+            direction_angle_deg=float(config.direction_angle_deg),
+            component_bridge_kernel=int(config.component_bridge_kernel),
+        )
+        raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
+        boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
+        contour_xy = _component_contour_xy(cv2, boundary_mask, processing_roi)
+        selected_component_count = 1
     if projection_mode == "auto":
         projection_mode = choose_component_direction_projection_mode(
             boundary_mask,
@@ -168,7 +218,9 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             float(config.direction_angle_deg),
             raw_component_fill_ratio=raw_component_fill_ratio if config.ignore_internal_texture else None,
         )
-    if projection_mode == "mask_projection":
+    if projection_mode == "envelope_max_width":
+        pass
+    elif projection_mode == "mask_projection":
         axis_prior_px = _max_chord_axis_prior_lateral_px(config, processing)
         axis_prior_tolerance_px = _max_chord_axis_prior_tolerance_px(config, processing)
         projection = project_component_mask_onto_direction(
@@ -238,6 +290,12 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         threshold_value=threshold_value,
         projection_point_mode=projection_point_mode,
         raw_component_fill_ratio=raw_component_fill_ratio,
+        target_geometry_mode=target_geometry_mode,
+        selected_component_count=selected_component_count,
+        envelope_candidate_count=envelope_candidate_count,
+        side_guard_foreground_area=side_guard_foreground_area,
+        envelope_support_px=envelope_support_px,
+        axis_offset_px=float(projection.axis_offset_px),
     )
 
 
@@ -420,6 +478,120 @@ def measure_component_max_chord_along_direction(
     )
 
 
+def measure_component_envelope_max_width(
+    component_mask: np.ndarray,
+    roi: RectRegion,
+    angle_deg: float,
+    *,
+    image_shape: tuple[int, ...] | None = None,
+    clip_region: RectRegion | None = None,
+    allowed_mask: np.ndarray | None = None,
+    normal_bin_width_px: float = 1.0,
+    side_guard_ratio: float = 0.0,
+    min_support_px: int = 3,
+    quantile: float = 0.0,
+) -> DirectionalProjection:
+    rows, cols = np.where(np.asarray(component_mask) > 0)
+    if len(rows) == 0:
+        raise DirectionalContourDetectionError("direction_projection_unavailable")
+
+    points = np.column_stack([cols + int(roi.x), rows + int(roi.y)]).astype(float)
+    direction = directional_unit_vector(float(angle_deg))
+    normal = np.array([-direction[1], direction[0]], dtype=float)
+    along = points @ direction
+    lateral = points @ normal
+
+    guard_area, keep_mask = _side_guard_keep_mask(
+        points,
+        roi,
+        direction,
+        allowed_mask=allowed_mask,
+        side_guard_ratio=side_guard_ratio,
+    )
+    if not bool(np.any(keep_mask)):
+        raise DirectionalContourDetectionError("direction_projection_unavailable")
+    points = points[keep_mask]
+    along = along[keep_mask]
+    lateral = lateral[keep_mask]
+
+    bin_width = max(0.5, float(normal_bin_width_px))
+    median_lateral = float(np.median(lateral))
+    bin_indices = np.round((lateral - median_lateral) / bin_width).astype(np.int64)
+    min_support = max(2, int(min_support_px))
+    endpoint_quantile = max(0.0, min(0.20, float(quantile)))
+
+    best: dict[str, Any] | None = None
+    candidate_count = 0
+    for bin_index in np.unique(bin_indices):
+        indices = np.flatnonzero(bin_indices == bin_index)
+        support = int(len(indices))
+        if support < min_support:
+            continue
+        ordered = indices[np.argsort(along[indices])]
+        ordered_along = along[ordered]
+        low_value = float(np.quantile(ordered_along, endpoint_quantile))
+        high_value = float(np.quantile(ordered_along, 1.0 - endpoint_quantile))
+        span = high_value - low_value
+        if span <= 0.0:
+            continue
+        low_index = int(ordered[int(np.argmin(np.abs(ordered_along - low_value)))])
+        high_index = int(ordered[int(np.argmin(np.abs(ordered_along - high_value)))])
+        if low_index == high_index:
+            continue
+        axis_offset = float(np.median(lateral[indices]))
+        candidate = {
+            "span": span,
+            "support": support,
+            "axis_offset": axis_offset,
+            "low_index": low_index,
+            "high_index": high_index,
+            "center_distance": abs(axis_offset - median_lateral),
+        }
+        candidate_count += 1
+        if _envelope_candidate_is_better(candidate, best):
+            best = candidate
+
+    if best is None:
+        raise DirectionalContourDetectionError("direction_projection_unavailable")
+
+    source_point_a = _pixel_point_from_xy(
+        points[int(best["low_index"])],
+        image_shape=image_shape,
+        clip_region=clip_region,
+    )
+    source_point_b = _pixel_point_from_xy(
+        points[int(best["high_index"])],
+        image_shape=image_shape,
+        clip_region=clip_region,
+    )
+    return DirectionalProjection(
+        point_a=source_point_a,
+        point_b=source_point_b,
+        source_point_a=source_point_a,
+        source_point_b=source_point_b,
+        axis_point_a=source_point_a,
+        axis_point_b=source_point_b,
+        metric_raw=_distance_between(source_point_a, source_point_b),
+        direction_angle_deg=float(angle_deg),
+        axis_offset_px=float(best["axis_offset"]),
+        envelope_support_px=int(best["support"]),
+        envelope_candidate_count=int(candidate_count),
+        side_guard_foreground_area=int(guard_area),
+    )
+
+
+def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    if current is None:
+        return True
+    span_delta = float(candidate["span"]) - float(current["span"])
+    if abs(span_delta) > 1e-9:
+        return span_delta > 0.0
+    support_delta = int(candidate["support"]) - int(current["support"])
+    if support_delta != 0:
+        return support_delta > 0
+    return float(candidate["center_distance"]) < float(current["center_distance"])
+
+
 def choose_component_direction_projection_mode(
     component_mask: np.ndarray,
     roi: RectRegion,
@@ -494,6 +666,81 @@ def _component_foreground_fill_ratio(source_mask: np.ndarray, component_mask: np
         return None
     source_area = int(np.count_nonzero(source & component))
     return float(source_area) / float(component_area)
+
+
+def _envelope_target_mask(
+    mask: np.ndarray,
+    config: DirectionalContourConfig,
+    *,
+    cv2: Any | None,
+) -> tuple[np.ndarray, int]:
+    foreground = np.asarray(mask) > 0
+    if not bool(np.any(foreground)):
+        raise DirectionalContourDetectionError("target_component_not_found")
+    labels, num_labels = ndimage.label(foreground, structure=np.ones((3, 3), dtype=bool))
+    if int(num_labels) <= 0:
+        raise DirectionalContourDetectionError("target_component_not_found")
+
+    area_floor = max(1, int(round(float(max(1, int(config.min_target_area_px))) * 0.2)))
+    selected = np.zeros_like(foreground, dtype=bool)
+    selected_count = 0
+    for label in range(1, int(num_labels) + 1):
+        component = labels == label
+        area = int(np.count_nonzero(component))
+        if area < area_floor:
+            continue
+        selected |= component
+        selected_count += 1
+    if selected_count == 0:
+        raise DirectionalContourDetectionError("target_component_not_found")
+
+    geometry_mode = str(config.target_geometry_mode or "single_component")
+    if geometry_mode == "mesh_lattice":
+        selected = _mesh_lattice_envelope_mask(selected, config, cv2=cv2)
+    elif geometry_mode not in {"line_bundle", "single_component", "mesh_lattice"}:
+        geometry_mode = "line_bundle"
+
+    return selected.astype(np.uint8) * 255, int(selected_count)
+
+
+def _mesh_lattice_envelope_mask(
+    selected: np.ndarray,
+    config: DirectionalContourConfig,
+    *,
+    cv2: Any | None,
+) -> np.ndarray:
+    foreground = np.asarray(selected, dtype=bool)
+    if not bool(np.any(foreground)):
+        return foreground
+    sensitivity = float(np.clip(config.sensitivity, 0.0, 100.0))
+    close_size = max(3, int(round(3 + (sensitivity / 100.0) * 6)))
+    if close_size % 2 == 0:
+        close_size += 1
+    if cv2 is not None:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_size, close_size))
+        closed = cv2.morphologyEx(foreground.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel, iterations=1) > 0
+    else:
+        closed = ndimage.binary_closing(foreground, structure=_ellipse_structure(close_size))
+    return _fill_small_holes(closed, max_area_px=max(8, int(config.min_target_area_px) * 4))
+
+
+def _fill_small_holes(foreground: np.ndarray, *, max_area_px: int) -> np.ndarray:
+    mask = np.asarray(foreground, dtype=bool)
+    if not bool(np.any(mask)):
+        return mask
+    background = ~mask
+    labels, num_labels = ndimage.label(background, structure=np.ones((3, 3), dtype=bool))
+    if int(num_labels) <= 0:
+        return mask
+    border_labels = set(int(value) for value in np.unique(np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])))
+    filled = mask.copy()
+    for label in range(1, int(num_labels) + 1):
+        if label in border_labels:
+            continue
+        hole = labels == label
+        if int(np.count_nonzero(hole)) <= int(max_area_px):
+            filled[hole] = True
+    return filled
 
 
 def _actual_component_boundary_mask(source_mask: np.ndarray, component_mask: np.ndarray) -> np.ndarray:
@@ -633,7 +880,55 @@ def _max_projection_display_index(projections: np.ndarray, normal_coords: np.nda
     return int(candidates[int(np.argmax(candidate_normals))])
 
 
+def _side_guard_keep_mask(
+    points_xy: np.ndarray,
+    roi: RectRegion,
+    direction: np.ndarray,
+    *,
+    allowed_mask: np.ndarray | None,
+    side_guard_ratio: float,
+) -> tuple[int, np.ndarray]:
+    points = np.asarray(points_xy, dtype=float)
+    if points.ndim != 2 or points.shape[0] == 0:
+        return 0, np.zeros((0,), dtype=bool)
+    ratio = max(0.0, min(0.45, float(side_guard_ratio or 0.0)))
+    if ratio <= 0.0:
+        return 0, np.ones((points.shape[0],), dtype=bool)
+
+    if allowed_mask is not None and np.asarray(allowed_mask).shape[:2] == (int(roi.height), int(roi.width)):
+        rows, cols = np.where(np.asarray(allowed_mask) > 0)
+        if len(rows) > 0:
+            allowed_points = np.column_stack([cols + int(roi.x), rows + int(roi.y)]).astype(float)
+        else:
+            allowed_points = _roi_pixel_points(roi)
+    else:
+        allowed_points = _roi_pixel_points(roi)
+
+    allowed_along = allowed_points @ direction
+    if len(allowed_along) == 0:
+        return 0, np.ones((points.shape[0],), dtype=bool)
+    along_min = float(np.min(allowed_along))
+    along_max = float(np.max(allowed_along))
+    guard_width = max(0.0, (along_max - along_min) * ratio)
+    if guard_width <= 0.0:
+        return 0, np.ones((points.shape[0],), dtype=bool)
+    point_along = points @ direction
+    in_guard = (point_along < along_min + guard_width) | (point_along > along_max - guard_width)
+    return int(np.count_nonzero(in_guard)), ~in_guard
+
+
+def _roi_pixel_points(roi: RectRegion) -> np.ndarray:
+    height = max(0, int(roi.height))
+    width = max(0, int(roi.width))
+    if height <= 0 or width <= 0:
+        return np.empty((0, 2), dtype=float)
+    rows, cols = np.indices((height, width))
+    return np.column_stack([cols.ravel() + int(roi.x), rows.ravel() + int(roi.y)]).astype(float)
+
+
 def _selection_mode_for_projection(projection_point_mode: str) -> str:
+    if projection_point_mode == "envelope_max_width":
+        return "directional_contour_envelope_max_width"
     if projection_point_mode == "max_chord":
         return "directional_contour_max_chord"
     return "directional_contour_boundary_span"
@@ -712,6 +1007,9 @@ def _projection_to_original_roi(
         metric_raw=_distance_between(point_a, point_b),
         direction_angle_deg=float(projection.direction_angle_deg),
         axis_offset_px=_axis_offset_to_original_space(projection, geometry),
+        envelope_support_px=projection.envelope_support_px,
+        envelope_candidate_count=projection.envelope_candidate_count,
+        side_guard_foreground_area=projection.side_guard_foreground_area,
     )
 
 
@@ -774,6 +1072,9 @@ def _refine_projection_on_original_axis(
             metric_raw=_distance_between(point_a, point_b),
             direction_angle_deg=float(projection.direction_angle_deg),
             axis_offset_px=float(projection.axis_offset_px),
+            envelope_support_px=projection.envelope_support_px,
+            envelope_candidate_count=projection.envelope_candidate_count,
+            side_guard_foreground_area=projection.side_guard_foreground_area,
         )
     except DirectionalContourDetectionError:
         return projection

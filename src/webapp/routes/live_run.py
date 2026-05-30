@@ -152,6 +152,8 @@ def save_measurement_definition(
         sensitivity=payload.sensitivity,
         direction_angle_deg=payload.direction_angle_deg,
         direction_projection_mode=_resolve_direction_projection_mode(payload, draft.preset),
+        target_geometry_mode=payload.target_geometry_mode,
+        side_guard_ratio=payload.side_guard_ratio,
         observation_axis=ObservationAxis(payload.observation_axis),
     )
     try:
@@ -418,7 +420,15 @@ def auto_detect_measurement_definition(
         foreground_polarity_used=foreground_polarity_used,
         direction_angle_deg=_metric_direction_angle_deg(metric),
         direction_projection_mode=_metric_projection_mode(metric),
+        target_geometry_mode=payload.target_geometry_mode,
+        side_guard_ratio=payload.side_guard_ratio,
         selection_mode=_metric_selection_mode(metric),
+        selected_component_count=_metric_meta_int(metric, "selected_component_count"),
+        envelope_candidate_count=_metric_meta_int(metric, "envelope_candidate_count"),
+        side_guard_foreground_area=_metric_meta_int(metric, "side_guard_foreground_area"),
+        envelope_support_px=_metric_meta_int(metric, "envelope_support_px"),
+        axis_offset_px=_metric_meta_float(metric, "axis_offset_px"),
+        tracking_state=_metric_meta_str(metric, "tracking_state"),
         detail=detail,
     )
 
@@ -701,6 +711,8 @@ def _extract_directional_auto_detect_metric(
                 direction_angle_deg=payload.direction_angle_deg,
             ),
             projection_mode=_resolve_direction_projection_mode(payload, preset),
+            target_geometry_mode=payload.target_geometry_mode,
+            side_guard_ratio=payload.side_guard_ratio,
         )
     )
     return detector.extract(frame)
@@ -908,7 +920,7 @@ def _metric_direction_angle_deg(metric) -> float | None:
 
 def _metric_projection_mode(metric) -> str:
     value = getattr(metric, "meta", {}).get("projection_point_mode")
-    if value in {"max_chord", "mask_projection"}:
+    if value in {"max_chord", "mask_projection", "envelope_max_width"}:
         return str(value)
     return "auto"
 
@@ -937,6 +949,27 @@ def _metric_meta_point_response(metric, key: str) -> PixelPointResponse | None:
         return PixelPointResponse(x=int(value[0]), y=int(value[1]))
     except (TypeError, ValueError):
         return None
+
+
+def _metric_meta_int(metric, key: str) -> int | None:
+    value = getattr(metric, "meta", {}).get(key)
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_meta_float(metric, key: str) -> float | None:
+    value = getattr(metric, "meta", {}).get(key)
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_meta_str(metric, key: str) -> str | None:
+    value = getattr(metric, "meta", {}).get(key)
+    return None if value is None else str(value)
 
 
 @router.post("/{run_id}/stop", response_model=RunDetailResponse)
@@ -1207,6 +1240,8 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         sensitivity=definition.sensitivity,
         direction_angle_deg=definition.direction_angle_deg,
         direction_projection_mode=definition.direction_projection_mode,
+        target_geometry_mode=definition.target_geometry_mode,
+        side_guard_ratio=definition.side_guard_ratio,
     )
 
 

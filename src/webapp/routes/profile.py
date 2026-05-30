@@ -214,6 +214,8 @@ def _measurement_definition_from_payload(payload: MeasurementDefinitionRequest) 
         sensitivity=payload.sensitivity,
         direction_angle_deg=payload.direction_angle_deg,
         direction_projection_mode=payload.direction_projection_mode,
+        target_geometry_mode=payload.target_geometry_mode,
+        side_guard_ratio=payload.side_guard_ratio,
         observation_axis=ObservationAxis(payload.observation_axis),
     )
 
