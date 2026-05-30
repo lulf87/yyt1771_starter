@@ -448,3 +448,69 @@ def test_favicon_route_returns_no_content(tmp_path: Path) -> None:
 
     assert response.status_code == 204
     assert response.text == ""
+
+
+def _js_block_between(source: str, start_marker: str, end_marker: str) -> str:
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    return source[start:end]
+
+
+def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
+    # Behavioural check: the live overview must break the outlier total down by
+    # tracking state so a flood of holds is attributable instead of looking like
+    # "no points detected". Evaluate the real JS in Node against a sample curve.
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate the live overview breakdown logic")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function liveProcessOutlierCategory(",
+        "function liveProcessStatusLabel(",
+    )
+    assert "liveProcessOutlierBreakdown" in block
+    assert "envelope_low_support_rejected" in block
+
+    driver = (
+        'const currentLocale = "en";\n'
+        + block
+        + "\n"
+        "const curve = [\n"
+        '  { tracking_state: "accepted_global_envelope", tracking_quality: 0.9 },\n'
+        '  { tracking_state: "holding_last_good", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "holding_last_good", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "invalidated", tracking_quality: 0.0 },\n'
+        '  { tracking_state: "envelope_pending_relocation", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "envelope_low_support_rejected", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "envelope_background_component_rejected", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "accepted_global_envelope", tracking_quality: 0.3 },\n'
+        "];\n"
+        "const counts = liveProcessOutlierBreakdown(curve);\n"
+        "process.stdout.write(JSON.stringify(counts));\n"
+    )
+
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    counts = json.loads(completed.stdout)
+
+    assert counts == {
+        "holding_last_good": 2,
+        "invalidated": 1,
+        "low_quality": 1,
+        "envelope_pending_relocation": 1,
+        "envelope_low_support_rejected": 1,
+        "envelope_background_component_rejected": 1,
+    }

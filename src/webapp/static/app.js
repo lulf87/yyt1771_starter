@@ -45,6 +45,8 @@ const liveProcessStatusCardNode = document.getElementById("live-process-status-c
 const liveProcessChannelStatusNode = document.getElementById("live-process-channel-status");
 const liveProcessPointCountNode = document.getElementById("live-process-point-count");
 const liveProcessOutlierCountNode = document.getElementById("live-process-outlier-count");
+const liveProcessOutlierBreakdownNode = document.getElementById("live-process-outlier-breakdown");
+const liveProcessTrackingHintNode = document.getElementById("live-process-tracking-hint");
 const liveProcessAsValueNode = document.getElementById("live-process-as-value");
 const liveProcessAfTanValueNode = document.getElementById("live-process-af-tan-value");
 const livePointPickerStatusNode = document.getElementById("live-point-picker-status");
@@ -3162,6 +3164,106 @@ function liveProcessOutlierCount(curve) {
   return (Array.isArray(curve) ? curve : []).filter((point) => liveProcessPointIsOutlier(point)).length;
 }
 
+// Why a point counts as an outlier in the live overview. Mirrors
+// liveProcessPointIsOutlier so the UI can explain the distribution instead of
+// only showing a bare total. ``null`` means the point is an accepted inlier.
+function liveProcessOutlierCategory(point) {
+  const trackingState = String(point?.tracking_state || "");
+  if (trackingState === "invalidated") {
+    return "invalidated";
+  }
+  if (trackingState === "envelope_pending_relocation" || trackingState === "envelope_near_tie_hold") {
+    return "envelope_pending_relocation";
+  }
+  if (trackingState === "envelope_low_support_rejected") {
+    return "envelope_low_support_rejected";
+  }
+  if (trackingState === "envelope_background_component_rejected") {
+    return "envelope_background_component_rejected";
+  }
+  if (trackingState === "holding_last_good" || trackingState === "envelope_outlier_hold") {
+    return "holding_last_good";
+  }
+  const quality = Number(point?.tracking_quality);
+  if (Number.isFinite(quality) && quality < 0.5) {
+    return "low_quality";
+  }
+  return null;
+}
+
+const LIVE_PROCESS_OUTLIER_CATEGORIES = [
+  "holding_last_good",
+  "invalidated",
+  "low_quality",
+  "envelope_pending_relocation",
+  "envelope_low_support_rejected",
+  "envelope_background_component_rejected",
+];
+
+const LIVE_PROCESS_OUTLIER_LABELS = {
+  holding_last_good: { zh: "保持上次", en: "holding" },
+  invalidated: { zh: "失锁", en: "invalidated" },
+  low_quality: { zh: "低质量", en: "low quality" },
+  envelope_pending_relocation: { zh: "待确认重定位", en: "pending relocation" },
+  envelope_low_support_rejected: { zh: "支持不足", en: "low support" },
+  envelope_background_component_rejected: { zh: "背景误检", en: "background reject" },
+};
+
+function liveProcessOutlierBreakdown(curve) {
+  const counts = {};
+  LIVE_PROCESS_OUTLIER_CATEGORIES.forEach((key) => {
+    counts[key] = 0;
+  });
+  (Array.isArray(curve) ? curve : []).forEach((point) => {
+    const category = liveProcessOutlierCategory(point);
+    if (category && Object.prototype.hasOwnProperty.call(counts, category)) {
+      counts[category] += 1;
+    }
+  });
+  return counts;
+}
+
+function formatLiveProcessOutlierBreakdown(counts) {
+  const parts = LIVE_PROCESS_OUTLIER_CATEGORIES.filter((key) => Number(counts[key]) > 0).map((key) => {
+    const label = LIVE_PROCESS_OUTLIER_LABELS[key];
+    const text = label ? (currentLocale === "en" ? label.en : label.zh) : key;
+    return `${text} ${counts[key]}`;
+  });
+  if (!parts.length) {
+    return currentLocale === "en" ? "none" : "无";
+  }
+  return parts.join(" · ");
+}
+
+// If the latest frame still has a visual A/B candidate but tracking did not
+// accept it, make that explicit instead of letting the operator assume no point
+// was detected at all.
+function liveProcessTrackingHint(latest) {
+  if (!latest) {
+    return "--";
+  }
+  const trackingState = String(latest.tracking_state || "");
+  const hasCandidate =
+    Array.isArray(latest.point_a_px) && Array.isArray(latest.point_b_px);
+  const heldStates = new Set([
+    "holding_last_good",
+    "invalidated",
+    "envelope_outlier_hold",
+    "envelope_pending_relocation",
+    "envelope_near_tie_hold",
+    "envelope_low_support_rejected",
+    "envelope_background_component_rejected",
+  ]);
+  if (hasCandidate && heldStates.has(trackingState)) {
+    const reason = String(latest.envelope_reject_reason || latest.rejection_reason || latest.reason || "");
+    const base = currentLocale === "en"
+      ? "Visual candidate present, but tracking did not accept it"
+      : "视觉有候选，但 tracking 未接受";
+    return reason ? `${base}（${reason}）` : base;
+  }
+  return "--";
+}
+
 function liveProcessStatusLabel(status, latest) {
   if (latest && String(latest.tracking_state || "") === "invalidated") {
     return currentLocale === "en" ? "Attention" : "异常";
@@ -3214,6 +3316,12 @@ function resetLiveProcessTelemetry({ show = false } = {}) {
   }
   if (liveProcessOutlierCountNode) {
     liveProcessOutlierCountNode.textContent = "0";
+  }
+  if (liveProcessOutlierBreakdownNode) {
+    liveProcessOutlierBreakdownNode.textContent = "--";
+  }
+  if (liveProcessTrackingHintNode) {
+    liveProcessTrackingHintNode.textContent = "--";
   }
   if (liveProcessAsValueNode) {
     liveProcessAsValueNode.textContent = "--";
@@ -3362,9 +3470,11 @@ function buildLiveProcessSmoothPath(points) {
 }
 
 function liveProcessPointIsOutlier(point) {
-  const trackingState = String(point?.tracking_state || "");
-  const quality = Number(point?.tracking_quality);
-  return trackingState === "holding_last_good" || trackingState === "invalidated" || (Number.isFinite(quality) && quality < 0.5);
+  // A point is an outlier iff it falls into one of the breakdown categories, so
+  // the total outlier count always equals the sum of the breakdown. This covers
+  // held last-good frames, invalidated frames, low-quality frames and the
+  // envelope-specific rejection/relocation-pending states.
+  return liveProcessOutlierCategory(point) !== null;
 }
 
 function buildLiveProcessChartSeries(rawSamples, { status = "" } = {}) {
@@ -3455,6 +3565,14 @@ function renderLiveProcessTelemetry(telemetryPayload, resultPayload = null) {
   }
   if (liveProcessOutlierCountNode) {
     liveProcessOutlierCountNode.textContent = String(liveProcessOutlierCount(curve));
+  }
+  if (liveProcessOutlierBreakdownNode) {
+    liveProcessOutlierBreakdownNode.textContent = formatLiveProcessOutlierBreakdown(
+      liveProcessOutlierBreakdown(curve),
+    );
+  }
+  if (liveProcessTrackingHintNode) {
+    liveProcessTrackingHintNode.textContent = liveProcessTrackingHint(latest);
   }
   if (liveProcessAsValueNode) {
     liveProcessAsValueNode.textContent = formatLiveProcessTemperature(result?.as_value);

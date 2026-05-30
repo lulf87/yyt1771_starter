@@ -1742,6 +1742,93 @@ def test_prior_tracking_envelope_near_tie_does_not_jitter_between_top_and_bottom
         assert result.meta["tracking_state"] != "envelope_relocated"
 
 
+def test_envelope_live_run_uses_axis_offset_not_display_endpoint_jump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The display A/B is axis-projected, so its endpoints can slide a long way
+    # ALONG the axis without the widest section moving. A candidate that keeps
+    # the same lateral axis offset and span must be accepted even when the
+    # display endpoint jump dwarfs the (tiny) endpoint prior: envelope tracking
+    # keys off axis offset + span, never the display endpoint jump.
+    holder: dict = {"value": {"span": 60.0, "a": (40, 32), "b": (100, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=5.0,  # deliberately tiny endpoint prior
+        max_midpoint_drift_px=12.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    accepted = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    # Same lateral axis (y) and span as the preset, but the display endpoints are
+    # shifted 20 px along the axis: an endpoint-jump gate would have rejected it.
+    assert accepted.meta["tracking_state"] == "accepted_global_envelope"
+    assert accepted.point_a_px == (40, 32)
+    assert accepted.point_b_px == (100, 32)
+    assert float(accepted.meta["endpoint_jump_px"]) > source._max_endpoint_jump_px
+    assert accepted.meta["candidate_axis_jump_px"] == pytest.approx(0.0, abs=1e-6)
+
+    # A genuine lateral relocation (same span, axis offset jumps well past the
+    # drift prior) is NOT silently accepted as a small update; it enters the
+    # confirmation path instead.
+    holder["value"] = {"span": 60.0, "a": (40, 56), "b": (100, 56)}
+    frame1, temp1 = _frame_temp(2)
+    relocating = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert relocating.meta["tracking_state"] == "envelope_pending_relocation"
+    assert float(relocating.meta["candidate_axis_jump_px"]) > source._max_midpoint_drift_px
+
+
+def test_envelope_axis_projected_points_do_not_cause_holding_last_good(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Axis-projected A/B endpoints slide ALONG the axis frame-to-frame while the
+    # lateral axis offset (y) and width stay stable. None of these frames may be
+    # treated as outliers/holds; they are all small continuous envelope updates.
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=12.0,
+        max_span_change_ratio=0.05,
+    )
+
+    sequence = [
+        {"span": 60.0, "a": (18, 32), "b": (78, 32)},
+        {"span": 60.0, "a": (30, 32), "b": (90, 32)},
+        {"span": 60.0, "a": (14, 32), "b": (74, 32)},
+        {"span": 60.0, "a": (36, 32), "b": (96, 32)},
+        {"span": 60.0, "a": (16, 32), "b": (76, 32)},
+        {"span": 60.0, "a": (24, 32), "b": (84, 32)},
+    ]
+    states = []
+    jumps = []
+    for index, spec in enumerate(sequence):
+        holder["value"] = dict(spec)
+        frame, temp = _frame_temp(index + 1)
+        metric = source.extract(frame, temp, sample_index=index, total_samples=len(sequence))
+        states.append(metric.meta["tracking_state"])
+        jumps.append(float(metric.meta["endpoint_jump_px"]))
+
+    assert "holding_last_good" not in states
+    assert "invalidated" not in states
+    assert all(state == "accepted_global_envelope" for state in states)
+    # The display endpoints really did jump far more than the endpoint prior, so
+    # the absence of holds is specifically because tracking ignores them.
+    assert max(jumps) > source._max_endpoint_jump_px
+
+
 def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -689,6 +689,12 @@ class PriorTrackingMetricSource:
         )
         diagnostics = self._tracking_diagnostics(observation)
         if self._is_envelope_max_width:
+            # Envelope tracking decides accept/pending/hold from the axis offset,
+            # along-axis span and support, NOT from the display A/B endpoint jump
+            # (the A/B points are axis-projected, so their endpoint distance no
+            # longer tracks the foreground). Merge those metrics into diagnostics
+            # so every telemetry point (accepted or held) can explain itself.
+            diagnostics = {**diagnostics, **self._envelope_diagnostics(observation, diagnostics)}
             if (
                 observation.metric_raw is None
                 or observation.point_a_px is None
@@ -1113,9 +1119,11 @@ class PriorTrackingMetricSource:
                 total_samples=total_samples,
                 state="accepted_global_envelope",
             )
-        # A candidate that stays within the position/span prior is a normal,
-        # small per-frame update of the global envelope.
-        if self._candidate_within_prior(diagnostics):
+        # A candidate that stays within the lateral axis prior and along-axis span
+        # prior is a normal, small per-frame update of the global envelope. This
+        # deliberately ignores the display-point endpoint jump, which for an
+        # axis-projected A/B no longer reflects foreground motion.
+        if self._envelope_candidate_within_axis_prior(diagnostics):
             self._clear_envelope_pending()
             return self._accept_envelope_metric(
                 observation,
@@ -1246,6 +1254,59 @@ class PriorTrackingMetricSource:
         normal_x, normal_y = self._normal_unit
         return float(midpoint.x) * normal_x + float(midpoint.y) * normal_y
 
+    def _envelope_diagnostics(
+        self,
+        observation: ShapeMetric,
+        base_diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Envelope-specific diagnostics in the original-frame measurement axis.
+
+        These intentionally avoid the display-point ``endpoint_jump_px``: the
+        envelope A/B are axis-projected, so the meaningful continuity signals are
+        the lateral axis offset (``axis_offset_px``), the along-axis span change
+        and the per-bin/endpoint support strength.
+        """
+        point_a = _shape_metric_point(observation.point_a_px)
+        point_b = _shape_metric_point(observation.point_b_px)
+        candidate_axis_offset = observation.meta.get("axis_offset_px")
+        if candidate_axis_offset is None:
+            candidate_axis_offset = self._envelope_axis_offset_px(point_a, point_b)
+        else:
+            candidate_axis_offset = float(candidate_axis_offset)
+        last_good_axis_offset = self._envelope_axis_offset_px(
+            self._last_good_point_a, self._last_good_point_b
+        )
+        candidate_axis_jump = (
+            None
+            if candidate_axis_offset is None or last_good_axis_offset is None
+            else abs(float(candidate_axis_offset) - float(last_good_axis_offset))
+        )
+        return {
+            "candidate_axis_offset_px": candidate_axis_offset,
+            "last_good_axis_offset_px": last_good_axis_offset,
+            "candidate_axis_jump_px": candidate_axis_jump,
+            "span_change_px": base_diagnostics.get("span_change_px"),
+            "span_change_ratio": base_diagnostics.get("span_change_ratio"),
+            "envelope_support_px": observation.meta.get("envelope_support_px"),
+            "endpoint_support_left_px": observation.meta.get("endpoint_support_left_px"),
+            "endpoint_support_right_px": observation.meta.get("endpoint_support_right_px"),
+            "selected_candidate_score": observation.meta.get("selected_candidate_score"),
+        }
+
+    def _envelope_candidate_within_axis_prior(self, diagnostics: dict[str, Any]) -> bool:
+        """Whether the envelope candidate is a small, continuous axis update.
+
+        Uses the lateral axis jump and along-axis span change as the prior, not
+        the display-point endpoint jump, so along-direction endpoint jiggle on a
+        stable widest band is accepted instead of being treated as a relocation.
+        """
+        axis_jump = diagnostics.get("candidate_axis_jump_px")
+        if axis_jump is None:
+            return False
+        if float(axis_jump) > self._max_midpoint_drift_px:
+            return False
+        return self._span_change_within_limits(diagnostics)
+
     def _envelope_lateral_drift_px(self, diagnostics: dict[str, Any]) -> float | None:
         lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
         if lateral_drift_px is not None:
@@ -1260,6 +1321,21 @@ class PriorTrackingMetricSource:
         point_b = _shape_metric_point(observation.point_b_px)
         if point_a is None or point_b is None:
             return False
+        # Continuity for an axis-projected envelope is a stable lateral axis
+        # position plus a stable span, NOT a small display-endpoint distance.
+        pending_axis = self._envelope_axis_offset_px(
+            self._pending_envelope_point_a, self._pending_envelope_point_b
+        )
+        candidate_axis = self._envelope_axis_offset_px(point_a, point_b)
+        axis_tolerance_px = max(6.0, self._max_midpoint_drift_px)
+        if pending_axis is not None and candidate_axis is not None:
+            if abs(float(candidate_axis) - float(pending_axis)) > axis_tolerance_px:
+                return False
+            if self._pending_envelope_span_px is not None and observation.metric_raw is not None:
+                span_tolerance_px = max(6.0, self._pending_envelope_span_px * max(self._max_span_change_ratio, 0.05))
+                return abs(float(observation.metric_raw) - float(self._pending_envelope_span_px)) <= span_tolerance_px
+            return True
+        # No usable axis (missing normal): fall back to display-point distance.
         tolerance_px = max(6.0, self._max_endpoint_jump_px)
         return (
             _point_distance(self._pending_envelope_point_a, point_a) <= tolerance_px
@@ -1292,13 +1368,6 @@ class PriorTrackingMetricSource:
         total_samples: int,
         state: str,
     ) -> ShapeMetric:
-        last_good_axis_offset = self._envelope_axis_offset_px(
-            self._last_good_point_a, self._last_good_point_b
-        )
-        candidate_axis_offset = self._envelope_axis_offset_px(
-            _shape_metric_point(observation.point_a_px),
-            _shape_metric_point(observation.point_b_px),
-        )
         self._remember(observation)
         self._consecutive_misses = 0
         self._clear_pending_reacquire()
@@ -1307,12 +1376,10 @@ class PriorTrackingMetricSource:
         observation.meta["sample_index"] = sample_index
         observation.meta["total_samples"] = total_samples
         observation.meta["envelope_reject_reason"] = observation.meta.get("envelope_reject_reason")
-        observation.meta["last_good_axis_offset"] = last_good_axis_offset
-        observation.meta["candidate_axis_jump_px"] = (
-            None
-            if last_good_axis_offset is None or candidate_axis_offset is None
-            else abs(float(candidate_axis_offset) - float(last_good_axis_offset))
-        )
+        # ``diagnostics`` already carries the envelope axis metrics
+        # (candidate_axis_offset_px, last_good_axis_offset_px, candidate_axis_jump_px)
+        # merged in by ``extract``; they describe the candidate relative to the
+        # previously accepted A/B, so update before they are overwritten by remember.
         observation.meta.update(diagnostics)
         return observation
 
@@ -1352,6 +1419,14 @@ class PriorTrackingMetricSource:
             "selected_component_count",
             "rejected_component_count",
             "envelope_candidate_count",
+            "axis_offset_px",
+            "target_geometry_mode",
+            "projection_point_mode",
+            "display_point_mode",
+            "source_point_mode",
+            "metric_raw_mode",
+            "configured_envelope_min_support_px",
+            "effective_envelope_min_support_px",
         ):
             if key in observation.meta:
                 metric.meta[key] = observation.meta.get(key)
@@ -2988,9 +3063,18 @@ def _telemetry_row(
         "selected_candidate_span": metric_meta.get("selected_candidate_span"),
         "selected_candidate_axis_offset": metric_meta.get("selected_candidate_axis_offset"),
         "envelope_reject_reason": metric_meta.get("envelope_reject_reason"),
+        "rejection_reason": metric_meta.get("reason"),
+        "metric_raw": metric.metric_raw,
+        "candidate_axis_offset_px": metric_meta.get("candidate_axis_offset_px"),
         "last_good_axis_offset": metric_meta.get("last_good_axis_offset"),
+        "last_good_axis_offset_px": metric_meta.get("last_good_axis_offset_px"),
         "candidate_axis_jump_px": metric_meta.get("candidate_axis_jump_px"),
         "axis_offset_px": metric_meta.get("axis_offset_px"),
+        "display_point_mode": metric_meta.get("display_point_mode"),
+        "source_point_mode": metric_meta.get("source_point_mode"),
+        "metric_raw_mode": metric_meta.get("metric_raw_mode"),
+        "configured_envelope_min_support_px": metric_meta.get("configured_envelope_min_support_px"),
+        "effective_envelope_min_support_px": metric_meta.get("effective_envelope_min_support_px"),
         "reason": metric_meta.get("reason"),
         "observation_selection_mode": metric_meta.get("observation_selection_mode"),
         "observation_reason": metric_meta.get("observation_reason"),

@@ -493,6 +493,147 @@ def test_envelope_metric_meta_exposes_debug_fields() -> None:
     assert metric.meta["axis_offset_px"] == pytest.approx(39.0, abs=1.0)
 
 
+def _make_processing_geometry(
+    *, roi_x: int, roi_y: int, scale: float
+) -> contour_direction._ProcessingGeometry:
+    width = max(1, int(round(160 * scale)))
+    height = max(1, int(round(100 * scale)))
+    return contour_direction._ProcessingGeometry(
+        crop=np.zeros((height, width), dtype=np.uint8),
+        original_roi=RectRegion(x=roi_x, y=roi_y, width=160, height=100),
+        scale_x=scale,
+        scale_y=scale,
+    )
+
+
+def test_envelope_axis_prior_roundtrip_nonzero_roi() -> None:
+    # An original-frame axis offset must round-trip through the processing-space
+    # conversion and back, even when the analysis ROI origin is non-zero. The
+    # naive ``global * scale`` conversion (the old bug) must NOT match.
+    geometry = _make_processing_geometry(roi_x=137, roi_y=211, scale=0.5)
+    angle_deg = 0.0
+    global_axis = 423.0
+
+    processing_axis = contour_direction._axis_offset_to_processing_space(
+        global_axis, geometry, angle_deg
+    )
+    restored_global = contour_direction._axis_offset_to_original_space(
+        processing_axis, geometry, angle_deg
+    )
+
+    assert restored_global == pytest.approx(global_axis, abs=1e-6)
+    # For angle 0 the normal is [0, 1] so origin.normal == roi_y == 211; the
+    # processing-space prior is therefore (423 - 211) * 0.5 == 106, not 423*0.5.
+    assert processing_axis == pytest.approx((global_axis - 211.0) * 0.5, abs=1e-6)
+    assert abs(processing_axis - global_axis * geometry.scale) > 1.0
+
+
+def test_envelope_axis_prior_nonzero_roi_lands_on_processing_lateral() -> None:
+    # A foreground row 30 px into a downscaled ROI must map to processing-local
+    # lateral 15 (= 30 * scale), not the global value.
+    geometry = _make_processing_geometry(roi_x=40, roi_y=211, scale=0.5)
+    global_axis = 211.0 + 30.0  # 30 px below the ROI top edge in original space
+
+    processing_axis = contour_direction._axis_offset_to_processing_space(
+        global_axis, geometry, 0.0
+    )
+
+    assert processing_axis == pytest.approx(15.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("global_axis", [-50.0, 0.0, 73.5, 512.0])
+def test_envelope_axis_prior_roundtrip_rotated_25deg(global_axis: float) -> None:
+    geometry = _make_processing_geometry(roi_x=88, roi_y=140, scale=0.5)
+    angle_deg = 25.0
+
+    processing_axis = contour_direction._axis_offset_to_processing_space(
+        global_axis, geometry, angle_deg
+    )
+    restored_global = contour_direction._axis_offset_to_original_space(
+        processing_axis, geometry, angle_deg
+    )
+
+    assert restored_global == pytest.approx(global_axis, abs=1e-6)
+
+
+def test_envelope_source_points_debug_only_display_points_parallel() -> None:
+    # Source (foreground support) points may be tilted off the axis, but the
+    # displayed A/B is axis-projected and parallel. The meta must advertise both
+    # modes so a debug overlay never mistakes a support point for the final A/B.
+    image = np.full((120, 240), 240, dtype=np.uint8)
+    image[40:44, 40:122] = 30
+    image[50:54, 118:190] = 30
+    extractor = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=120, center_y=60, width=220, height=100, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        )
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    display_a = PixelPoint(x=int(metric.point_a_px[0]), y=int(metric.point_a_px[1]))
+    display_b = PixelPoint(x=int(metric.point_b_px[0]), y=int(metric.point_b_px[1]))
+    source_a = PixelPoint(x=int(metric.meta["source_point_a_px"][0]), y=int(metric.meta["source_point_a_px"][1]))
+    source_b = PixelPoint(x=int(metric.meta["source_point_b_px"][0]), y=int(metric.meta["source_point_b_px"][1]))
+
+    assert metric.meta["display_point_mode"] == "axis_projected"
+    assert metric.meta["source_point_mode"] == "foreground_support"
+    assert metric.meta["metric_raw_mode"] == "along_axis_span"
+    assert _angle_diff_deg(_segment_angle_deg(display_a, display_b), 0.0) <= 1.0
+    # Source support spans different filament rows, so it is tilted off the axis.
+    assert _angle_diff_deg(_segment_angle_deg(source_a, source_b), 0.0) > 2.0
+    assert (display_a.x, display_a.y) != (source_a.x, source_a.y) or (
+        display_b.x,
+        display_b.y,
+    ) != (source_b.x, source_b.y)
+
+
+def test_mesh_lattice_effective_support_visible_or_respected() -> None:
+    # A configured support of 3 is the "not customized" default; mesh_lattice
+    # raises the effective floor to 20. Both values must be exposed so the UI can
+    # show what the algorithm actually used instead of misleading the operator.
+    assert contour_direction.resolve_envelope_min_support_px("mesh_lattice", 3) == 20
+
+    image = np.full((120, 200), 240, dtype=np.uint8)
+    image[40:80, 40:160] = 30  # solid block, plenty of per-bin support
+    extractor = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=200, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=100, center_y=60, width=180, height=100, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="mesh_lattice",
+            envelope_min_support_px=3,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        )
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.meta["target_geometry_mode"] == "mesh_lattice"
+    assert metric.meta["configured_envelope_min_support_px"] == 3
+    assert metric.meta["effective_envelope_min_support_px"] == 20
+    # The algorithm actually used the raised floor, so support must clear it.
+    assert int(metric.meta["envelope_support_px"]) >= 20
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20

@@ -102,6 +102,8 @@ class DirectionalContourResult:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    configured_envelope_min_support_px: int | None = None
+    effective_envelope_min_support_px: int | None = None
     resolved_measurement_angle_deg: float | None = None
     metric_box_angle_deg: float | None = None
     angle_delta_deg: float | None = None
@@ -196,6 +198,8 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                     "display_point_mode": "axis_projected",
                     "source_point_mode": "foreground_support",
                     "metric_raw_mode": "along_axis_span",
+                    "configured_envelope_min_support_px": result.configured_envelope_min_support_px,
+                    "effective_envelope_min_support_px": result.effective_envelope_min_support_px,
                 }
             )
         return ShapeMetric(
@@ -251,6 +255,8 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    configured_envelope_min_support_px: int | None = None
+    effective_envelope_min_support_px: int | None = None
     if projection_mode == "envelope_max_width":
         component_mask, selected_component_count, rejected_component_count = _envelope_target_mask(
             mask,
@@ -281,7 +287,11 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             axis_prior_px=(
                 None
                 if config.envelope_axis_prior_px is None
-                else float(config.envelope_axis_prior_px) * scale
+                else _axis_offset_to_processing_space(
+                    float(config.envelope_axis_prior_px),
+                    processing,
+                    resolved_angle_deg,
+                )
             ),
             axis_prior_tolerance_px=(
                 None
@@ -297,6 +307,13 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_right_px = projection.endpoint_support_right_px
         selected_candidate_score = projection.selected_candidate_score
         envelope_reject_reason = projection.candidate_reject_reason
+        configured_envelope_min_support_px = int(config.envelope_min_support_px)
+        effective_envelope_min_support_px = int(
+            resolve_envelope_min_support_px(
+                target_geometry_mode,
+                int(config.envelope_min_support_px),
+            )
+        )
         contour_xy = _component_boundary_xy_numpy(boundary_mask, processing_roi)
     else:
         component_mask = _largest_component_mask(
@@ -409,6 +426,8 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_right_px=endpoint_support_right_px,
         selected_candidate_score=selected_candidate_score,
         envelope_reject_reason=envelope_reject_reason,
+        configured_envelope_min_support_px=configured_envelope_min_support_px,
+        effective_envelope_min_support_px=effective_envelope_min_support_px,
         axis_offset_px=float(projection.axis_offset_px),
         resolved_measurement_angle_deg=resolved_angle_deg,
         metric_box_angle_deg=metric_box_angle_deg,
@@ -1342,7 +1361,11 @@ def _projection_to_original_roi(
         axis_point_b=axis_point_b,
         metric_raw=_distance_between(point_a, point_b),
         direction_angle_deg=float(projection.direction_angle_deg),
-        axis_offset_px=_axis_offset_to_original_space(projection, geometry),
+        axis_offset_px=_axis_offset_to_original_space(
+            float(projection.axis_offset_px),
+            geometry,
+            float(projection.direction_angle_deg),
+        ),
         envelope_support_px=projection.envelope_support_px,
         envelope_candidate_count=projection.envelope_candidate_count,
         side_guard_foreground_area=projection.side_guard_foreground_area,
@@ -1422,19 +1445,44 @@ def _refine_projection_on_original_axis(
         return projection
 
 
+def _axis_normal_vector(angle_deg: float) -> np.ndarray:
+    angle_rad = math.radians(float(angle_deg))
+    return np.array([-math.sin(angle_rad), math.cos(angle_rad)], dtype=float)
+
+
 def _axis_offset_to_original_space(
-    projection: DirectionalProjection,
+    axis_offset_px: float,
     geometry: _ProcessingGeometry,
+    angle_deg: float,
 ) -> float:
-    normal = np.array(
-        [
-            -math.sin(math.radians(float(projection.direction_angle_deg))),
-            math.cos(math.radians(float(projection.direction_angle_deg))),
-        ],
-        dtype=float,
-    )
+    """Map a processing-crop-local lateral offset back to the original frame.
+
+    The envelope measurement works on the (possibly downscaled) processing crop
+    whose pixel origin is (0, 0); the original analysis ROI lives at
+    ``original_roi.(x, y)``. A lateral offset is ``point . normal``; converting
+    back to the original frame therefore divides by the processing scale and adds
+    the projection of the ROI origin onto the normal.
+    """
+    normal = _axis_normal_vector(angle_deg)
     origin = np.array([float(geometry.original_roi.x), float(geometry.original_roi.y)], dtype=float)
-    return float(origin @ normal) + float(projection.axis_offset_px) / max(float(geometry.scale), 1e-9)
+    return float(origin @ normal) + float(axis_offset_px) / max(float(geometry.scale), 1e-9)
+
+
+def _axis_offset_to_processing_space(
+    axis_offset_original: float,
+    geometry: _ProcessingGeometry,
+    angle_deg: float,
+) -> float:
+    """Strict inverse of :func:`_axis_offset_to_original_space`.
+
+    Maps an original-frame lateral offset (e.g. the tracking axis prior, which is
+    ``midpoint_global . normal``) into the processing-crop-local coordinate frame
+    that :func:`measure_component_envelope_max_width` operates in. Multiplying by
+    the scale alone is wrong because it omits the ROI-origin projection.
+    """
+    normal = _axis_normal_vector(angle_deg)
+    origin = np.array([float(geometry.original_roi.x), float(geometry.original_roi.y)], dtype=float)
+    return (float(axis_offset_original) - float(origin @ normal)) * float(geometry.scale)
 
 
 def _original_axis_refinement_tolerance_px(geometry: _ProcessingGeometry) -> float:
