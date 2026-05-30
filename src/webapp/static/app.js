@@ -76,6 +76,13 @@ const liveTargetGeometryModeSelect = document.getElementById("live-target-geomet
 const liveSideGuardRatioInput = document.getElementById("live-side-guard-ratio");
 const liveEnvelopeMinSupportInput = document.getElementById("live-envelope-min-support");
 const liveEnvelopeQuantileInput = document.getElementById("live-envelope-quantile");
+const liveEnvelopeBinWidthInput = document.getElementById("live-envelope-bin-width");
+const liveEnvelopeLateralWindowInput = document.getElementById("live-envelope-lateral-window");
+const liveEnvelopeEndpointRadiusInput = document.getElementById("live-envelope-endpoint-radius");
+const liveEnvelopeEndpointMinSupportInput = document.getElementById("live-envelope-endpoint-min-support");
+const liveEnvelopeRelocateConfirmInput = document.getElementById("live-envelope-relocate-confirm");
+const liveEnvelopeNearTieRatioInput = document.getElementById("live-envelope-near-tie-ratio");
+const liveEnvelopeImmediateGainRatioInput = document.getElementById("live-envelope-immediate-gain-ratio");
 const liveIgnoreInternalTextureInput = document.getElementById("live-ignore-internal-texture");
 const liveMinTargetAreaInput = document.getElementById("live-min-target-area");
 const liveSensitivityInput = document.getElementById("live-sensitivity");
@@ -471,6 +478,13 @@ const TRANSLATIONS = {
     "home.sections.detection.side_guard": "Side Guard Ratio",
     "home.sections.detection.envelope_min_support": "Envelope Min Support (px)",
     "home.sections.detection.envelope_quantile": "Envelope Quantile Trim",
+    "home.sections.detection.envelope_bin_width": "Envelope Normal Bin (px)",
+    "home.sections.detection.envelope_lateral_window": "Envelope Lateral Window (bins)",
+    "home.sections.detection.envelope_endpoint_radius": "Endpoint Support Radius (px)",
+    "home.sections.detection.envelope_endpoint_min_support": "Endpoint Min Support (px)",
+    "home.sections.detection.envelope_relocate_confirm": "Envelope Relocate Confirm Frames",
+    "home.sections.detection.envelope_near_tie_ratio": "Envelope Near-Tie Span Ratio",
+    "home.sections.detection.envelope_immediate_gain_ratio": "Envelope Immediate Gain Ratio",
     "home.sections.detection.min_area": "Min Area",
     "home.sections.detection.ignore_texture": "Ignore Texture",
     "home.sections.ab.title": "A/B Status",
@@ -2021,6 +2035,41 @@ function currentEnvelopeQuantile() {
   return clamp(Number.isFinite(rawValue) ? rawValue : 0, 0, 0.2);
 }
 
+function currentEnvelopeNormalBinWidthPx() {
+  const rawValue = getNumericInputValue(liveEnvelopeBinWidthInput, 5);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 5, 0.5, 64);
+}
+
+function currentEnvelopeLateralWindowBins() {
+  const rawValue = getNumericInputValue(liveEnvelopeLateralWindowInput, 1);
+  return Math.round(clamp(Number.isFinite(rawValue) ? rawValue : 1, 0, 32));
+}
+
+function currentEnvelopeEndpointSupportRadiusPx() {
+  const rawValue = getNumericInputValue(liveEnvelopeEndpointRadiusInput, 3);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 3, 0, 64);
+}
+
+function currentEnvelopeEndpointMinSupportPx() {
+  const rawValue = getNumericInputValue(liveEnvelopeEndpointMinSupportInput, 3);
+  return Math.round(clamp(Number.isFinite(rawValue) ? rawValue : 3, 0, 500));
+}
+
+function currentEnvelopeRelocateConfirmFrames() {
+  const rawValue = getNumericInputValue(liveEnvelopeRelocateConfirmInput, 3);
+  return Math.round(clamp(Number.isFinite(rawValue) ? rawValue : 3, 1, 60));
+}
+
+function currentEnvelopeNearTieSpanRatio() {
+  const rawValue = getNumericInputValue(liveEnvelopeNearTieRatioInput, 0.03);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 0.03, 0, 1);
+}
+
+function currentEnvelopeImmediateSpanGainRatio() {
+  const rawValue = getNumericInputValue(liveEnvelopeImmediateGainRatioInput, 0.12);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 0.12, 0, 2);
+}
+
 function mapDefinitionToCoordinateSpace(definition, coordinateSpace = "preview") {
   if (!definition) {
     return null;
@@ -2166,6 +2215,21 @@ function normalizeDefinitionForComparison(definition) {
     side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio()),
     envelope_min_support_px: Number(definition.envelope_min_support_px ?? currentEnvelopeMinSupportPx()),
     envelope_quantile: Number(definition.envelope_quantile ?? currentEnvelopeQuantile()),
+    envelope_normal_bin_width_px: Number(definition.envelope_normal_bin_width_px ?? currentEnvelopeNormalBinWidthPx()),
+    envelope_lateral_window_bins: Number(definition.envelope_lateral_window_bins ?? currentEnvelopeLateralWindowBins()),
+    envelope_endpoint_support_radius_px: Number(
+      definition.envelope_endpoint_support_radius_px ?? currentEnvelopeEndpointSupportRadiusPx(),
+    ),
+    envelope_endpoint_min_support_px: Number(
+      definition.envelope_endpoint_min_support_px ?? currentEnvelopeEndpointMinSupportPx(),
+    ),
+    envelope_relocate_confirm_frames: Number(
+      definition.envelope_relocate_confirm_frames ?? currentEnvelopeRelocateConfirmFrames(),
+    ),
+    envelope_near_tie_span_ratio: Number(definition.envelope_near_tie_span_ratio ?? currentEnvelopeNearTieSpanRatio()),
+    envelope_immediate_span_gain_ratio: Number(
+      definition.envelope_immediate_span_gain_ratio ?? currentEnvelopeImmediateSpanGainRatio(),
+    ),
   };
 }
 
@@ -2235,6 +2299,14 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     side_guard_ratio: Number(payload.side_guard_ratio ?? currentSideGuardRatio()),
     envelope_support_px: payload.envelope_support_px ?? null,
     envelope_candidate_count: payload.envelope_candidate_count ?? null,
+    selected_component_count: payload.selected_component_count ?? null,
+    rejected_component_count: payload.rejected_component_count ?? null,
+    endpoint_support_left_px: payload.endpoint_support_left_px ?? null,
+    endpoint_support_right_px: payload.endpoint_support_right_px ?? null,
+    selected_candidate_score: payload.selected_candidate_score ?? null,
+    side_guard_foreground_area: payload.side_guard_foreground_area ?? null,
+    envelope_reject_reason: payload.envelope_reject_reason ?? null,
+    tracking_state: payload.tracking_state ?? null,
   };
 }
 
@@ -2255,6 +2327,14 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     side_guard_ratio: Number(latestTelemetry.side_guard_ratio ?? currentSideGuardRatio()),
     envelope_support_px: latestTelemetry.envelope_support_px ?? null,
     envelope_candidate_count: latestTelemetry.envelope_candidate_count ?? null,
+    selected_component_count: latestTelemetry.selected_component_count ?? null,
+    rejected_component_count: latestTelemetry.rejected_component_count ?? null,
+    endpoint_support_left_px: latestTelemetry.endpoint_support_left_px ?? null,
+    endpoint_support_right_px: latestTelemetry.endpoint_support_right_px ?? null,
+    selected_candidate_score: latestTelemetry.selected_candidate_score ?? null,
+    side_guard_foreground_area: latestTelemetry.side_guard_foreground_area ?? null,
+    envelope_reject_reason: latestTelemetry.envelope_reject_reason ?? null,
+    tracking_state: latestTelemetry.tracking_state ?? null,
     point_a_px: pointA,
     point_b_px: pointB,
   };
@@ -2653,6 +2733,27 @@ function fillLiveDefinitionInputs(definition, { updatePoints = true } = {}) {
   }
   if (liveEnvelopeQuantileInput) {
     liveEnvelopeQuantileInput.value = String(uiDefinition.envelope_quantile ?? 0);
+  }
+  if (liveEnvelopeBinWidthInput) {
+    liveEnvelopeBinWidthInput.value = String(uiDefinition.envelope_normal_bin_width_px ?? 5);
+  }
+  if (liveEnvelopeLateralWindowInput) {
+    liveEnvelopeLateralWindowInput.value = String(uiDefinition.envelope_lateral_window_bins ?? 1);
+  }
+  if (liveEnvelopeEndpointRadiusInput) {
+    liveEnvelopeEndpointRadiusInput.value = String(uiDefinition.envelope_endpoint_support_radius_px ?? 3);
+  }
+  if (liveEnvelopeEndpointMinSupportInput) {
+    liveEnvelopeEndpointMinSupportInput.value = String(uiDefinition.envelope_endpoint_min_support_px ?? 3);
+  }
+  if (liveEnvelopeRelocateConfirmInput) {
+    liveEnvelopeRelocateConfirmInput.value = String(uiDefinition.envelope_relocate_confirm_frames ?? 3);
+  }
+  if (liveEnvelopeNearTieRatioInput) {
+    liveEnvelopeNearTieRatioInput.value = String(uiDefinition.envelope_near_tie_span_ratio ?? 0.03);
+  }
+  if (liveEnvelopeImmediateGainRatioInput) {
+    liveEnvelopeImmediateGainRatioInput.value = String(uiDefinition.envelope_immediate_span_gain_ratio ?? 0.12);
   }
   if (liveIgnoreInternalTextureInput) {
     liveIgnoreInternalTextureInput.checked = Boolean(uiDefinition.ignore_internal_texture);
@@ -3427,6 +3528,13 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     side_guard_ratio: currentSideGuardRatio(),
     envelope_min_support_px: currentEnvelopeMinSupportPx(),
     envelope_quantile: currentEnvelopeQuantile(),
+    envelope_normal_bin_width_px: currentEnvelopeNormalBinWidthPx(),
+    envelope_lateral_window_bins: currentEnvelopeLateralWindowBins(),
+    envelope_endpoint_support_radius_px: currentEnvelopeEndpointSupportRadiusPx(),
+    envelope_endpoint_min_support_px: currentEnvelopeEndpointMinSupportPx(),
+    envelope_relocate_confirm_frames: currentEnvelopeRelocateConfirmFrames(),
+    envelope_near_tie_span_ratio: currentEnvelopeNearTieSpanRatio(),
+    envelope_immediate_span_gain_ratio: currentEnvelopeImmediateSpanGainRatio(),
     ignore_internal_texture: liveIgnoreInternalTextureInput ? liveIgnoreInternalTextureInput.checked : false,
     min_target_area_px: getNumericInputValue(liveMinTargetAreaInput, 200),
     sensitivity: getNumericInputValue(liveSensitivityInput, 50),
@@ -3785,6 +3893,27 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     }
     if (liveEnvelopeQuantileInput && payload.envelope_quantile != null) {
       liveEnvelopeQuantileInput.value = String(payload.envelope_quantile);
+    }
+    if (liveEnvelopeBinWidthInput && payload.envelope_normal_bin_width_px != null) {
+      liveEnvelopeBinWidthInput.value = String(payload.envelope_normal_bin_width_px);
+    }
+    if (liveEnvelopeLateralWindowInput && payload.envelope_lateral_window_bins != null) {
+      liveEnvelopeLateralWindowInput.value = String(payload.envelope_lateral_window_bins);
+    }
+    if (liveEnvelopeEndpointRadiusInput && payload.envelope_endpoint_support_radius_px != null) {
+      liveEnvelopeEndpointRadiusInput.value = String(payload.envelope_endpoint_support_radius_px);
+    }
+    if (liveEnvelopeEndpointMinSupportInput && payload.envelope_endpoint_min_support_px != null) {
+      liveEnvelopeEndpointMinSupportInput.value = String(payload.envelope_endpoint_min_support_px);
+    }
+    if (liveEnvelopeRelocateConfirmInput && payload.envelope_relocate_confirm_frames != null) {
+      liveEnvelopeRelocateConfirmInput.value = String(payload.envelope_relocate_confirm_frames);
+    }
+    if (liveEnvelopeNearTieRatioInput && payload.envelope_near_tie_span_ratio != null) {
+      liveEnvelopeNearTieRatioInput.value = String(payload.envelope_near_tie_span_ratio);
+    }
+    if (liveEnvelopeImmediateGainRatioInput && payload.envelope_immediate_span_gain_ratio != null) {
+      liveEnvelopeImmediateGainRatioInput.value = String(payload.envelope_immediate_span_gain_ratio);
     }
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);
@@ -6606,6 +6735,15 @@ for (const liveInput of [
   liveDirectionProjectionModeSelect,
   liveTargetGeometryModeSelect,
   liveSideGuardRatioInput,
+  liveEnvelopeMinSupportInput,
+  liveEnvelopeQuantileInput,
+  liveEnvelopeBinWidthInput,
+  liveEnvelopeLateralWindowInput,
+  liveEnvelopeEndpointRadiusInput,
+  liveEnvelopeEndpointMinSupportInput,
+  liveEnvelopeRelocateConfirmInput,
+  liveEnvelopeNearTieRatioInput,
+  liveEnvelopeImmediateGainRatioInput,
   liveIgnoreInternalTextureInput,
   liveMinTargetAreaInput,
 ]) {
@@ -6614,7 +6752,17 @@ for (const liveInput of [
     liveInput.addEventListener("change", updateLiveDefinitionAfterLocalEdit);
   }
 }
-for (const envelopeInput of [liveDirectionProjectionModeSelect, liveTargetGeometryModeSelect, liveSideGuardRatioInput]) {
+for (const envelopeInput of [
+  liveDirectionProjectionModeSelect,
+  liveTargetGeometryModeSelect,
+  liveSideGuardRatioInput,
+  liveEnvelopeMinSupportInput,
+  liveEnvelopeQuantileInput,
+  liveEnvelopeBinWidthInput,
+  liveEnvelopeLateralWindowInput,
+  liveEnvelopeEndpointRadiusInput,
+  liveEnvelopeEndpointMinSupportInput,
+]) {
   if (envelopeInput) {
     envelopeInput.addEventListener("change", () => {
       scheduleRoiPointRecompute({

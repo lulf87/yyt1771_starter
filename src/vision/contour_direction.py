@@ -11,7 +11,14 @@ from scipy import ndimage
 from scipy.spatial import cKDTree
 
 from src.core.contracts import VisionMetricExtractor
-from src.core.models import FramePacket, MetricBox, PixelPoint, RectRegion, ShapeMetric
+from src.core.models import (
+    FramePacket,
+    MetricBox,
+    PixelPoint,
+    RectRegion,
+    ShapeMetric,
+    resolve_envelope_min_support_px,
+)
 
 
 @dataclass(slots=True)
@@ -32,6 +39,12 @@ class DirectionalContourConfig:
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
     envelope_quantile: float = 0.0
+    envelope_normal_bin_width_px: float = 5.0
+    envelope_lateral_window_bins: int = 1
+    envelope_endpoint_support_radius_px: float = 3.0
+    envelope_endpoint_min_support_px: int = 3
+    envelope_axis_prior_px: float | None = None
+    envelope_axis_prior_tolerance_px: float | None = None
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
     max_chord_prior_point_a: PixelPoint | None = None
@@ -54,6 +67,10 @@ class DirectionalProjection:
     envelope_support_px: int | None = None
     envelope_candidate_count: int | None = None
     side_guard_foreground_area: int | None = None
+    endpoint_support_left_px: int | None = None
+    endpoint_support_right_px: int | None = None
+    selected_candidate_score: float | None = None
+    candidate_reject_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -76,10 +93,15 @@ class DirectionalContourResult:
     raw_component_fill_ratio: float | None = None
     target_geometry_mode: str = "single_component"
     selected_component_count: int = 1
+    rejected_component_count: int = 0
     envelope_candidate_count: int | None = None
     side_guard_foreground_area: int | None = None
     envelope_support_px: int | None = None
     axis_offset_px: float | None = None
+    endpoint_support_left_px: int | None = None
+    endpoint_support_right_px: int | None = None
+    selected_candidate_score: float | None = None
+    envelope_reject_reason: str | None = None
 
 
 class DirectionalContourDetectionError(RuntimeError):
@@ -141,9 +163,16 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                 "projection_point_mode": result.projection_point_mode,
                 "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
                 "selected_component_count": result.selected_component_count,
+                "rejected_component_count": result.rejected_component_count,
                 "envelope_candidate_count": result.envelope_candidate_count,
                 "side_guard_foreground_area": result.side_guard_foreground_area,
                 "envelope_support_px": result.envelope_support_px,
+                "endpoint_support_left_px": result.endpoint_support_left_px,
+                "endpoint_support_right_px": result.endpoint_support_right_px,
+                "selected_candidate_score": result.selected_candidate_score,
+                "selected_candidate_span": result.metric_raw,
+                "selected_candidate_axis_offset": result.axis_offset_px,
+                "envelope_reject_reason": result.envelope_reject_reason,
                 "axis_offset_px": result.axis_offset_px,
             },
         )
@@ -172,17 +201,23 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     mask = _cleanup_mask(cv2, mask, config)
     target_geometry_mode = str(config.target_geometry_mode or "single_component")
     selected_component_count = 1
+    rejected_component_count = 0
     envelope_candidate_count: int | None = None
     side_guard_foreground_area: int | None = None
     envelope_support_px: int | None = None
+    endpoint_support_left_px: int | None = None
+    endpoint_support_right_px: int | None = None
+    selected_candidate_score: float | None = None
+    envelope_reject_reason: str | None = None
     if projection_mode == "envelope_max_width":
-        component_mask, selected_component_count = _envelope_target_mask(
+        component_mask, selected_component_count, rejected_component_count = _envelope_target_mask(
             mask,
             config,
             cv2=cv2,
         )
         raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
         boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
+        scale = max(float(processing.scale), 1e-6)
         projection = measure_component_envelope_max_width(
             boundary_mask,
             processing_roi,
@@ -191,13 +226,35 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             clip_region=processing_roi,
             allowed_mask=allowed_mask,
             side_guard_ratio=float(config.side_guard_ratio),
+            normal_bin_width_px=max(0.5, float(config.envelope_normal_bin_width_px) * scale),
+            lateral_window_bins=int(config.envelope_lateral_window_bins),
             min_support_px=int(config.envelope_min_support_px),
+            geometry_min_support_px=resolve_envelope_min_support_px(
+                target_geometry_mode,
+                int(config.envelope_min_support_px),
+            ),
             quantile=float(config.envelope_quantile),
+            endpoint_support_radius_px=max(0.0, float(config.envelope_endpoint_support_radius_px) * scale),
+            endpoint_min_support_px=int(config.envelope_endpoint_min_support_px),
+            axis_prior_px=(
+                None
+                if config.envelope_axis_prior_px is None
+                else float(config.envelope_axis_prior_px) * scale
+            ),
+            axis_prior_tolerance_px=(
+                None
+                if config.envelope_axis_prior_tolerance_px is None
+                else float(config.envelope_axis_prior_tolerance_px) * scale
+            ),
         )
         projection_point_mode = "envelope_max_width"
         envelope_candidate_count = projection.envelope_candidate_count
         side_guard_foreground_area = projection.side_guard_foreground_area
         envelope_support_px = projection.envelope_support_px
+        endpoint_support_left_px = projection.endpoint_support_left_px
+        endpoint_support_right_px = projection.endpoint_support_right_px
+        selected_candidate_score = projection.selected_candidate_score
+        envelope_reject_reason = projection.candidate_reject_reason
         contour_xy = _component_boundary_xy_numpy(boundary_mask, processing_roi)
     else:
         component_mask = _largest_component_mask(
@@ -292,9 +349,14 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         raw_component_fill_ratio=raw_component_fill_ratio,
         target_geometry_mode=target_geometry_mode,
         selected_component_count=selected_component_count,
+        rejected_component_count=rejected_component_count,
         envelope_candidate_count=envelope_candidate_count,
         side_guard_foreground_area=side_guard_foreground_area,
         envelope_support_px=envelope_support_px,
+        endpoint_support_left_px=endpoint_support_left_px,
+        endpoint_support_right_px=endpoint_support_right_px,
+        selected_candidate_score=selected_candidate_score,
+        envelope_reject_reason=envelope_reject_reason,
         axis_offset_px=float(projection.axis_offset_px),
     )
 
@@ -487,9 +549,15 @@ def measure_component_envelope_max_width(
     clip_region: RectRegion | None = None,
     allowed_mask: np.ndarray | None = None,
     normal_bin_width_px: float = 1.0,
+    lateral_window_bins: int = 0,
     side_guard_ratio: float = 0.0,
     min_support_px: int = 3,
+    geometry_min_support_px: int | None = None,
     quantile: float = 0.0,
+    endpoint_support_radius_px: float = 0.0,
+    endpoint_min_support_px: int = 0,
+    axis_prior_px: float | None = None,
+    axis_prior_tolerance_px: float | None = None,
 ) -> DirectionalProjection:
     rows, cols = np.where(np.asarray(component_mask) > 0)
     if len(rows) == 0:
@@ -517,15 +585,31 @@ def measure_component_envelope_max_width(
     bin_width = max(0.5, float(normal_bin_width_px))
     median_lateral = float(np.median(lateral))
     bin_indices = np.round((lateral - median_lateral) / bin_width).astype(np.int64)
-    min_support = max(2, int(min_support_px))
+    effective_min_support = max(2, int(min_support_px))
+    if geometry_min_support_px is not None:
+        effective_min_support = max(effective_min_support, int(geometry_min_support_px))
     endpoint_quantile = max(0.0, min(0.20, float(quantile)))
+    window = max(0, int(lateral_window_bins))
+    endpoint_radius = max(0.0, float(endpoint_support_radius_px))
+    endpoint_min_support = max(0, int(endpoint_min_support_px))
 
+    endpoint_tree: cKDTree | None = None
+    if endpoint_radius > 0.0 and endpoint_min_support > 0 and len(points) > 0:
+        endpoint_tree = cKDTree(points)
+
+    span_tolerance = max(3.0, bin_width)
     best: dict[str, Any] | None = None
+    best_supported: dict[str, Any] | None = None
     candidate_count = 0
-    for bin_index in np.unique(bin_indices):
-        indices = np.flatnonzero(bin_indices == bin_index)
+    unique_bins = np.unique(bin_indices)
+    for bin_index in unique_bins:
+        if window <= 0:
+            window_mask = bin_indices == bin_index
+        else:
+            window_mask = np.abs(bin_indices - bin_index) <= window
+        indices = np.flatnonzero(window_mask)
         support = int(len(indices))
-        if support < min_support:
+        if support < effective_min_support:
             continue
         ordered = indices[np.argsort(along[indices])]
         ordered_along = along[ordered]
@@ -539,6 +623,29 @@ def measure_component_envelope_max_width(
         if low_index == high_index:
             continue
         axis_offset = float(np.median(lateral[indices]))
+        endpoint_support_left = support
+        endpoint_support_right = support
+        if endpoint_tree is not None:
+            endpoint_support_left = int(len(endpoint_tree.query_ball_point(points[low_index], endpoint_radius)))
+            endpoint_support_right = int(len(endpoint_tree.query_ball_point(points[high_index], endpoint_radius)))
+        endpoints_supported = (
+            endpoint_min_support <= 0
+            or (
+                endpoint_support_left >= endpoint_min_support
+                and endpoint_support_right >= endpoint_min_support
+            )
+        )
+        axis_jump = None if axis_prior_px is None else abs(axis_offset - float(axis_prior_px))
+        score = _envelope_candidate_score(
+            span=span,
+            support=support,
+            endpoint_support_left=endpoint_support_left,
+            endpoint_support_right=endpoint_support_right,
+            endpoint_min_support=endpoint_min_support,
+            axis_jump=axis_jump,
+            span_tolerance=span_tolerance,
+            axis_prior_tolerance_px=axis_prior_tolerance_px,
+        )
         candidate = {
             "span": span,
             "support": support,
@@ -546,13 +653,26 @@ def measure_component_envelope_max_width(
             "low_index": low_index,
             "high_index": high_index,
             "center_distance": abs(axis_offset - median_lateral),
+            "endpoint_support_left": endpoint_support_left,
+            "endpoint_support_right": endpoint_support_right,
+            "endpoints_supported": endpoints_supported,
+            "score": score,
         }
         candidate_count += 1
         if _envelope_candidate_is_better(candidate, best):
             best = candidate
+        if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported):
+            best_supported = candidate
 
-    if best is None:
+    reject_reason: str | None = None
+    chosen = best_supported
+    if chosen is None:
+        chosen = best
+        if chosen is not None:
+            reject_reason = "weak_endpoint_support"
+    if chosen is None:
         raise DirectionalContourDetectionError("direction_projection_unavailable")
+    best = chosen
 
     source_point_a = _pixel_point_from_xy(
         points[int(best["low_index"])],
@@ -577,12 +697,57 @@ def measure_component_envelope_max_width(
         envelope_support_px=int(best["support"]),
         envelope_candidate_count=int(candidate_count),
         side_guard_foreground_area=int(guard_area),
+        endpoint_support_left_px=int(best.get("endpoint_support_left", best["support"])),
+        endpoint_support_right_px=int(best.get("endpoint_support_right", best["support"])),
+        selected_candidate_score=float(best.get("score", best["span"])),
+        candidate_reject_reason=reject_reason,
     )
+
+
+def _envelope_candidate_score(
+    *,
+    span: float,
+    support: int,
+    endpoint_support_left: int,
+    endpoint_support_right: int,
+    endpoint_min_support: int,
+    axis_jump: float | None,
+    span_tolerance: float,
+    axis_prior_tolerance_px: float | None,
+) -> float:
+    """Composite candidate score for envelope_max_width selection.
+
+    Span is the dominant term so the genuinely widest section still wins, but a
+    candidate is rewarded for strong support, penalised for weak/asymmetric
+    endpoint support, and (when a prior axis is supplied) penalised for jumping
+    laterally so near-tie spans prefer to stay continuous with the prior axis.
+    """
+    support_bonus = min(float(support), 400.0) * 0.02
+    weakest_endpoint = float(min(endpoint_support_left, endpoint_support_right))
+    endpoint_penalty = 0.0
+    if endpoint_min_support > 0:
+        deficit = max(0.0, float(endpoint_min_support) - weakest_endpoint)
+        endpoint_penalty = deficit * 2.0
+    axis_penalty = 0.0
+    if axis_jump is not None:
+        # Only meaningful for near-tie spans: weight it so a lateral jump of a
+        # few span_tolerances outweighs a sub-tolerance span gain.
+        weight = 0.6
+        if axis_prior_tolerance_px is not None and float(axis_prior_tolerance_px) > 0.0:
+            within = float(axis_jump) <= float(axis_prior_tolerance_px)
+            weight = 0.2 if within else 0.9
+        axis_penalty = float(axis_jump) * weight
+    return float(span) + support_bonus - endpoint_penalty - axis_penalty
 
 
 def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
     if current is None:
         return True
+    candidate_score = float(candidate.get("score", candidate["span"]))
+    current_score = float(current.get("score", current["span"]))
+    score_delta = candidate_score - current_score
+    if abs(score_delta) > 1e-9:
+        return score_delta > 0.0
     span_delta = float(candidate["span"]) - float(current["span"])
     if abs(span_delta) > 1e-9:
         return span_delta > 0.0
@@ -673,7 +838,7 @@ def _envelope_target_mask(
     config: DirectionalContourConfig,
     *,
     cv2: Any | None,
-) -> tuple[np.ndarray, int]:
+) -> tuple[np.ndarray, int, int]:
     foreground = np.asarray(mask) > 0
     if not bool(np.any(foreground)):
         raise DirectionalContourDetectionError("target_component_not_found")
@@ -682,25 +847,92 @@ def _envelope_target_mask(
         raise DirectionalContourDetectionError("target_component_not_found")
 
     area_floor = max(1, int(round(float(max(1, int(config.min_target_area_px))) * 0.2)))
-    selected = np.zeros_like(foreground, dtype=bool)
-    selected_count = 0
+    geometry_mode = str(config.target_geometry_mode or "single_component")
+    if geometry_mode not in {"line_bundle", "single_component", "mesh_lattice"}:
+        geometry_mode = "line_bundle"
+
+    direction = directional_unit_vector(float(config.direction_angle_deg))
+    normal = np.array([-direction[1], direction[0]], dtype=float)
+
+    components: list[dict[str, Any]] = []
+    union_kept = np.zeros_like(foreground, dtype=bool)
     for label in range(1, int(num_labels) + 1):
         component = labels == label
         area = int(np.count_nonzero(component))
         if area < area_floor:
             continue
-        selected |= component
-        selected_count += 1
-    if selected_count == 0:
+        rows, cols = np.where(component)
+        lateral = cols * float(normal[0]) + rows * float(normal[1])
+        along = cols * float(direction[0]) + rows * float(direction[1])
+        components.append(
+            {
+                "mask": component,
+                "area": area,
+                "lateral_centroid": float(np.median(lateral)),
+                "lateral_min": float(np.min(lateral)),
+                "lateral_max": float(np.max(lateral)),
+                "lateral_extent": float(np.ptp(lateral)),
+                "along_extent": float(np.ptp(along)),
+                "lateral": lateral,
+            }
+        )
+        union_kept |= component
+    if not components:
         raise DirectionalContourDetectionError("target_component_not_found")
 
-    geometry_mode = str(config.target_geometry_mode or "single_component")
+    # single_component keeps the historical union-of-all-above-floor behaviour.
+    if geometry_mode == "single_component":
+        return union_kept.astype(np.uint8) * 255, len(components), 0
+
+    # Group components into lateral clusters separated by gaps in the normal
+    # (cross-measurement) direction. A genuine line bundle stacks contiguously,
+    # so all its filaments fall into one cluster; an isolated background
+    # scratch/dot/dust/hair that sits laterally far from the bundle body forms a
+    # separate cluster. The bundle is the highest-total-area cluster, and the
+    # remaining clusters are rejected so they can never fabricate a wider span,
+    # even when a scratch is wide and elongated along the measurement direction.
+    ordered = sorted(components, key=lambda item: item["lateral_min"])
+    max_lateral_extent = max(component["lateral_extent"] for component in components)
+    gap_threshold = max(20.0, float(max_lateral_extent) * 0.5)
+
+    clusters: list[list[dict[str, Any]]] = []
+    cluster_high: float | None = None
+    for component in ordered:
+        if not clusters or cluster_high is None or (
+            float(component["lateral_min"]) - cluster_high > gap_threshold
+        ):
+            clusters.append([component])
+            cluster_high = float(component["lateral_max"])
+        else:
+            clusters[-1].append(component)
+            cluster_high = max(cluster_high, float(component["lateral_max"]))
+
+    def _cluster_area(cluster: list[dict[str, Any]]) -> int:
+        return int(sum(int(item["area"]) for item in cluster))
+
+    core_cluster = max(clusters, key=_cluster_area)
+    core_ids = {id(component) for component in core_cluster}
+
+    selected = np.zeros_like(foreground, dtype=bool)
+    selected_count = 0
+    rejected_count = 0
+    for component in components:
+        if id(component) in core_ids:
+            selected |= component["mask"]
+            selected_count += 1
+        else:
+            rejected_count += 1
+
+    if selected_count == 0:
+        core = max(components, key=lambda item: item["area"])
+        selected |= core["mask"]
+        selected_count = 1
+        rejected_count = max(0, len(components) - 1)
+
     if geometry_mode == "mesh_lattice":
         selected = _mesh_lattice_envelope_mask(selected, config, cv2=cv2)
-    elif geometry_mode not in {"line_bundle", "single_component", "mesh_lattice"}:
-        geometry_mode = "line_bundle"
 
-    return selected.astype(np.uint8) * 255, int(selected_count)
+    return selected.astype(np.uint8) * 255, int(selected_count), int(rejected_count)
 
 
 def _mesh_lattice_envelope_mask(

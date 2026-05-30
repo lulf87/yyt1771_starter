@@ -1530,6 +1530,7 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
         direction_projection_mode="envelope_max_width",
         target_geometry_mode="line_bundle",
         side_guard_ratio=0.10,
+        envelope_relocate_confirm_frames=2,
     )
     source = PriorTrackingMetricSource(
         definition=definition,
@@ -1561,7 +1562,7 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
     # committed once the relocation repeats (two-frame confirmation), without
     # ever consulting a max_chord endpoint prior.
     assert first.meta["tracking_state"] == "accepted_global_envelope"
-    assert pending.meta["tracking_state"] == "holding_last_good"
+    assert pending.meta["tracking_state"] == "envelope_pending_relocation"
     assert pending.meta["reason"] == "envelope_relocation_pending"
     assert pending.point_a_px == (20, 32)
     assert relocated.meta["tracking_state"] == "envelope_relocated"
@@ -1739,6 +1740,49 @@ def test_prior_tracking_envelope_near_tie_does_not_jitter_between_top_and_bottom
     for result in results:
         assert result.point_a_px[1] >= 50
         assert result.meta["tracking_state"] != "envelope_relocated"
+
+
+def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Frame 1 locks a well-supported global envelope. Frame 2 is a single-frame
+    # background scratch that fabricates a much wider span with weak per-bin
+    # support: it must hold the last good A/B (never refresh) and report the
+    # outlier hold. Frame 3 returns to the genuine target and is re-accepted.
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32), "envelope_support_px": 24}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    locked = source.extract(frame0, temp0, sample_index=0, total_samples=3)
+
+    holder["value"] = {"span": 130.0, "a": (20, 40), "b": (150, 40), "envelope_support_px": 4}
+    frame1, temp1 = _frame_temp(2)
+    held = source.extract(frame1, temp1, sample_index=1, total_samples=3)
+
+    holder["value"] = {"span": 60.0, "a": (20, 32), "b": (80, 32), "envelope_support_px": 24}
+    frame2, temp2 = _frame_temp(3)
+    recovered = source.extract(frame2, temp2, sample_index=2, total_samples=3)
+
+    assert locked.meta["tracking_state"] == "accepted_global_envelope"
+    assert held.meta["tracking_state"] == "envelope_outlier_hold"
+    assert held.meta["envelope_reject_reason"] == "envelope_low_support"
+    # The scratch never refreshes the last good A/B.
+    assert held.point_a_px == (20, 32)
+    assert held.point_b_px == (80, 32)
+    assert source._last_good_point_b == PixelPoint(x=80, y=32)
+    # The genuine target is re-accepted on the following frame.
+    assert recovered.meta["tracking_state"] == "accepted_global_envelope"
+    assert recovered.point_b_px == (80, 32)
 
 
 def test_envelope_gross_outlier_guards_reject_support_box_edge_and_side_guard(

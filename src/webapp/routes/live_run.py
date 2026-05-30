@@ -156,6 +156,13 @@ def save_measurement_definition(
         side_guard_ratio=payload.side_guard_ratio,
         envelope_min_support_px=payload.envelope_min_support_px,
         envelope_quantile=payload.envelope_quantile,
+        envelope_normal_bin_width_px=payload.envelope_normal_bin_width_px,
+        envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
+        envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
+        envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
+        envelope_relocate_confirm_frames=payload.envelope_relocate_confirm_frames,
+        envelope_near_tie_span_ratio=payload.envelope_near_tie_span_ratio,
+        envelope_immediate_span_gain_ratio=payload.envelope_immediate_span_gain_ratio,
         observation_axis=ObservationAxis(payload.observation_axis),
     )
     try:
@@ -426,11 +433,23 @@ def auto_detect_measurement_definition(
         side_guard_ratio=payload.side_guard_ratio,
         envelope_min_support_px=payload.envelope_min_support_px,
         envelope_quantile=payload.envelope_quantile,
+        envelope_normal_bin_width_px=payload.envelope_normal_bin_width_px,
+        envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
+        envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
+        envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
+        envelope_relocate_confirm_frames=payload.envelope_relocate_confirm_frames,
+        envelope_near_tie_span_ratio=payload.envelope_near_tie_span_ratio,
+        envelope_immediate_span_gain_ratio=payload.envelope_immediate_span_gain_ratio,
         selection_mode=_metric_selection_mode(metric),
         selected_component_count=_metric_meta_int(metric, "selected_component_count"),
+        rejected_component_count=_metric_meta_int(metric, "rejected_component_count"),
         envelope_candidate_count=_metric_meta_int(metric, "envelope_candidate_count"),
         side_guard_foreground_area=_metric_meta_int(metric, "side_guard_foreground_area"),
         envelope_support_px=_metric_meta_int(metric, "envelope_support_px"),
+        endpoint_support_left_px=_metric_meta_int(metric, "endpoint_support_left_px"),
+        endpoint_support_right_px=_metric_meta_int(metric, "endpoint_support_right_px"),
+        selected_candidate_score=_metric_meta_float(metric, "selected_candidate_score"),
+        envelope_reject_reason=_metric_meta_str(metric, "envelope_reject_reason"),
         axis_offset_px=_metric_meta_float(metric, "axis_offset_px"),
         tracking_state=_metric_meta_str(metric, "tracking_state"),
         detail=detail,
@@ -719,6 +738,10 @@ def _extract_directional_auto_detect_metric(
             side_guard_ratio=payload.side_guard_ratio,
             envelope_min_support_px=payload.envelope_min_support_px,
             envelope_quantile=payload.envelope_quantile,
+            envelope_normal_bin_width_px=payload.envelope_normal_bin_width_px,
+            envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
+            envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
+            envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
         )
     )
     return detector.extract(frame)
@@ -1250,6 +1273,13 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         side_guard_ratio=definition.side_guard_ratio,
         envelope_min_support_px=definition.envelope_min_support_px,
         envelope_quantile=definition.envelope_quantile,
+        envelope_normal_bin_width_px=definition.envelope_normal_bin_width_px,
+        envelope_lateral_window_bins=definition.envelope_lateral_window_bins,
+        envelope_endpoint_support_radius_px=definition.envelope_endpoint_support_radius_px,
+        envelope_endpoint_min_support_px=definition.envelope_endpoint_min_support_px,
+        envelope_relocate_confirm_frames=definition.envelope_relocate_confirm_frames,
+        envelope_near_tie_span_ratio=definition.envelope_near_tie_span_ratio,
+        envelope_immediate_span_gain_ratio=definition.envelope_immediate_span_gain_ratio,
     )
 
 

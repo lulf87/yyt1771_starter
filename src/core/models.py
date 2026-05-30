@@ -62,6 +62,13 @@ class MeasurementDefinition:
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
     envelope_quantile: float = 0.0
+    envelope_normal_bin_width_px: float = 5.0
+    envelope_lateral_window_bins: int = 1
+    envelope_endpoint_support_radius_px: float = 3.0
+    envelope_endpoint_min_support_px: int = 3
+    envelope_relocate_confirm_frames: int = 3
+    envelope_near_tie_span_ratio: float = 0.03
+    envelope_immediate_span_gain_ratio: float = 0.12
     observation_axis: ObservationAxis = ObservationAxis.LONG_AXIS
 
     def has_valid_roi(self) -> bool:
@@ -93,10 +100,36 @@ class MeasurementDefinition:
             and 0.0 <= float(self.side_guard_ratio) <= 0.45
             and int(self.envelope_min_support_px) >= 2
             and 0.0 <= float(self.envelope_quantile) <= 0.20
+            and float(self.envelope_normal_bin_width_px) >= 0.5
+            and int(self.envelope_lateral_window_bins) >= 0
+            and float(self.envelope_endpoint_support_radius_px) >= 0.0
+            and int(self.envelope_endpoint_min_support_px) >= 0
+            and int(self.envelope_relocate_confirm_frames) >= 1
+            and 0.0 <= float(self.envelope_near_tie_span_ratio) <= 1.0
+            and 0.0 <= float(self.envelope_immediate_span_gain_ratio) <= 2.0
             and _point_in_metric_box(self.metric_box, self.point_a_px.x, self.point_a_px.y)
             and _point_in_metric_box(self.metric_box, self.point_b_px.x, self.point_b_px.y)
             and self.observation_axis in {ObservationAxis.LONG_AXIS, ObservationAxis.SHORT_AXIS}
         )
+
+
+def resolve_envelope_min_support_px(target_geometry_mode: str, configured: int | None) -> int:
+    """Effective per-bin support floor for envelope_max_width.
+
+    The stored model default (3) means "not customized for envelope". For the
+    sparse/porous geometries we raise the floor so a thin background scratch can
+    never become a candidate bin, while an operator who deliberately sets a
+    higher support value keeps full control.
+    """
+    value = 3 if configured is None else int(configured)
+    if value > 3:
+        return value
+    mode = str(target_geometry_mode or "single_component")
+    if mode == "line_bundle":
+        return 12
+    if mode == "mesh_lattice":
+        return 20
+    return max(2, value)
 
 
 @dataclass(slots=True)

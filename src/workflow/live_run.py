@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import time
 from typing import Any, Callable, Protocol
@@ -20,6 +20,7 @@ from src.core.models import (
     ShapeMetric,
     SyncPoint,
     TempReading,
+    resolve_envelope_min_support_px,
 )
 from src.curve.af95 import normalize_sync_points
 from src.curve.afas import AfasAnalysisResult, analyze_afas
@@ -244,6 +245,8 @@ class LockedDefinitionMetricSource:
         max_chord_prior_point_a_provider: Callable[[], PixelPoint | None] | None = None,
         max_chord_prior_point_b_provider: Callable[[], PixelPoint | None] | None = None,
         max_chord_prior_endpoint_tolerance_provider: Callable[[], float | None] | None = None,
+        envelope_axis_prior_provider: Callable[[], float | None] | None = None,
+        envelope_axis_prior_tolerance_provider: Callable[[], float | None] | None = None,
     ) -> None:
         self._directional_config: DirectionalContourConfig | None = None
         self._directional_axis_prior_provider = max_chord_axis_prior_provider
@@ -251,6 +254,8 @@ class LockedDefinitionMetricSource:
         self._directional_prior_point_a_provider = max_chord_prior_point_a_provider
         self._directional_prior_point_b_provider = max_chord_prior_point_b_provider
         self._directional_prior_endpoint_tolerance_provider = max_chord_prior_endpoint_tolerance_provider
+        self._envelope_axis_prior_provider = envelope_axis_prior_provider
+        self._envelope_axis_prior_tolerance_provider = envelope_axis_prior_tolerance_provider
         self._extractor = None
         if definition.direction_angle_deg is not None:
             self._directional_config = DirectionalContourConfig(
@@ -271,6 +276,10 @@ class LockedDefinitionMetricSource:
                 side_guard_ratio=definition.side_guard_ratio,
                 envelope_min_support_px=definition.envelope_min_support_px,
                 envelope_quantile=definition.envelope_quantile,
+                envelope_normal_bin_width_px=definition.envelope_normal_bin_width_px,
+                envelope_lateral_window_bins=definition.envelope_lateral_window_bins,
+                envelope_endpoint_support_radius_px=definition.envelope_endpoint_support_radius_px,
+                envelope_endpoint_min_support_px=definition.envelope_endpoint_min_support_px,
                 processing_max_side_px=_directional_processing_max_side_px(
                     working_max_width,
                     working_max_height,
@@ -315,6 +324,8 @@ class LockedDefinitionMetricSource:
                 point_a_prior_provider=self._directional_prior_point_a_provider,
                 point_b_prior_provider=self._directional_prior_point_b_provider,
                 endpoint_prior_tolerance_provider=self._directional_prior_endpoint_tolerance_provider,
+                envelope_axis_prior_provider=self._envelope_axis_prior_provider,
+                envelope_axis_prior_tolerance_provider=self._envelope_axis_prior_tolerance_provider,
             )
             if component_bridge_kernel is not None:
                 config = _directional_config_with_component_bridge_kernel(
@@ -393,6 +404,8 @@ def _directional_config_with_axis_prior(
     point_a_prior_provider: Callable[[], PixelPoint | None] | None = None,
     point_b_prior_provider: Callable[[], PixelPoint | None] | None = None,
     endpoint_prior_tolerance_provider: Callable[[], float | None] | None = None,
+    envelope_axis_prior_provider: Callable[[], float | None] | None = None,
+    envelope_axis_prior_tolerance_provider: Callable[[], float | None] | None = None,
 ) -> DirectionalContourConfig:
     axis_prior_point = axis_prior_provider() if axis_prior_provider is not None else None
     axis_prior_tolerance_px = (
@@ -407,37 +420,33 @@ def _directional_config_with_axis_prior(
         if endpoint_prior_tolerance_provider is not None
         else None
     )
+    envelope_axis_prior_px = (
+        envelope_axis_prior_provider() if envelope_axis_prior_provider is not None else None
+    )
+    envelope_axis_prior_tolerance_px = (
+        envelope_axis_prior_tolerance_provider()
+        if envelope_axis_prior_tolerance_provider is not None
+        else None
+    )
     if (
         axis_prior_point is None
         and axis_prior_tolerance_px is None
         and point_a_prior is None
         and point_b_prior is None
         and endpoint_prior_tolerance_px is None
+        and envelope_axis_prior_px is None
+        and envelope_axis_prior_tolerance_px is None
     ):
         return config
-    return DirectionalContourConfig(
-        analysis_roi=config.analysis_roi,
-        direction_angle_deg=config.direction_angle_deg,
-        metric_box=config.metric_box,
-        foreground_polarity=config.foreground_polarity,
-        threshold_mode=config.threshold_mode,
-        threshold_value=config.threshold_value,
-        min_target_area_px=config.min_target_area_px,
-        sensitivity=config.sensitivity,
-        ignore_internal_texture=config.ignore_internal_texture,
-        component_bridge_kernel=config.component_bridge_kernel,
-        open_kernel=config.open_kernel,
-        projection_mode=config.projection_mode,
-        target_geometry_mode=config.target_geometry_mode,
-        side_guard_ratio=config.side_guard_ratio,
-        envelope_min_support_px=config.envelope_min_support_px,
-        envelope_quantile=config.envelope_quantile,
+    return replace(
+        config,
+        envelope_axis_prior_px=envelope_axis_prior_px,
+        envelope_axis_prior_tolerance_px=envelope_axis_prior_tolerance_px,
         max_chord_axis_prior_point=axis_prior_point,
         max_chord_axis_prior_tolerance_px=axis_prior_tolerance_px,
         max_chord_prior_point_a=point_a_prior,
         max_chord_prior_point_b=point_b_prior,
         max_chord_prior_endpoint_tolerance_px=endpoint_prior_tolerance_px,
-        processing_max_side_px=config.processing_max_side_px,
     )
 
 
@@ -445,29 +454,9 @@ def _directional_config_with_component_bridge_kernel(
     config: DirectionalContourConfig,
     component_bridge_kernel: int,
 ) -> DirectionalContourConfig:
-    return DirectionalContourConfig(
-        analysis_roi=config.analysis_roi,
-        direction_angle_deg=config.direction_angle_deg,
-        metric_box=config.metric_box,
-        foreground_polarity=config.foreground_polarity,
-        threshold_mode=config.threshold_mode,
-        threshold_value=config.threshold_value,
-        min_target_area_px=config.min_target_area_px,
-        sensitivity=config.sensitivity,
-        ignore_internal_texture=config.ignore_internal_texture,
+    return replace(
+        config,
         component_bridge_kernel=_directional_odd_kernel(float(component_bridge_kernel)),
-        open_kernel=config.open_kernel,
-        projection_mode=config.projection_mode,
-        target_geometry_mode=config.target_geometry_mode,
-        side_guard_ratio=config.side_guard_ratio,
-        envelope_min_support_px=config.envelope_min_support_px,
-        envelope_quantile=config.envelope_quantile,
-        max_chord_axis_prior_point=config.max_chord_axis_prior_point,
-        max_chord_axis_prior_tolerance_px=config.max_chord_axis_prior_tolerance_px,
-        max_chord_prior_point_a=config.max_chord_prior_point_a,
-        max_chord_prior_point_b=config.max_chord_prior_point_b,
-        max_chord_prior_endpoint_tolerance_px=config.max_chord_prior_endpoint_tolerance_px,
-        processing_max_side_px=config.processing_max_side_px,
     )
 
 
@@ -491,7 +480,12 @@ class PriorTrackingMetricSource:
         if self._is_envelope_max_width:
             self._tracking_mode = "global_envelope_reacquire"
         self._metric_box = definition.metric_box
-        self._envelope_min_support_px = max(2, int(definition.envelope_min_support_px))
+        self._envelope_min_support_px = resolve_envelope_min_support_px(
+            definition.target_geometry_mode,
+            int(definition.envelope_min_support_px),
+        )
+        self._envelope_endpoint_min_support_px = max(0, int(definition.envelope_endpoint_min_support_px))
+        self._envelope_target_geometry_mode = str(definition.target_geometry_mode or "single_component")
         self._is_directional_max_chord = (
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode == "max_chord"
@@ -582,11 +576,13 @@ class PriorTrackingMetricSource:
         # An envelope relocation that keeps roughly the same width but jumps
         # laterally must be confirmed across this many consecutive frames before
         # the run moves A/B, so near-tie jitter never switches every frame.
-        self._envelope_relocation_confirm_frames = 2
+        self._envelope_relocation_confirm_frames = max(1, int(definition.envelope_relocate_confirm_frames))
         # A clearly wider global envelope is accepted immediately; a near-equal
         # span is treated as a tie that requires confirmation.
-        self._envelope_growth_accept_ratio = max(0.08, self._max_span_change_ratio * 4.0)
-        self._envelope_near_tie_ratio = self._envelope_growth_accept_ratio
+        self._envelope_immediate_span_gain_ratio = max(0.0, float(definition.envelope_immediate_span_gain_ratio))
+        self._envelope_near_tie_span_ratio = max(0.0, float(definition.envelope_near_tie_span_ratio))
+        self._envelope_growth_accept_ratio = self._envelope_immediate_span_gain_ratio
+        self._envelope_near_tie_ratio = self._envelope_near_tie_span_ratio
         self._direction_unit: tuple[float, float] | None = None
         self._normal_unit: tuple[float, float] | None = None
         self._allows_axis_lateral_stabilization = (
@@ -651,6 +647,12 @@ class PriorTrackingMetricSource:
             max_chord_prior_point_a_provider=self._current_prior_point_a if use_axis_prior else None,
             max_chord_prior_point_b_provider=self._current_prior_point_b if use_axis_prior else None,
             max_chord_prior_endpoint_tolerance_provider=self._current_endpoint_prior_tolerance_px if use_axis_prior else None,
+            envelope_axis_prior_provider=(
+                self._current_envelope_axis_prior_px if self._is_envelope_max_width else None
+            ),
+            envelope_axis_prior_tolerance_provider=(
+                self._current_envelope_axis_prior_tolerance_px if self._is_envelope_max_width else None
+            ),
         )
 
     def extract(
@@ -668,17 +670,42 @@ class PriorTrackingMetricSource:
             total_samples=total_samples,
         )
         diagnostics = self._tracking_diagnostics(observation)
-        if self._is_envelope_max_width and observation.metric_raw is not None:
-            if not self._envelope_candidate_is_gross_outlier(observation, diagnostics):
-                return self._resolve_envelope_metric(
+        if self._is_envelope_max_width:
+            if (
+                observation.metric_raw is None
+                or observation.point_a_px is None
+                or observation.point_b_px is None
+            ):
+                self._clear_envelope_pending()
+                return self._hold_last_good_for_envelope_outlier(
                     frame,
                     temp,
                     sample_index=sample_index,
                     total_samples=total_samples,
                     observation=observation,
                     diagnostics=diagnostics,
+                    reason="envelope_observation_unavailable",
                 )
-            self._clear_envelope_pending()
+            outlier_reason = self._envelope_outlier_reason(observation, diagnostics)
+            if outlier_reason is not None:
+                self._clear_envelope_pending()
+                return self._hold_last_good_for_envelope_outlier(
+                    frame,
+                    temp,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                    observation=observation,
+                    diagnostics=diagnostics,
+                    reason=outlier_reason,
+                )
+            return self._resolve_envelope_metric(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+            )
         if observation.metric_raw is not None and observation.point_a_px is not None and observation.point_b_px is not None and not self._has_runtime_lock:
             if self._should_attempt_bootstrap_max_chord_component_bridge_retry(observation, diagnostics):
                 retry_metric = self._directional_component_bridge_retry(
@@ -913,39 +940,81 @@ class PriorTrackingMetricSource:
         observation: ShapeMetric,
         diagnostics: dict[str, Any],
     ) -> bool:
+        return self._envelope_outlier_reason(observation, diagnostics) is not None
+
+    def _envelope_outlier_reason(
+        self,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+    ) -> str | None:
+        """Reject (or low-confidence) reasons for an envelope_max_width candidate.
+
+        Returns a debug reason string when the candidate must not refresh the
+        global envelope, or None when the candidate may be resolved further.
+        """
         if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
-            return True
+            return "envelope_observation_unavailable"
         if float(observation.quality or 0.0) <= 0.0:
-            return True
+            return "envelope_quality_zero"
         if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
-            return True
-        box_span = max(float(self._analysis_roi.width), float(self._analysis_roi.height), 1.0)
-        if observation.roi is not None:
-            box_span = max(float(observation.roi[2]), float(observation.roi[3]), box_span)
+            return "envelope_border_touch"
+        # Prefer the metric-box local along-width over the raw analysis_roi span
+        # so a rotated ROI is measured along its own measurement direction.
+        along_bounds = self._metric_box_along_bounds()
+        if along_bounds is not None:
+            box_span = max(float(along_bounds[1] - along_bounds[0]), 1.0)
+        else:
+            box_span = max(float(self._analysis_roi.width), float(self._analysis_roi.height), 1.0)
+            if observation.roi is not None:
+                box_span = max(float(observation.roi[2]), float(observation.roi[3]), box_span)
         if float(observation.metric_raw) > box_span * 1.10:
-            return True
+            return "envelope_span_too_large"
         if float(observation.metric_raw) < max(2.0, box_span * 0.01):
-            return True
+            return "envelope_span_too_small"
         # Envelope-only guards. These never run for max_chord because the caller
         # only enters this method when direction_projection_mode is
         # envelope_max_width.
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
-            return True
+            return "envelope_low_support"
+        if self._envelope_endpoint_support_is_weak(observation):
+            return "envelope_endpoint_unsupported"
         if self._envelope_side_guard_area_is_gross(observation):
-            return True
+            return "envelope_side_guard_clutter"
         if self._envelope_endpoints_hug_metric_box_along_edges(observation):
-            return True
+            return "envelope_full_box_span"
         if not self._has_runtime_lock:
-            return False
+            return None
+        # A sudden large span jump that is not backed by strong per-bin support is
+        # almost always a thin background scratch/dust artefact, not the target.
         span_change_ratio = diagnostics.get("span_change_ratio")
+        if (
+            span_change_ratio is not None
+            and float(span_change_ratio) > max(0.30, self._envelope_immediate_span_gain_ratio * 1.5)
+            and support is not None
+            and int(support) < self._envelope_min_support_px * 2
+        ):
+            return "envelope_span_spike_weak_support"
         midpoint_drift_px = diagnostics.get("midpoint_drift_px")
         if span_change_ratio is None or midpoint_drift_px is None:
-            return False
-        return (
+            return None
+        if (
             float(span_change_ratio) > max(0.50, self._max_span_change_ratio * 4.0)
             and float(midpoint_drift_px) > max(self._max_midpoint_drift_px * 4.0, 48.0)
-        )
+        ):
+            return "envelope_gross_jump"
+        return None
+
+    def _envelope_endpoint_support_is_weak(self, observation: ShapeMetric) -> bool:
+        if self._envelope_endpoint_min_support_px <= 0:
+            return False
+        left = observation.meta.get("endpoint_support_left_px")
+        right = observation.meta.get("endpoint_support_right_px")
+        if left is not None and int(left) < self._envelope_endpoint_min_support_px:
+            return True
+        if right is not None and int(right) < self._envelope_endpoint_min_support_px:
+            return True
+        return False
 
     def _envelope_side_guard_area_is_gross(self, observation: ShapeMetric) -> bool:
         guard_area = observation.meta.get("side_guard_foreground_area")
@@ -1024,6 +1093,7 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
+                state="accepted_global_envelope",
             )
         # A candidate that stays within the position/span prior is a normal,
         # small per-frame update of the global envelope.
@@ -1034,28 +1104,45 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
+                state="accepted_global_envelope",
+            )
+        # Past this point the candidate is a relocation (outside the prior). It
+        # must be a plausible target before it can ever move A/B, otherwise hold.
+        if not self._envelope_candidate_is_plausible(observation):
+            self._clear_envelope_pending()
+            return self._hold_last_good_for_envelope_outlier(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                reason="envelope_background_component_rejected",
             )
         span_change_ratio = diagnostics.get("span_change_ratio")
         new_span = float(observation.metric_raw)
-        # A clearly wider global envelope is accepted immediately so the widest
-        # A/B can move (for example from the lower to the upper part of the ROI)
-        # without being held back by the previous endpoint location.
-        if (
-            new_span > self._last_good_span_px
-            and span_change_ratio is not None
-            and float(span_change_ratio) >= self._envelope_growth_accept_ratio
-        ):
+        span_gain_px = new_span - self._last_good_span_px
+        immediate_gain_px = max(8.0, self._last_good_span_px * self._envelope_immediate_span_gain_ratio)
+        # A clearly wider, well-supported global envelope is accepted immediately
+        # so the widest A/B can move (e.g. from the lower to the upper part of the
+        # ROI) without being held back by the previous endpoint location.
+        if span_gain_px >= immediate_gain_px:
             self._clear_envelope_pending()
             return self._accept_envelope_metric(
                 observation,
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
+                state="envelope_relocated",
             )
-        # Near-equal span but large lateral relocation: this looks like the
-        # widest section jumped sideways. Require the same relocation to repeat
-        # for a couple of frames before committing, to suppress near-tie jitter.
-        near_tie = span_change_ratio is not None and float(span_change_ratio) <= self._envelope_near_tie_ratio
+        # Near-equal span (or modest growth) but large lateral relocation: this
+        # looks like the widest section jumped sideways. Require the relocation to
+        # repeat for envelope_relocate_confirm_frames before committing, to
+        # suppress near-tie jitter.
+        near_tie = (
+            span_change_ratio is not None
+            and float(span_change_ratio) <= max(self._envelope_near_tie_ratio, self._envelope_immediate_span_gain_ratio)
+        )
         lateral_drift_px = self._envelope_lateral_drift_px(diagnostics)
         large_lateral_drift = lateral_drift_px is not None and float(lateral_drift_px) > self._max_midpoint_drift_px
         if near_tie and large_lateral_drift:
@@ -1070,15 +1157,17 @@ class PriorTrackingMetricSource:
                     diagnostics,
                     sample_index=sample_index,
                     total_samples=total_samples,
+                    state="envelope_relocated",
                 )
-            return self._hold_last_good_metric(
+            return self._hold_last_good_for_envelope_outlier(
                 frame,
                 temp,
                 sample_index=sample_index,
                 total_samples=total_samples,
                 observation=observation,
                 diagnostics=diagnostics,
-                rejection_reason="envelope_relocation_pending",
+                reason="envelope_relocation_pending",
+                tracking_state="envelope_pending_relocation",
             )
         # Any other accepted candidate (moderate span change without a large
         # lateral jump) updates the global envelope directly.
@@ -1088,7 +1177,20 @@ class PriorTrackingMetricSource:
             diagnostics,
             sample_index=sample_index,
             total_samples=total_samples,
+            state="envelope_relocated",
         )
+
+    def _envelope_candidate_is_plausible(self, observation: ShapeMetric) -> bool:
+        if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
+            return False
+        support = observation.meta.get("envelope_support_px")
+        if support is not None and int(support) < self._envelope_min_support_px:
+            return False
+        if self._envelope_endpoint_support_is_weak(observation):
+            return False
+        if self._envelope_side_guard_area_is_gross(observation):
+            return False
+        return True
 
     def _envelope_lateral_drift_px(self, diagnostics: dict[str, Any]) -> float | None:
         lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
@@ -1134,17 +1236,62 @@ class PriorTrackingMetricSource:
         *,
         sample_index: int,
         total_samples: int,
+        state: str,
     ) -> ShapeMetric:
-        relocated = self._has_runtime_lock and not self._candidate_within_prior(diagnostics)
         self._remember(observation)
         self._consecutive_misses = 0
         self._clear_pending_reacquire()
         observation.meta["tracking_mode"] = self._tracking_mode
-        observation.meta["tracking_state"] = "envelope_relocated" if relocated else "accepted_global_envelope"
+        observation.meta["tracking_state"] = state
         observation.meta["sample_index"] = sample_index
         observation.meta["total_samples"] = total_samples
+        observation.meta["envelope_reject_reason"] = observation.meta.get("envelope_reject_reason")
         observation.meta.update(diagnostics)
         return observation
+
+    def _hold_last_good_for_envelope_outlier(
+        self,
+        frame: FramePacket,
+        temp: TempReading,
+        *,
+        sample_index: int,
+        total_samples: int,
+        observation: ShapeMetric,
+        diagnostics: dict[str, Any],
+        reason: str,
+        tracking_state: str = "envelope_outlier_hold",
+    ) -> ShapeMetric:
+        metric = self._hold_last_good_metric(
+            frame,
+            temp,
+            sample_index=sample_index,
+            total_samples=total_samples,
+            observation=observation,
+            diagnostics=diagnostics,
+            rejection_reason=reason,
+        )
+        if metric.meta.get("tracking_state") != "invalidated":
+            metric.meta["tracking_state"] = tracking_state
+        # Carry the observation's envelope debug fields so every held frame can
+        # still explain why the candidate was rejected.
+        for key in (
+            "envelope_support_px",
+            "endpoint_support_left_px",
+            "endpoint_support_right_px",
+            "side_guard_foreground_area",
+            "selected_candidate_score",
+            "selected_candidate_span",
+            "selected_candidate_axis_offset",
+            "selected_component_count",
+            "rejected_component_count",
+            "envelope_candidate_count",
+        ):
+            if key in observation.meta:
+                metric.meta[key] = observation.meta.get(key)
+        metric.meta["envelope_reject_reason"] = reason
+        metric.meta["observation_point_a_px"] = observation.point_a_px
+        metric.meta["observation_point_b_px"] = observation.point_b_px
+        return metric
 
     def _directional_midpoint_shift(
         self,
@@ -2045,6 +2192,18 @@ class PriorTrackingMetricSource:
             return min(64.0, self._max_endpoint_jump_px)
         return min(64.0, max(24.0, float(self._max_frame_span_jump_px) * 8.0))
 
+    def _current_envelope_axis_prior_px(self) -> float | None:
+        if not self._has_runtime_lock or self._normal_unit is None:
+            return None
+        midpoint = _midpoint(self._last_good_point_a, self._last_good_point_b)
+        normal_x, normal_y = self._normal_unit
+        return float(midpoint.x) * normal_x + float(midpoint.y) * normal_y
+
+    def _current_envelope_axis_prior_tolerance_px(self) -> float | None:
+        if not self._has_runtime_lock:
+            return None
+        return max(self._max_midpoint_drift_px, 8.0)
+
 
 class LiveRunCoordinator:
     """Single-threaded live-run coordinator for the Phase 3 vertical slice."""
@@ -2682,6 +2841,13 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "side_guard_ratio": definition.side_guard_ratio,
         "envelope_min_support_px": definition.envelope_min_support_px,
         "envelope_quantile": definition.envelope_quantile,
+        "envelope_normal_bin_width_px": definition.envelope_normal_bin_width_px,
+        "envelope_lateral_window_bins": definition.envelope_lateral_window_bins,
+        "envelope_endpoint_support_radius_px": definition.envelope_endpoint_support_radius_px,
+        "envelope_endpoint_min_support_px": definition.envelope_endpoint_min_support_px,
+        "envelope_relocate_confirm_frames": definition.envelope_relocate_confirm_frames,
+        "envelope_near_tie_span_ratio": definition.envelope_near_tie_span_ratio,
+        "envelope_immediate_span_gain_ratio": definition.envelope_immediate_span_gain_ratio,
     }
 
 
@@ -2726,9 +2892,16 @@ def _telemetry_row(
         "target_geometry_mode": metric_meta.get("target_geometry_mode"),
         "projection_point_mode": metric_meta.get("projection_point_mode"),
         "selected_component_count": metric_meta.get("selected_component_count"),
+        "rejected_component_count": metric_meta.get("rejected_component_count"),
         "envelope_candidate_count": metric_meta.get("envelope_candidate_count"),
         "side_guard_foreground_area": metric_meta.get("side_guard_foreground_area"),
         "envelope_support_px": metric_meta.get("envelope_support_px"),
+        "endpoint_support_left_px": metric_meta.get("endpoint_support_left_px"),
+        "endpoint_support_right_px": metric_meta.get("endpoint_support_right_px"),
+        "selected_candidate_score": metric_meta.get("selected_candidate_score"),
+        "selected_candidate_span": metric_meta.get("selected_candidate_span"),
+        "selected_candidate_axis_offset": metric_meta.get("selected_candidate_axis_offset"),
+        "envelope_reject_reason": metric_meta.get("envelope_reject_reason"),
         "axis_offset_px": metric_meta.get("axis_offset_px"),
         "reason": metric_meta.get("reason"),
         "observation_selection_mode": metric_meta.get("observation_selection_mode"),

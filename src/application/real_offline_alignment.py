@@ -554,6 +554,15 @@ def _measurement_definition_from_payload(
         ),
         target_geometry_mode=str(payload.get("target_geometry_mode", "single_component")),
         side_guard_ratio=float(payload.get("side_guard_ratio", 0.0) or 0.0),
+        envelope_min_support_px=int(payload.get("envelope_min_support_px", 3) or 3),
+        envelope_quantile=float(payload.get("envelope_quantile", 0.0) or 0.0),
+        envelope_normal_bin_width_px=float(payload.get("envelope_normal_bin_width_px", 5.0) or 5.0),
+        envelope_lateral_window_bins=int(payload.get("envelope_lateral_window_bins", 1) or 1),
+        envelope_endpoint_support_radius_px=float(payload.get("envelope_endpoint_support_radius_px", 3.0) or 3.0),
+        envelope_endpoint_min_support_px=int(payload.get("envelope_endpoint_min_support_px", 3) or 3),
+        envelope_relocate_confirm_frames=int(payload.get("envelope_relocate_confirm_frames", 3) or 3),
+        envelope_near_tie_span_ratio=float(payload.get("envelope_near_tie_span_ratio", 0.03) or 0.03),
+        envelope_immediate_span_gain_ratio=float(payload.get("envelope_immediate_span_gain_ratio", 0.12) or 0.12),
         observation_axis=ObservationAxis(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value)),
     )
 

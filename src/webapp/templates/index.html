@@ -198,6 +198,76 @@
                     step="0.01"
                     value="0"
                   />
+                  <label for="live-envelope-bin-width" data-i18n="home.sections.detection.envelope_bin_width">外包络法向分箱(px)</label>
+                  <input
+                    id="live-envelope-bin-width"
+                    data-testid="live-envelope-bin-width"
+                    type="number"
+                    min="0.5"
+                    max="64"
+                    step="0.5"
+                    value="5"
+                  />
+                  <label for="live-envelope-lateral-window" data-i18n="home.sections.detection.envelope_lateral_window">外包络滑窗箱数</label>
+                  <input
+                    id="live-envelope-lateral-window"
+                    data-testid="live-envelope-lateral-window"
+                    type="number"
+                    min="0"
+                    max="32"
+                    step="1"
+                    value="1"
+                  />
+                  <label for="live-envelope-endpoint-radius" data-i18n="home.sections.detection.envelope_endpoint_radius">端点支撑半径(px)</label>
+                  <input
+                    id="live-envelope-endpoint-radius"
+                    data-testid="live-envelope-endpoint-radius"
+                    type="number"
+                    min="0"
+                    max="64"
+                    step="0.5"
+                    value="3"
+                  />
+                  <label for="live-envelope-endpoint-min-support" data-i18n="home.sections.detection.envelope_endpoint_min_support">端点最小支撑像素</label>
+                  <input
+                    id="live-envelope-endpoint-min-support"
+                    data-testid="live-envelope-endpoint-min-support"
+                    type="number"
+                    min="0"
+                    max="500"
+                    step="1"
+                    value="3"
+                  />
+                  <label for="live-envelope-relocate-confirm" data-i18n="home.sections.detection.envelope_relocate_confirm">外包络迁移确认帧数</label>
+                  <input
+                    id="live-envelope-relocate-confirm"
+                    data-testid="live-envelope-relocate-confirm"
+                    type="number"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value="3"
+                  />
+                  <label for="live-envelope-near-tie-ratio" data-i18n="home.sections.detection.envelope_near_tie_ratio">外包络近似并列比</label>
+                  <input
+                    id="live-envelope-near-tie-ratio"
+                    data-testid="live-envelope-near-tie-ratio"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0.03"
+                  />
+                  <label for="live-envelope-immediate-gain-ratio" data-i18n="home.sections.detection.envelope_immediate_gain_ratio">外包络立即接受增益比</label>
+                  <input
+                    id="live-envelope-immediate-gain-ratio"
+                    data-testid="live-envelope-immediate-gain-ratio"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.01"
+                    value="0.12"
+                  />
                   <label for="live-min-target-area" data-i18n="home.sections.detection.min_area">最小面积</label>
                   <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
                   <label for="live-ignore-internal-texture" data-i18n="home.sections.detection.ignore_texture">忽略内部纹理</label>

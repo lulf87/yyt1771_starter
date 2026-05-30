@@ -142,4 +142,11 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "side_guard_ratio": definition.side_guard_ratio,
         "envelope_min_support_px": definition.envelope_min_support_px,
         "envelope_quantile": definition.envelope_quantile,
+        "envelope_normal_bin_width_px": definition.envelope_normal_bin_width_px,
+        "envelope_lateral_window_bins": definition.envelope_lateral_window_bins,
+        "envelope_endpoint_support_radius_px": definition.envelope_endpoint_support_radius_px,
+        "envelope_endpoint_min_support_px": definition.envelope_endpoint_min_support_px,
+        "envelope_relocate_confirm_frames": definition.envelope_relocate_confirm_frames,
+        "envelope_near_tie_span_ratio": definition.envelope_near_tie_span_ratio,
+        "envelope_immediate_span_gain_ratio": definition.envelope_immediate_span_gain_ratio,
     }

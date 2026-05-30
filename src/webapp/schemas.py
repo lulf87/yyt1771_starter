@@ -148,6 +148,13 @@ class MeasurementDefinitionRequest(BaseModel):
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
     envelope_min_support_px: int = Field(default=3, ge=2, le=500)
     envelope_quantile: float = Field(default=0.0, ge=0.0, le=0.20)
+    envelope_normal_bin_width_px: float = Field(default=5.0, ge=0.5, le=64.0)
+    envelope_lateral_window_bins: int = Field(default=1, ge=0, le=32)
+    envelope_endpoint_support_radius_px: float = Field(default=3.0, ge=0.0, le=64.0)
+    envelope_endpoint_min_support_px: int = Field(default=3, ge=0, le=500)
+    envelope_relocate_confirm_frames: int = Field(default=3, ge=1, le=60)
+    envelope_near_tie_span_ratio: float = Field(default=0.03, ge=0.0, le=1.0)
+    envelope_immediate_span_gain_ratio: float = Field(default=0.12, ge=0.0, le=2.0)
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -188,6 +195,13 @@ class AutoDetectDefinitionRequest(BaseModel):
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
     envelope_min_support_px: int = Field(default=3, ge=2, le=500)
     envelope_quantile: float = Field(default=0.0, ge=0.0, le=0.20)
+    envelope_normal_bin_width_px: float = Field(default=5.0, ge=0.5, le=64.0)
+    envelope_lateral_window_bins: int = Field(default=1, ge=0, le=32)
+    envelope_endpoint_support_radius_px: float = Field(default=3.0, ge=0.0, le=64.0)
+    envelope_endpoint_min_support_px: int = Field(default=3, ge=0, le=500)
+    envelope_relocate_confirm_frames: int = Field(default=3, ge=1, le=60)
+    envelope_near_tie_span_ratio: float = Field(default=0.03, ge=0.0, le=1.0)
+    envelope_immediate_span_gain_ratio: float = Field(default=0.12, ge=0.0, le=2.0)
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -217,11 +231,23 @@ class AutoDetectDefinitionResponse(BaseModel):
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
     envelope_quantile: float = 0.0
+    envelope_normal_bin_width_px: float = 5.0
+    envelope_lateral_window_bins: int = 1
+    envelope_endpoint_support_radius_px: float = 3.0
+    envelope_endpoint_min_support_px: int = 3
+    envelope_relocate_confirm_frames: int = 3
+    envelope_near_tie_span_ratio: float = 0.03
+    envelope_immediate_span_gain_ratio: float = 0.12
     selection_mode: str | None = None
     selected_component_count: int | None = None
+    rejected_component_count: int | None = None
     envelope_candidate_count: int | None = None
     side_guard_foreground_area: int | None = None
     envelope_support_px: int | None = None
+    endpoint_support_left_px: int | None = None
+    endpoint_support_right_px: int | None = None
+    selected_candidate_score: float | None = None
+    envelope_reject_reason: str | None = None
     axis_offset_px: float | None = None
     tracking_state: str | None = None
     detail: str = ""

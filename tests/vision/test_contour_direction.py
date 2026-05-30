@@ -93,6 +93,81 @@ def test_envelope_max_width_line_bundle_uses_multi_component_union() -> None:
     assert result.envelope_support_px >= 6
 
 
+def test_envelope_max_width_line_bundle_rejects_horizontal_background_scratch() -> None:
+    # A dense vertical-stack line bundle (filaments along the measurement
+    # direction) plus a wide, thick horizontal scratch far above it. The scratch
+    # spans more of the measurement direction than the real bundle width, so a
+    # pure global envelope would put B on the scratch. The target-aware core band
+    # must reject the laterally isolated scratch so A/B stays on the sample body.
+    image = np.full((220, 280), 240, dtype=np.uint8)
+    for top in (90, 100, 110, 120, 130, 140):
+        image[top : top + 8, 40:171] = 30
+    image[30:34, 20:240] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=280, height=220),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.05,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    # The selected span is the real bundle width (~130 px), not the scratch (~220).
+    assert result.metric_raw == pytest.approx(130.0, abs=8.0)
+    assert result.point_b.x <= 176
+    assert result.point_a.x == pytest.approx(40, abs=5)
+    # A/B must stay inside the bundle body band, never on the top scratch row.
+    assert result.point_a.y >= 80
+    assert result.point_b.y >= 80
+    assert result.rejected_component_count >= 1
+
+
+def test_envelope_max_width_line_bundle_rejects_background_dot_on_the_side() -> None:
+    # One genuine filament on the left plus an isolated background dot on the
+    # upper right. The dot sits in a different lateral band, so it must not be
+    # unioned into the envelope to fabricate a wide cross-background span.
+    image = np.full((160, 240), 240, dtype=np.uint8)
+    image[68:83, 40:111] = 30
+    image[30:35, 180:189] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=160),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.05,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    # Span stays on the real filament (~70 px), no cross-background blow-up.
+    assert result.metric_raw == pytest.approx(70.0, abs=8.0)
+    assert result.point_b.x <= 120
+    assert result.point_a.y >= 60
+    assert result.point_b.y >= 60
+    assert result.rejected_component_count >= 1
+
+
 def test_envelope_max_width_mesh_lattice_ignores_internal_holes() -> None:
     image = np.full((150, 240), 240, dtype=np.uint8)
     image[35:38, 54:186] = 30
@@ -170,8 +245,11 @@ def test_envelope_max_width_respects_60deg_rotated_roi() -> None:
     box = MetricBox(center_x=130, center_y=110, width=170, height=80, angle_deg=60.0)
     _paint_test_line_local(image, box, -60, -16, local_y=0.0, width=3, value=30)
     _paint_test_line_local(image, box, 16, 64, local_y=0.0, width=3, value=30)
-    _paint_test_line_local(image, box, -78, -72, local_y=-28.0, width=5, value=30)
-    _paint_test_line_local(image, box, 72, 80, local_y=26.0, width=5, value=30)
+    # Side-guard noise sits inside the core lateral band but at the longitudinal
+    # ends, so it survives the lateral-cluster filter and must be removed by the
+    # side guard rather than fabricating a wider A/B span.
+    _paint_test_line_local(image, box, -78, -72, local_y=-8.0, width=5, value=30)
+    _paint_test_line_local(image, box, 72, 80, local_y=8.0, width=5, value=30)
 
     result = detect_directional_contour(
         image,

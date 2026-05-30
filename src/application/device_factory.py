@@ -474,7 +474,8 @@ def _metric_box_bounding_region(region, *, angle_deg: float):
 
 
 def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: int, dy: int) -> MeasurementDefinition:
-    return MeasurementDefinition(
+    return replace(
+        definition,
         analysis_roi=type(definition.analysis_roi)(
             x=int(definition.analysis_roi.x + dx),
             y=int(definition.analysis_roi.y + dy),
@@ -496,16 +497,6 @@ def _translate_measurement_definition(definition: MeasurementDefinition, *, dx: 
             x=int(definition.point_b_px.x + dx),
             y=int(definition.point_b_px.y + dy),
         ),
-        foreground_polarity=definition.foreground_polarity,
-        threshold_mode=definition.threshold_mode,
-        ignore_internal_texture=definition.ignore_internal_texture,
-        min_target_area_px=int(definition.min_target_area_px),
-        sensitivity=float(definition.sensitivity),
-        direction_angle_deg=definition.direction_angle_deg,
-        direction_projection_mode=definition.direction_projection_mode,
-        target_geometry_mode=definition.target_geometry_mode,
-        side_guard_ratio=definition.side_guard_ratio,
-        observation_axis=definition.observation_axis,
     )
 
 
@@ -551,21 +542,12 @@ def _normalize_definition_to_local_frame(
     normalized_point_b = _clamp_point_into_metric_box_region(translated.point_b_px, normalized_box, local_frame)
     if (normalized_point_a.x, normalized_point_a.y) == (normalized_point_b.x, normalized_point_b.y):
         normalized_point_a, normalized_point_b = _default_edge_points(normalized_box, local_frame)
-    return MeasurementDefinition(
+    return replace(
+        translated,
         analysis_roi=local_frame,
         metric_box=normalized_box,
         point_a_px=normalized_point_a,
         point_b_px=normalized_point_b,
-        foreground_polarity=translated.foreground_polarity,
-        threshold_mode=translated.threshold_mode,
-        ignore_internal_texture=translated.ignore_internal_texture,
-        min_target_area_px=translated.min_target_area_px,
-        sensitivity=translated.sensitivity,
-        direction_angle_deg=translated.direction_angle_deg,
-        direction_projection_mode=translated.direction_projection_mode,
-        target_geometry_mode=translated.target_geometry_mode,
-        side_guard_ratio=translated.side_guard_ratio,
-        observation_axis=translated.observation_axis,
     )
 
 
