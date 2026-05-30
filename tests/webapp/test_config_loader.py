@@ -117,6 +117,21 @@ def test_load_runtime_config_reads_offline_capture_profile() -> None:
     assert runtime_config.live.run.stop_on_invalid_tracking is False
 
 
+def test_offline_capture_profile_exposes_selectable_fixture_recordings() -> None:
+    runtime_config = load_runtime_config("dev_offline_capture")
+
+    fixtures = runtime_config.camera["offline_capture"]["fixtures"]
+
+    assert [fixture["key"] for fixture in fixtures] == [
+        "20260522-183158-dev_lab",
+        "20260529-194304-dev_lab",
+    ]
+    assert [fixture["capture_dir"] for fixture in fixtures] == [
+        "examples/runtime/camera_captures/20260522-183158-dev_lab",
+        "examples/runtime/camera_captures/20260529-194304-dev_lab",
+    ]
+
+
 def test_active_real_and_offline_profiles_keep_measurement_pixels_aligned() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     lab_config = _read_tracked_profile(repo_root, "dev_lab")

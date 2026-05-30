@@ -15,6 +15,9 @@ camera:
       - key: 20260522-183158-dev_lab
         label: Offline capture 20260522 18:31
         capture_dir: examples/runtime/camera_captures/20260522-183158-dev_lab
+      - key: 20260529-194304-dev_lab
+        label: Offline capture 20260529 19:43
+        capture_dir: examples/runtime/camera_captures/20260529-194304-dev_lab
   trigger_mode: free_run
   pixel_format: mono8
   exposure_us: 50000
