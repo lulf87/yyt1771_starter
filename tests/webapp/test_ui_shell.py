@@ -88,7 +88,7 @@ def test_static_app_js_sends_envelope_detection_fields() -> None:
     normalize_body = _js_function_body(app_js, "normalizeDefinitionForComparison")
     fill_body = _js_function_body(app_js, "fillLiveDefinitionInputs")
 
-    assert "target_geometry_mode: currentTargetGeometryMode()" in payload_body
+    assert "target_geometry_mode: resolvedTargetGeometryMode()" in payload_body
     assert "side_guard_ratio: currentSideGuardRatio()" in payload_body
     assert "target_geometry_mode: definition.target_geometry_mode || currentTargetGeometryMode()" in normalize_body
     assert "side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio())" in normalize_body
@@ -510,7 +510,84 @@ def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
         "holding_last_good": 2,
         "invalidated": 1,
         "low_quality": 1,
+        "envelope_prior_hold": 0,
         "envelope_pending_relocation": 1,
         "envelope_low_support_rejected": 1,
         "envelope_background_component_rejected": 1,
     }
+
+
+def test_mesh_lattice_mode_not_single_component() -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate target geometry mode resolution")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function currentTargetGeometryMode(",
+        "function currentSideGuardRatio(",
+    )
+    driver = (
+        "const liveTargetGeometryModeSelect = { value: 'mesh_lattice' };\n"
+        "const liveDirectionProjectionModeSelect = { value: 'envelope_max_width' };\n"
+        + block
+        + "\n"
+        "process.stdout.write(JSON.stringify(resolvedTargetGeometryMode()));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == "mesh_lattice"
+
+
+def test_live_process_chart_raw_candidate_series() -> None:
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate live process chart helpers")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function liveProcessOutlierCategory(",
+        "function buildLiveProcessChartSeries(",
+    )
+    driver = (
+        'const currentLocale = "en";\n'
+        + block
+        + "\n"
+        "const curve = [\n"
+        '  { tracking_state: "envelope_low_support_rejected", tracking_quality: 0.8, temperature_celsius: 150, space1_px: 120, observed_metric_raw: 122, point_a_px: [1,2], point_b_px: [3,4] },\n'
+        '  { tracking_state: "envelope_prior_hold", tracking_quality: 0.8, temperature_celsius: 151, space1_px: 120, observed_metric_raw: 123, point_a_px: [1,2], point_b_px: [3,4] },\n'
+        "];\n"
+        "const rawSeries = curve.map((point) => liveProcessRawVisualCandidateValue(point)).filter((value) => Number.isFinite(value));\n"
+        "const acceptedSeries = curve.map((point) => liveProcessAcceptedTrackingValue(point)).filter((value) => Number.isFinite(value));\n"
+        "process.stdout.write(JSON.stringify({ rawCount: rawSeries.length, acceptedCount: acceptedSeries.length }));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    import json
+
+    payload = json.loads(completed.stdout)
+    assert payload["rawCount"] == 2
+    assert payload["acceptedCount"] == 0

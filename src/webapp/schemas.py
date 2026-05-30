@@ -386,6 +386,14 @@ class RunTelemetryPointResponse(BaseModel):
     max_frame_span_jump_px: float | None = None
     max_soft_frame_span_jump_px: float | None = None
     consecutive_misses: int | None = None
+    original_rejection_reason: str | None = None
+    last_nonfatal_envelope_reason: str | None = None
+    fatal_miss_count: int | None = None
+    nonfatal_reject_count: int | None = None
+    has_visual_candidate: bool | None = None
+    observed_metric_raw: float | None = None
+    preset_envelope_axis_prior_px: float | None = None
+    preset_envelope_span_px: float | None = None
     frame_read_ms: float | None = None
     temp_read_ms: float | None = None
     metric_extract_ms: float | None = None

@@ -2022,6 +2022,16 @@ function currentTargetGeometryMode() {
   return value === "line_bundle" || value === "mesh_lattice" || value === "single_component" ? value : "single_component";
 }
 
+function resolvedTargetGeometryMode() {
+  const mode = currentTargetGeometryMode();
+  // Never downgrade an explicit mesh/scaffold or line-bundle choice when building
+  // the definition payload for envelope_max_width runs.
+  if (mode === "mesh_lattice" || mode === "line_bundle") {
+    return mode;
+  }
+  return mode;
+}
+
 function currentSideGuardRatio() {
   const rawValue = getNumericInputValue(liveSideGuardRatioInput, 0);
   return clamp(Number.isFinite(rawValue) ? rawValue : 0, 0, 0.45);
@@ -3175,6 +3185,9 @@ function liveProcessOutlierCategory(point) {
   if (trackingState === "envelope_pending_relocation" || trackingState === "envelope_near_tie_hold") {
     return "envelope_pending_relocation";
   }
+  if (trackingState === "envelope_prior_hold") {
+    return "envelope_prior_hold";
+  }
   if (trackingState === "envelope_low_support_rejected") {
     return "envelope_low_support_rejected";
   }
@@ -3195,6 +3208,7 @@ const LIVE_PROCESS_OUTLIER_CATEGORIES = [
   "holding_last_good",
   "invalidated",
   "low_quality",
+  "envelope_prior_hold",
   "envelope_pending_relocation",
   "envelope_low_support_rejected",
   "envelope_background_component_rejected",
@@ -3204,6 +3218,7 @@ const LIVE_PROCESS_OUTLIER_LABELS = {
   holding_last_good: { zh: "保持上次", en: "holding" },
   invalidated: { zh: "失锁", en: "invalidated" },
   low_quality: { zh: "低质量", en: "low quality" },
+  envelope_prior_hold: { zh: "prior未接受", en: "prior hold" },
   envelope_pending_relocation: { zh: "待确认重定位", en: "pending relocation" },
   envelope_low_support_rejected: { zh: "支持不足", en: "low support" },
   envelope_background_component_rejected: { zh: "背景误检", en: "background reject" },
@@ -3249,13 +3264,20 @@ function liveProcessTrackingHint(latest) {
     "holding_last_good",
     "invalidated",
     "envelope_outlier_hold",
+    "envelope_prior_hold",
     "envelope_pending_relocation",
     "envelope_near_tie_hold",
     "envelope_low_support_rejected",
     "envelope_background_component_rejected",
   ]);
   if (hasCandidate && heldStates.has(trackingState)) {
-    const reason = String(latest.envelope_reject_reason || latest.rejection_reason || latest.reason || "");
+    const reason = String(
+      latest.original_rejection_reason ||
+        latest.envelope_reject_reason ||
+        latest.rejection_reason ||
+        latest.reason ||
+        "",
+    );
     const base = currentLocale === "en"
       ? "Visual candidate present, but tracking did not accept it"
       : "视觉有候选，但 tracking 未接受";
@@ -3331,45 +3353,112 @@ function resetLiveProcessTelemetry({ show = false } = {}) {
   }
 }
 
+function liveProcessRawVisualCandidateValue(point) {
+  const observed = Number(point?.observed_metric_raw);
+  if (Number.isFinite(observed)) {
+    return observed;
+  }
+  const metricRaw = Number(point?.metric_raw);
+  if (Number.isFinite(metricRaw)) {
+    return metricRaw;
+  }
+  const space1 = Number(point?.space1_px);
+  return Number.isFinite(space1) ? space1 : null;
+}
+
+function liveProcessAcceptedTrackingValue(point) {
+  if (liveProcessPointIsOutlier(point)) {
+    return null;
+  }
+  const space1 = Number(point?.space1_px);
+  return Number.isFinite(space1) ? space1 : null;
+}
+
 function renderLiveProcessChart(curve, { status = "" } = {}) {
   if (!liveProcessChartLayersNode || !liveProcessChartEmptyNode) {
     return;
   }
-  const rawSamples = (Array.isArray(curve) ? curve : [])
-    .filter((point) => Number.isFinite(Number(point.space1_px)))
-    .filter((point) => !liveProcessPointIsOutlier(point));
-  const chartSeries = buildLiveProcessChartSeries(rawSamples, { status });
-  const samples = chartSeries.samples;
-  const useTemperatureAxis = chartSeries.useTemperatureAxis;
-  if (!samples.length) {
+  const sourceCurve = Array.isArray(curve) ? curve : [];
+  const rawVisualCandidateSeries = sourceCurve
+    .map((point) => {
+      const value = liveProcessRawVisualCandidateValue(point);
+      if (!Number.isFinite(value)) {
+        return null;
+      }
+      return {
+        ...point,
+        space1_px: value,
+      };
+    })
+    .filter(Boolean);
+  const acceptedTrackingSeries = sourceCurve
+    .map((point) => {
+      const value = liveProcessAcceptedTrackingValue(point);
+      if (!Number.isFinite(value)) {
+        return null;
+      }
+      return {
+        ...point,
+        space1_px: value,
+      };
+    })
+    .filter(Boolean);
+  const rawChartSeries = buildLiveProcessChartSeries(rawVisualCandidateSeries, { status });
+  const acceptedChartSeries = buildLiveProcessChartSeries(acceptedTrackingSeries, { status });
+  const rawSamples = rawChartSeries.samples;
+  const acceptedSamples = acceptedChartSeries.samples;
+  const chartSamples = acceptedSamples.length ? acceptedSamples : rawSamples;
+  const useTemperatureAxis = rawChartSeries.useTemperatureAxis || acceptedChartSeries.useTemperatureAxis;
+  if (!chartSamples.length) {
     liveProcessChartLayersNode.innerHTML = "";
     liveProcessChartEmptyNode.hidden = false;
     liveProcessChartEmptyNode.style.display = "block";
+    liveProcessChartEmptyNode.textContent = currentLocale === "en" ? "No data" : "暂无数据";
     return;
   }
-  const xValues = chartSeries.xValues;
-  const displaySamples = smoothLiveProcessDisplaySamples(samples);
-  const displayYValues = displaySamples.map((point) => Number(point.space1_px));
-  const yValues = samples
+  const xValues = chartSamples.map((point) => Number(point.temperature_celsius));
+  const displayAcceptedSamples = smoothLiveProcessDisplaySamples(acceptedSamples.length ? acceptedSamples : []);
+  const displayRawSamples = smoothLiveProcessDisplaySamples(rawSamples.length ? rawSamples : []);
+  const yValues = chartSamples
     .map((point) => Number(point.space1_px))
-    .concat(displayYValues);
+    .concat(displayAcceptedSamples.map((point) => Number(point.space1_px)))
+    .concat(displayRawSamples.map((point) => Number(point.space1_px)));
   const width = 640;
   const height = 220;
   const padding = { top: 20, right: 18, bottom: 46, left: 58 };
   const scaler = buildChartScaler(xValues, yValues, width, height, padding, {
     minXSpan: useTemperatureAxis ? null : 12,
   });
-  const smoothedPath = buildLiveProcessSmoothPath(
-    displaySamples.map((point, index) => ({
-      x: scaler.x(xValues[index]),
-      y: scaler.y(Number(point.space1_px)),
-    })),
-  );
+  const rawPath = displayRawSamples.length
+    ? buildLiveProcessSmoothPath(
+        displayRawSamples.map((point, index) => ({
+          x: scaler.x(Number(rawChartSeries.xValues[index])),
+          y: scaler.y(Number(point.space1_px)),
+        })),
+      )
+    : "";
+  const acceptedPath = displayAcceptedSamples.length
+    ? buildLiveProcessSmoothPath(
+        displayAcceptedSamples.map((point, index) => ({
+          x: scaler.x(Number(acceptedChartSeries.xValues[index])),
+          y: scaler.y(Number(point.space1_px)),
+        })),
+      )
+    : "";
   const xLabel = currentLocale === "en" ? "Temperature (°C)" : "温度 (°C)";
   const yLabel = currentLocale === "en" ? "Deformation / Space1 (px)" : "形变 / Space1 (px)";
   liveProcessChartLayersNode.innerHTML = `
     ${renderWorkspaceChartGrid(width, height, padding, 5, 4)}
-    <path class="live-process-chart-line live-process-chart-smooth-line" fill="none" stroke="${AFAS_CHART_THEME.highlight}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="${smoothedPath}"></path>
+    ${
+      rawPath
+        ? `<path class="live-process-chart-line live-process-chart-raw-candidate-line" fill="none" stroke="${AFAS_CHART_THEME.primary}" stroke-width="2.5" stroke-dasharray="6 4" stroke-linecap="round" stroke-linejoin="round" d="${rawPath}"></path>`
+        : ""
+    }
+    ${
+      acceptedPath
+        ? `<path class="live-process-chart-line live-process-chart-smooth-line" fill="none" stroke="${AFAS_CHART_THEME.highlight}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="${acceptedPath}"></path>`
+        : ""
+    }
     ${renderChartAxes(width, height, padding, scaler, {
       xLabel,
       yLabel,
@@ -3678,7 +3767,7 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     observation_axis: "long_axis",
     foreground_polarity: liveForegroundPolaritySelect ? liveForegroundPolaritySelect.value : "dark_on_light",
     threshold_mode: liveThresholdModeSelect ? liveThresholdModeSelect.value : "adaptive",
-    target_geometry_mode: currentTargetGeometryMode(),
+    target_geometry_mode: resolvedTargetGeometryMode(),
     side_guard_ratio: currentSideGuardRatio(),
     envelope_min_support_px: currentEnvelopeMinSupportPx(),
     envelope_quantile: currentEnvelopeQuantile(),

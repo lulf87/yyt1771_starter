@@ -1561,7 +1561,7 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
     # A near-equal span that jumps laterally is held for one frame and only
     # committed once the relocation repeats (two-frame confirmation), without
     # ever consulting a max_chord endpoint prior.
-    assert first.meta["tracking_state"] == "accepted_global_envelope"
+    assert first.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
     assert pending.meta["tracking_state"] == "envelope_pending_relocation"
     assert pending.meta["reason"] == "envelope_relocation_pending"
     assert pending.point_a_px == (20, 32)
@@ -1703,7 +1703,7 @@ def test_prior_tracking_envelope_line_bundle_moves_ab_to_wider_top_section(
     frame1, temp1 = _frame_temp(2)
     relocated = source.extract(frame1, temp1, sample_index=1, total_samples=2)
 
-    assert first.meta["tracking_state"] == "accepted_global_envelope"
+    assert first.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
     assert relocated.meta["tracking_state"] == "envelope_relocated"
     assert relocated.point_a_px == (20, 18)
     assert relocated.point_b_px == (110, 18)
@@ -1768,7 +1768,7 @@ def test_envelope_live_run_uses_axis_offset_not_display_endpoint_jump(
 
     # Same lateral axis (y) and span as the preset, but the display endpoints are
     # shifted 20 px along the axis: an endpoint-jump gate would have rejected it.
-    assert accepted.meta["tracking_state"] == "accepted_global_envelope"
+    assert accepted.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
     assert accepted.point_a_px == (40, 32)
     assert accepted.point_b_px == (100, 32)
     assert float(accepted.meta["endpoint_jump_px"]) > source._max_endpoint_jump_px
@@ -1823,7 +1823,7 @@ def test_envelope_axis_projected_points_do_not_cause_holding_last_good(
 
     assert "holding_last_good" not in states
     assert "invalidated" not in states
-    assert all(state == "accepted_global_envelope" for state in states)
+    assert all(state in {"bootstrapped_global_envelope", "accepted_global_envelope"} for state in states)
     # The display endpoints really did jump far more than the endpoint prior, so
     # the absence of holds is specifically because tracking ignores them.
     assert max(jumps) > source._max_endpoint_jump_px
@@ -1860,8 +1860,8 @@ def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
     frame2, temp2 = _frame_temp(3)
     recovered = source.extract(frame2, temp2, sample_index=2, total_samples=3)
 
-    assert locked.meta["tracking_state"] == "accepted_global_envelope"
-    assert held.meta["tracking_state"] == "envelope_outlier_hold"
+    assert locked.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
+    assert held.meta["tracking_state"] == "envelope_low_support_rejected"
     assert held.meta["envelope_reject_reason"] == "envelope_low_support"
     # The scratch never refreshes the last good A/B.
     assert held.point_a_px == (20, 32)
@@ -1914,20 +1914,17 @@ def test_locked_definition_envelope_resolves_metric_box_angle_and_parallel_ab() 
     assert "source_point_a_px" in metric.meta
 
 
-def test_prior_tracking_envelope_first_frame_holds_preset_axis_for_near_tie_bottom(
+def test_prior_tracking_envelope_bootstraps_live_candidate_away_from_preset_axis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Reproduces the live-run symptom: preset A/B sits on the middle band, but the
-    # very first live frame reports a near-tie candidate on a lower band. The run
-    # must treat the preset as the initial axis lock and NOT snap A/B to the lower
-    # band on frame 1; it should pend the relocation instead. A genuine, repeated
-    # relocation still commits after the confirmation window.
+    # Preset A/B sits on the middle band, but the first live candidate lands on a
+    # lower near-tie band. With a soft preset prior the run must bootstrap the live
+    # candidate instead of holding the preset for three fatal misses.
     holder: dict = {"value": {"span": 62.0, "a": (30, 70), "b": (90, 70), "envelope_support_px": 24}}
     monkeypatch.setattr(
         "src.workflow.live_run.DirectionalContourMetricExtractor",
         _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
     )
-    # Preset midpoint is on the middle/upper band (y=30); confirm window is 3.
     definition = _envelope_definition(point_a=(30, 30), point_b=(90, 30))
     source = PriorTrackingMetricSource(
         definition=definition,
@@ -1936,21 +1933,18 @@ def test_prior_tracking_envelope_first_frame_holds_preset_axis_for_near_tie_bott
         max_span_change_ratio=0.05,
     )
 
+    assert source._has_runtime_lock is False
     results = []
     for index in range(3):
         frame, temp = _frame_temp(index + 1)
         results.append(source.extract(frame, temp, sample_index=index, total_samples=3))
 
-    # Frame 1 and 2: held on the preset axis (y=30) while the lower band is pending.
-    assert results[0].meta["tracking_state"] == "envelope_pending_relocation"
-    assert results[0].point_a_px == (30, 30)
-    assert results[0].point_b_px == (90, 30)
-    assert results[1].meta["tracking_state"] == "envelope_pending_relocation"
-    assert results[1].point_a_px[1] == 30
-    # After the lower band repeats for the full confirm window it relocates.
-    assert results[2].meta["tracking_state"] == "envelope_relocated"
-    assert results[2].point_a_px == (30, 70)
-    assert results[2].point_b_px == (90, 70)
+    assert results[0].meta["tracking_state"] == "bootstrapped_global_envelope"
+    assert results[0].point_a_px == (30, 70)
+    assert results[0].point_b_px == (90, 70)
+    assert source._has_runtime_lock is True
+    assert all(result.meta["tracking_state"] == "accepted_global_envelope" for result in results[1:])
+    assert "invalidated" not in {result.meta["tracking_state"] for result in results}
 
 
 def test_envelope_gross_outlier_guards_reject_support_box_edge_and_side_guard(
@@ -2689,3 +2683,135 @@ def test_resolve_measurement_interval_ms_falls_back_to_capture_interval_when_tar
     run_config.measurement_target_hz = None
 
     assert resolve_measurement_interval_ms(run_config) == 125
+
+
+def test_envelope_bootstrap_does_not_start_locked_on_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (40, 32), "b": (100, 32), "envelope_support_px": 24}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    assert source._has_runtime_lock is False
+    frame, temp = _frame_temp(1)
+    metric = source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert metric.meta["tracking_state"] == "bootstrapped_global_envelope"
+    assert source._has_runtime_lock is True
+    assert metric.point_a_px == (40, 32)
+    assert metric.point_b_px == (100, 32)
+
+
+def test_envelope_visual_candidate_rejected_is_nonfatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32), "envelope_support_px": 24}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    source.extract(frame0, temp0, sample_index=0, total_samples=6)
+
+    states = []
+    for index in range(1, 6):
+        holder["value"] = {
+            "span": 130.0,
+            "a": (20, 40),
+            "b": (150, 40),
+            "envelope_support_px": 4,
+        }
+        frame, temp = _frame_temp(index + 1)
+        metric = source.extract(frame, temp, sample_index=index, total_samples=6)
+        states.append(metric.meta["tracking_state"])
+
+    assert states == ["envelope_low_support_rejected"] * 5
+    assert "invalidated" not in states
+    assert source._consecutive_misses == 0
+    assert source._nonfatal_reject_count == 5
+
+
+def test_envelope_candidate_can_establish_runtime_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 62.0, "a": (30, 56), "b": (90, 56), "envelope_support_px": 28}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 30), point_b=(90, 30))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame, temp = _frame_temp(1)
+    metric = source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert source._has_runtime_lock is True
+    assert metric.meta["tracking_state"] == "bootstrapped_global_envelope"
+    assert float(metric.meta["candidate_axis_jump_px"]) > source._max_midpoint_drift_px
+
+
+def test_envelope_prior_exhausted_preserves_original_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": None}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+        max_consecutive_misses=2,
+    )
+
+    class EmptyExtractor:
+        def __init__(self, config):
+            pass
+
+        def extract(self, frame):
+            return ShapeMetric(
+                timestamp_ms=frame.timestamp_ms,
+                metric_name="directional_contour_span",
+                metric_raw=None,
+                quality=0.0,
+                roi=(0, 0, 160, 80),
+                point_a_px=None,
+                point_b_px=None,
+                meta={"reason": "envelope_observation_unavailable"},
+            )
+
+    monkeypatch.setattr("src.workflow.live_run.DirectionalContourMetricExtractor", EmptyExtractor)
+
+    metrics = []
+    for index in range(3):
+        frame, temp = _frame_temp(index + 1)
+        metrics.append(source.extract(frame, temp, sample_index=index, total_samples=3))
+
+    assert metrics[-1].meta["tracking_state"] == "invalidated"
+    assert metrics[-1].meta["reason"] == "tracking_prior_exhausted"
+    assert metrics[-1].meta["original_rejection_reason"] == "envelope_observation_unavailable"
