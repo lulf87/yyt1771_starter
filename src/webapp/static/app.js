@@ -2334,6 +2334,8 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     selected_candidate_score: latestTelemetry.selected_candidate_score ?? null,
     side_guard_foreground_area: latestTelemetry.side_guard_foreground_area ?? null,
     envelope_reject_reason: latestTelemetry.envelope_reject_reason ?? null,
+    last_good_axis_offset: latestTelemetry.last_good_axis_offset ?? null,
+    candidate_axis_jump_px: latestTelemetry.candidate_axis_jump_px ?? null,
     tracking_state: latestTelemetry.tracking_state ?? null,
     point_a_px: pointA,
     point_b_px: pointB,

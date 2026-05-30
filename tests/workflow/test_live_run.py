@@ -1785,6 +1785,45 @@ def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
     assert recovered.point_b_px == (80, 32)
 
 
+def test_prior_tracking_envelope_first_frame_holds_preset_axis_for_near_tie_bottom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reproduces the live-run symptom: preset A/B sits on the middle band, but the
+    # very first live frame reports a near-tie candidate on a lower band. The run
+    # must treat the preset as the initial axis lock and NOT snap A/B to the lower
+    # band on frame 1; it should pend the relocation instead. A genuine, repeated
+    # relocation still commits after the confirmation window.
+    holder: dict = {"value": {"span": 62.0, "a": (30, 70), "b": (90, 70), "envelope_support_px": 24}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    # Preset midpoint is on the middle/upper band (y=30); confirm window is 3.
+    definition = _envelope_definition(point_a=(30, 30), point_b=(90, 30))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    results = []
+    for index in range(3):
+        frame, temp = _frame_temp(index + 1)
+        results.append(source.extract(frame, temp, sample_index=index, total_samples=3))
+
+    # Frame 1 and 2: held on the preset axis (y=30) while the lower band is pending.
+    assert results[0].meta["tracking_state"] == "envelope_pending_relocation"
+    assert results[0].point_a_px == (30, 30)
+    assert results[0].point_b_px == (90, 30)
+    assert results[1].meta["tracking_state"] == "envelope_pending_relocation"
+    assert results[1].point_a_px[1] == 30
+    # After the lower band repeats for the full confirm window it relocates.
+    assert results[2].meta["tracking_state"] == "envelope_relocated"
+    assert results[2].point_a_px == (30, 70)
+    assert results[2].point_b_px == (90, 70)
+
+
 def test_envelope_gross_outlier_guards_reject_support_box_edge_and_side_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -568,6 +568,19 @@ class PriorTrackingMetricSource:
         self._pending_reacquire_span_px: float | None = None
         self._pending_reacquire_count = 0
         self._has_runtime_lock = False
+        # For envelope_max_width the operator-set preset A/B is a trustworthy
+        # initial estimate of where the widest section sits. Treat it as the
+        # initial lock so the very first live frame is evaluated against the
+        # preset axis (soft prior) instead of unconditionally snapping to the
+        # raw global-max bin, which is what caused A/B to jump to a lower local
+        # band the moment the run started.
+        self._envelope_locked_on_preset = bool(
+            self._is_envelope_max_width
+            and definition.point_a_px is not None
+            and definition.point_b_px is not None
+        )
+        if self._envelope_locked_on_preset:
+            self._has_runtime_lock = True
         self._analysis_roi = definition.analysis_roi
         self._pending_envelope_point_a: PixelPoint | None = None
         self._pending_envelope_point_b: PixelPoint | None = None
@@ -1108,8 +1121,13 @@ class PriorTrackingMetricSource:
             )
         # Past this point the candidate is a relocation (outside the prior). It
         # must be a plausible target before it can ever move A/B, otherwise hold.
-        if not self._envelope_candidate_is_plausible(observation):
+        plausibility_reason = self._envelope_plausibility_failure_reason(observation)
+        if plausibility_reason is not None:
             self._clear_envelope_pending()
+            low_support = plausibility_reason in {
+                "envelope_low_support",
+                "envelope_endpoint_unsupported",
+            }
             return self._hold_last_good_for_envelope_outlier(
                 frame,
                 temp,
@@ -1117,7 +1135,12 @@ class PriorTrackingMetricSource:
                 total_samples=total_samples,
                 observation=observation,
                 diagnostics=diagnostics,
-                reason="envelope_background_component_rejected",
+                reason=plausibility_reason,
+                tracking_state=(
+                    "envelope_low_support_rejected"
+                    if low_support
+                    else "envelope_background_component_rejected"
+                ),
             )
         span_change_ratio = diagnostics.get("span_change_ratio")
         new_span = float(observation.metric_raw)
@@ -1146,10 +1169,26 @@ class PriorTrackingMetricSource:
         lateral_drift_px = self._envelope_lateral_drift_px(diagnostics)
         large_lateral_drift = lateral_drift_px is not None and float(lateral_drift_px) > self._max_midpoint_drift_px
         if near_tie and large_lateral_drift:
-            if self._envelope_pending_is_consistent(observation):
+            # A consistent near-tie relocation accumulates toward confirmation; an
+            # inconsistent one (the near-tie candidate keeps jumping to different
+            # lateral positions) is just jitter and is held without progress.
+            consistent = self._envelope_pending_is_consistent(observation)
+            if consistent:
                 self._pending_envelope_count += 1
             else:
+                jittered = self._pending_envelope_point_a is not None
                 self._record_envelope_pending(observation)
+                if jittered:
+                    return self._hold_last_good_for_envelope_outlier(
+                        frame,
+                        temp,
+                        sample_index=sample_index,
+                        total_samples=total_samples,
+                        observation=observation,
+                        diagnostics=diagnostics,
+                        reason="envelope_near_tie_axis_jitter",
+                        tracking_state="envelope_near_tie_hold",
+                    )
             if self._pending_envelope_count >= self._envelope_relocation_confirm_frames:
                 self._clear_envelope_pending()
                 return self._accept_envelope_metric(
@@ -1181,16 +1220,26 @@ class PriorTrackingMetricSource:
         )
 
     def _envelope_candidate_is_plausible(self, observation: ShapeMetric) -> bool:
+        return self._envelope_plausibility_failure_reason(observation) is None
+
+    def _envelope_plausibility_failure_reason(self, observation: ShapeMetric) -> str | None:
         if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
-            return False
+            return "envelope_observation_unavailable"
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
-            return False
+            return "envelope_low_support"
         if self._envelope_endpoint_support_is_weak(observation):
-            return False
+            return "envelope_endpoint_unsupported"
         if self._envelope_side_guard_area_is_gross(observation):
-            return False
-        return True
+            return "envelope_side_guard_clutter"
+        return None
+
+    def _envelope_axis_offset_px(self, point_a: PixelPoint | None, point_b: PixelPoint | None) -> float | None:
+        if point_a is None or point_b is None or self._normal_unit is None:
+            return None
+        midpoint = _midpoint(point_a, point_b)
+        normal_x, normal_y = self._normal_unit
+        return float(midpoint.x) * normal_x + float(midpoint.y) * normal_y
 
     def _envelope_lateral_drift_px(self, diagnostics: dict[str, Any]) -> float | None:
         lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
@@ -1238,6 +1287,13 @@ class PriorTrackingMetricSource:
         total_samples: int,
         state: str,
     ) -> ShapeMetric:
+        last_good_axis_offset = self._envelope_axis_offset_px(
+            self._last_good_point_a, self._last_good_point_b
+        )
+        candidate_axis_offset = self._envelope_axis_offset_px(
+            _shape_metric_point(observation.point_a_px),
+            _shape_metric_point(observation.point_b_px),
+        )
         self._remember(observation)
         self._consecutive_misses = 0
         self._clear_pending_reacquire()
@@ -1246,6 +1302,12 @@ class PriorTrackingMetricSource:
         observation.meta["sample_index"] = sample_index
         observation.meta["total_samples"] = total_samples
         observation.meta["envelope_reject_reason"] = observation.meta.get("envelope_reject_reason")
+        observation.meta["last_good_axis_offset"] = last_good_axis_offset
+        observation.meta["candidate_axis_jump_px"] = (
+            None
+            if last_good_axis_offset is None or candidate_axis_offset is None
+            else abs(float(candidate_axis_offset) - float(last_good_axis_offset))
+        )
         observation.meta.update(diagnostics)
         return observation
 
@@ -1291,6 +1353,19 @@ class PriorTrackingMetricSource:
         metric.meta["envelope_reject_reason"] = reason
         metric.meta["observation_point_a_px"] = observation.point_a_px
         metric.meta["observation_point_b_px"] = observation.point_b_px
+        last_good_axis_offset = self._envelope_axis_offset_px(
+            self._last_good_point_a, self._last_good_point_b
+        )
+        candidate_axis_offset = self._envelope_axis_offset_px(
+            _shape_metric_point(observation.point_a_px),
+            _shape_metric_point(observation.point_b_px),
+        )
+        metric.meta["last_good_axis_offset"] = last_good_axis_offset
+        metric.meta["candidate_axis_jump_px"] = (
+            None
+            if last_good_axis_offset is None or candidate_axis_offset is None
+            else abs(float(candidate_axis_offset) - float(last_good_axis_offset))
+        )
         return metric
 
     def _directional_midpoint_shift(
@@ -2193,14 +2268,20 @@ class PriorTrackingMetricSource:
         return min(64.0, max(24.0, float(self._max_frame_span_jump_px) * 8.0))
 
     def _current_envelope_axis_prior_px(self) -> float | None:
-        if not self._has_runtime_lock or self._normal_unit is None:
+        # The prior is available from the very first frame: before a runtime
+        # relocation it is the operator preset midpoint, afterwards it is the
+        # last accepted A/B midpoint. This keeps near-tie candidates anchored on
+        # the established axis instead of free-running to the raw global max.
+        if self._normal_unit is None:
+            return None
+        if self._last_good_point_a is None or self._last_good_point_b is None:
             return None
         midpoint = _midpoint(self._last_good_point_a, self._last_good_point_b)
         normal_x, normal_y = self._normal_unit
         return float(midpoint.x) * normal_x + float(midpoint.y) * normal_y
 
     def _current_envelope_axis_prior_tolerance_px(self) -> float | None:
-        if not self._has_runtime_lock:
+        if self._last_good_point_a is None or self._last_good_point_b is None:
             return None
         return max(self._max_midpoint_drift_px, 8.0)
 
@@ -2902,6 +2983,8 @@ def _telemetry_row(
         "selected_candidate_span": metric_meta.get("selected_candidate_span"),
         "selected_candidate_axis_offset": metric_meta.get("selected_candidate_axis_offset"),
         "envelope_reject_reason": metric_meta.get("envelope_reject_reason"),
+        "last_good_axis_offset": metric_meta.get("last_good_axis_offset"),
+        "candidate_axis_jump_px": metric_meta.get("candidate_axis_jump_px"),
         "axis_offset_px": metric_meta.get("axis_offset_px"),
         "reason": metric_meta.get("reason"),
         "observation_selection_mode": metric_meta.get("observation_selection_mode"),

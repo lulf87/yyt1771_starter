@@ -168,6 +168,50 @@ def test_envelope_max_width_line_bundle_rejects_background_dot_on_the_side() -> 
     assert result.rejected_component_count >= 1
 
 
+def test_envelope_max_width_line_bundle_picks_widest_middle_over_dense_bottom() -> None:
+    # A connected line bundle whose widest cross-section is on the middle/upper
+    # band: outer filaments fan out there (x in [40, 170]). The lower band is
+    # denser (more foreground pixels packed together) but narrower (x in
+    # [70, 149]). A pure thin-bin global max can underestimate the sparse-but-wide
+    # middle and snap A/B to the dense-but-narrow bottom. The robust envelope must
+    # report the genuinely widest middle band instead.
+    image = np.full((200, 240), 240, dtype=np.uint8)
+    # Inner filaments span both bands so the whole bundle is one lateral cluster
+    # and the bottom band is dense.
+    for left in (70, 85, 100, 115, 130, 145):
+        image[60:137, left : left + 4] = 30
+    # Outer filaments only exist on the middle/upper band -> widest cross-section.
+    image[60:87, 40:44] = 30
+    image[60:87, 166:170] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=200),
+            direction_angle_deg=0.0,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.0,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    # Widest middle band span (~129 px), not the dense bottom span (~79 px).
+    assert result.metric_raw == pytest.approx(129.0, abs=8.0)
+    assert result.point_a.x == pytest.approx(40, abs=5)
+    assert result.point_b.x >= 160
+    # Endpoints stay on the middle/upper band, never on the dense lower band.
+    assert result.point_a.y <= 95
+    assert result.point_b.y <= 95
+
+
 def test_envelope_max_width_mesh_lattice_ignores_internal_holes() -> None:
     image = np.full((150, 240), 240, dtype=np.uint8)
     image[35:38, 54:186] = 30
