@@ -60,6 +60,8 @@ class MeasurementDefinition:
     direction_projection_mode: str = "max_chord"
     target_geometry_mode: str = "single_component"
     side_guard_ratio: float = 0.0
+    envelope_min_support_px: int = 3
+    envelope_quantile: float = 0.0
     observation_axis: ObservationAxis = ObservationAxis.LONG_AXIS
 
     def has_valid_roi(self) -> bool:
@@ -89,6 +91,8 @@ class MeasurementDefinition:
             and self.min_target_area_px > 0
             and 0.0 <= float(self.sensitivity) <= 100.0
             and 0.0 <= float(self.side_guard_ratio) <= 0.45
+            and int(self.envelope_min_support_px) >= 2
+            and 0.0 <= float(self.envelope_quantile) <= 0.20
             and _point_in_metric_box(self.metric_box, self.point_a_px.x, self.point_a_px.y)
             and _point_in_metric_box(self.metric_box, self.point_b_px.x, self.point_b_px.y)
             and self.observation_axis in {ObservationAxis.LONG_AXIS, ObservationAxis.SHORT_AXIS}

@@ -146,6 +146,8 @@ class MeasurementDefinitionRequest(BaseModel):
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
+    envelope_min_support_px: int = Field(default=3, ge=2, le=500)
+    envelope_quantile: float = Field(default=0.0, ge=0.0, le=0.20)
 
     @model_validator(mode="after")
     def validate_distinct_points(self) -> "MeasurementDefinitionRequest":
@@ -184,6 +186,8 @@ class AutoDetectDefinitionRequest(BaseModel):
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
+    envelope_min_support_px: int = Field(default=3, ge=2, le=500)
+    envelope_quantile: float = Field(default=0.0, ge=0.0, le=0.20)
 
     @model_validator(mode="after")
     def validate_geometry(self) -> "AutoDetectDefinitionRequest":
@@ -211,6 +215,8 @@ class AutoDetectDefinitionResponse(BaseModel):
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = 0.0
+    envelope_min_support_px: int = 3
+    envelope_quantile: float = 0.0
     selection_mode: str | None = None
     selected_component_count: int | None = None
     envelope_candidate_count: int | None = None

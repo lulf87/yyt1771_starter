@@ -74,6 +74,8 @@ const liveThresholdModeSelect = document.getElementById("live-threshold-mode");
 const liveDirectionProjectionModeSelect = document.getElementById("live-direction-projection-mode");
 const liveTargetGeometryModeSelect = document.getElementById("live-target-geometry-mode");
 const liveSideGuardRatioInput = document.getElementById("live-side-guard-ratio");
+const liveEnvelopeMinSupportInput = document.getElementById("live-envelope-min-support");
+const liveEnvelopeQuantileInput = document.getElementById("live-envelope-quantile");
 const liveIgnoreInternalTextureInput = document.getElementById("live-ignore-internal-texture");
 const liveMinTargetAreaInput = document.getElementById("live-min-target-area");
 const liveSensitivityInput = document.getElementById("live-sensitivity");
@@ -467,6 +469,8 @@ const TRANSLATIONS = {
     "home.options.geometry_line_bundle": "Line Bundle",
     "home.options.geometry_mesh_lattice": "Mesh / Lattice",
     "home.sections.detection.side_guard": "Side Guard Ratio",
+    "home.sections.detection.envelope_min_support": "Envelope Min Support (px)",
+    "home.sections.detection.envelope_quantile": "Envelope Quantile Trim",
     "home.sections.detection.min_area": "Min Area",
     "home.sections.detection.ignore_texture": "Ignore Texture",
     "home.sections.ab.title": "A/B Status",
@@ -2007,6 +2011,16 @@ function currentSideGuardRatio() {
   return clamp(Number.isFinite(rawValue) ? rawValue : 0, 0, 0.45);
 }
 
+function currentEnvelopeMinSupportPx() {
+  const rawValue = getNumericInputValue(liveEnvelopeMinSupportInput, 3);
+  return Math.round(clamp(Number.isFinite(rawValue) ? rawValue : 3, 2, 500));
+}
+
+function currentEnvelopeQuantile() {
+  const rawValue = getNumericInputValue(liveEnvelopeQuantileInput, 0);
+  return clamp(Number.isFinite(rawValue) ? rawValue : 0, 0, 0.2);
+}
+
 function mapDefinitionToCoordinateSpace(definition, coordinateSpace = "preview") {
   if (!definition) {
     return null;
@@ -2150,6 +2164,8 @@ function normalizeDefinitionForComparison(definition) {
     direction_projection_mode: definition.direction_projection_mode || currentDirectionProjectionMode(),
     target_geometry_mode: definition.target_geometry_mode || currentTargetGeometryMode(),
     side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio()),
+    envelope_min_support_px: Number(definition.envelope_min_support_px ?? currentEnvelopeMinSupportPx()),
+    envelope_quantile: Number(definition.envelope_quantile ?? currentEnvelopeQuantile()),
   };
 }
 
@@ -2631,6 +2647,12 @@ function fillLiveDefinitionInputs(definition, { updatePoints = true } = {}) {
   }
   if (liveSideGuardRatioInput) {
     liveSideGuardRatioInput.value = String(uiDefinition.side_guard_ratio ?? 0);
+  }
+  if (liveEnvelopeMinSupportInput) {
+    liveEnvelopeMinSupportInput.value = String(uiDefinition.envelope_min_support_px ?? 3);
+  }
+  if (liveEnvelopeQuantileInput) {
+    liveEnvelopeQuantileInput.value = String(uiDefinition.envelope_quantile ?? 0);
   }
   if (liveIgnoreInternalTextureInput) {
     liveIgnoreInternalTextureInput.checked = Boolean(uiDefinition.ignore_internal_texture);
@@ -3403,6 +3425,8 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     threshold_mode: liveThresholdModeSelect ? liveThresholdModeSelect.value : "adaptive",
     target_geometry_mode: currentTargetGeometryMode(),
     side_guard_ratio: currentSideGuardRatio(),
+    envelope_min_support_px: currentEnvelopeMinSupportPx(),
+    envelope_quantile: currentEnvelopeQuantile(),
     ignore_internal_texture: liveIgnoreInternalTextureInput ? liveIgnoreInternalTextureInput.checked : false,
     min_target_area_px: getNumericInputValue(liveMinTargetAreaInput, 200),
     sensitivity: getNumericInputValue(liveSensitivityInput, 50),
@@ -3755,6 +3779,12 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     }
     if (liveSideGuardRatioInput && payload.side_guard_ratio != null) {
       liveSideGuardRatioInput.value = String(payload.side_guard_ratio);
+    }
+    if (liveEnvelopeMinSupportInput && payload.envelope_min_support_px != null) {
+      liveEnvelopeMinSupportInput.value = String(payload.envelope_min_support_px);
+    }
+    if (liveEnvelopeQuantileInput && payload.envelope_quantile != null) {
+      liveEnvelopeQuantileInput.value = String(payload.envelope_quantile);
     }
     if (liveThresholdModeSelect && payload.threshold_mode_used) {
       liveThresholdModeSelect.value = String(payload.threshold_mode_used);

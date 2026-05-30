@@ -154,6 +154,8 @@ def save_measurement_definition(
         direction_projection_mode=_resolve_direction_projection_mode(payload, draft.preset),
         target_geometry_mode=payload.target_geometry_mode,
         side_guard_ratio=payload.side_guard_ratio,
+        envelope_min_support_px=payload.envelope_min_support_px,
+        envelope_quantile=payload.envelope_quantile,
         observation_axis=ObservationAxis(payload.observation_axis),
     )
     try:
@@ -422,6 +424,8 @@ def auto_detect_measurement_definition(
         direction_projection_mode=_metric_projection_mode(metric),
         target_geometry_mode=payload.target_geometry_mode,
         side_guard_ratio=payload.side_guard_ratio,
+        envelope_min_support_px=payload.envelope_min_support_px,
+        envelope_quantile=payload.envelope_quantile,
         selection_mode=_metric_selection_mode(metric),
         selected_component_count=_metric_meta_int(metric, "selected_component_count"),
         envelope_candidate_count=_metric_meta_int(metric, "envelope_candidate_count"),
@@ -713,6 +717,8 @@ def _extract_directional_auto_detect_metric(
             projection_mode=_resolve_direction_projection_mode(payload, preset),
             target_geometry_mode=payload.target_geometry_mode,
             side_guard_ratio=payload.side_guard_ratio,
+            envelope_min_support_px=payload.envelope_min_support_px,
+            envelope_quantile=payload.envelope_quantile,
         )
     )
     return detector.extract(frame)
@@ -1242,6 +1248,8 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         direction_projection_mode=definition.direction_projection_mode,
         target_geometry_mode=definition.target_geometry_mode,
         side_guard_ratio=definition.side_guard_ratio,
+        envelope_min_support_px=definition.envelope_min_support_px,
+        envelope_quantile=definition.envelope_quantile,
     )
 
 

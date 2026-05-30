@@ -165,6 +165,41 @@ def test_envelope_max_width_respects_rotated_roi_and_side_guard_noise() -> None:
     assert result.envelope_candidate_count >= 1
 
 
+def test_envelope_max_width_respects_60deg_rotated_roi() -> None:
+    image = np.full((220, 260), 240, dtype=np.uint8)
+    box = MetricBox(center_x=130, center_y=110, width=170, height=80, angle_deg=60.0)
+    _paint_test_line_local(image, box, -60, -16, local_y=0.0, width=3, value=30)
+    _paint_test_line_local(image, box, 16, 64, local_y=0.0, width=3, value=30)
+    _paint_test_line_local(image, box, -78, -72, local_y=-28.0, width=5, value=30)
+    _paint_test_line_local(image, box, 72, 80, local_y=26.0, width=5, value=30)
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=260, height=220),
+            metric_box=box,
+            direction_angle_deg=box.angle_deg,
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.12,
+            processing_max_side_px=0,
+        ),
+    )
+
+    local_a = _point_local_coords(box, result.point_a)
+    local_b = _point_local_coords(box, result.point_b)
+    assert local_a[0] == pytest.approx(-60, abs=3.0)
+    assert local_b[0] == pytest.approx(64, abs=3.0)
+    assert abs(local_a[1]) <= 3.0
+    assert abs(local_b[1]) <= 3.0
+    assert result.metric_raw == pytest.approx(124.0, abs=5.0)
+    assert result.side_guard_foreground_area > 0
+
+
 def test_envelope_metric_meta_exposes_debug_fields() -> None:
     image = np.full((80, 160), 240, dtype=np.uint8)
     image[38:41, 32:68] = 30

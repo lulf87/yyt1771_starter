@@ -1489,6 +1489,18 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
                     "projection_point_mode": "envelope_max_width",
                 },
             ),
+            ShapeMetric(
+                timestamp_ms=3,
+                metric_name="directional_contour_span",
+                metric_raw=60.0,
+                quality=0.95,
+                point_a_px=(20, 54),
+                point_b_px=(80, 54),
+                meta={
+                    "selection_mode": "directional_contour_envelope_max_width",
+                    "projection_point_mode": "envelope_max_width",
+                },
+            ),
         ]
     )
 
@@ -1530,20 +1542,264 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
         FramePacket(timestamp_ms=1, source="fixture", image=[[0]], frame_id=1),
         TempReading(timestamp_ms=1, celsius=25.0, source="fixture"),
         sample_index=0,
-        total_samples=2,
+        total_samples=3,
     )
-    relocated = source.extract(
+    pending = source.extract(
         FramePacket(timestamp_ms=2, source="fixture", image=[[0]], frame_id=2),
         TempReading(timestamp_ms=2, celsius=25.0, source="fixture"),
         sample_index=1,
-        total_samples=2,
+        total_samples=3,
+    )
+    relocated = source.extract(
+        FramePacket(timestamp_ms=3, source="fixture", image=[[0]], frame_id=3),
+        TempReading(timestamp_ms=3, celsius=25.0, source="fixture"),
+        sample_index=2,
+        total_samples=3,
     )
 
+    # A near-equal span that jumps laterally is held for one frame and only
+    # committed once the relocation repeats (two-frame confirmation), without
+    # ever consulting a max_chord endpoint prior.
     assert first.meta["tracking_state"] == "accepted_global_envelope"
+    assert pending.meta["tracking_state"] == "holding_last_good"
+    assert pending.meta["reason"] == "envelope_relocation_pending"
+    assert pending.point_a_px == (20, 32)
     assert relocated.meta["tracking_state"] == "envelope_relocated"
     assert relocated.meta["selection_mode"] == "directional_contour_envelope_max_width"
     assert relocated.point_a_px == (20, 54)
     assert relocated.point_b_px == (80, 54)
+
+
+def _envelope_definition(
+    *,
+    target_geometry_mode: str = "line_bundle",
+    envelope_min_support_px: int = 3,
+    point_a: tuple[int, int] = (20, 32),
+    point_b: tuple[int, int] = (80, 32),
+) -> MeasurementDefinition:
+    return MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=160, height=80),
+        metric_box=MetricBox(center_x=80, center_y=40, width=140, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=point_a[0], y=point_a[1]),
+        point_b_px=PixelPoint(x=point_b[0], y=point_b[1]),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=20,
+        direction_angle_deg=0.0,
+        direction_projection_mode="envelope_max_width",
+        target_geometry_mode=target_geometry_mode,
+        side_guard_ratio=0.10,
+        envelope_min_support_px=envelope_min_support_px,
+    )
+
+
+def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
+    class FakeDirectionalExtractor:
+        def __init__(self, config):
+            assert config.projection_mode == expected_projection_mode
+
+        def extract(self, frame):
+            spec = holder["value"]
+            return ShapeMetric(
+                timestamp_ms=frame.timestamp_ms,
+                metric_name="directional_contour_span",
+                metric_raw=float(spec["span"]),
+                quality=0.95,
+                roi=(0, 0, 160, 80),
+                point_a_px=tuple(spec["a"]),
+                point_b_px=tuple(spec["b"]),
+                meta={
+                    "selection_mode": spec.get(
+                        "selection_mode", "directional_contour_envelope_max_width"
+                    ),
+                    "projection_point_mode": spec.get("projection_point_mode", "envelope_max_width"),
+                    "component_area": 400,
+                    "envelope_support_px": spec.get("envelope_support_px", 24),
+                    "side_guard_foreground_area": spec.get("side_guard_foreground_area", 0),
+                },
+            )
+
+    return FakeDirectionalExtractor
+
+
+def _frame_temp(index: int) -> tuple[FramePacket, TempReading]:
+    return (
+        FramePacket(timestamp_ms=index, source="fixture", image=[[0]], frame_id=index),
+        TempReading(timestamp_ms=index, celsius=25.0, source="fixture"),
+    )
+
+
+def test_prior_tracking_max_chord_stays_prior_gated_when_widest_jumps_to_top(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 60), "b": (80, 60), "selection_mode": "directional_contour_max_chord", "projection_point_mode": "max_chord"}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="max_chord"),
+    )
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=160, height=80),
+        metric_box=MetricBox(center_x=80, center_y=40, width=140, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=20, y=60),
+        point_b_px=PixelPoint(x=80, y=60),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=20,
+        direction_angle_deg=0.0,
+        direction_projection_mode="max_chord",
+    )
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    first = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    # The widest chord suddenly jumps from the lower edge to the upper edge,
+    # keeping the same width.
+    holder["value"] = {"span": 60.0, "a": (20, 14), "b": (80, 14), "selection_mode": "directional_contour_max_chord", "projection_point_mode": "max_chord"}
+    frame1, temp1 = _frame_temp(2)
+    jumped = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert first.meta["tracking_state"] in {"bootstrapped", "accepted"}
+    # max_chord must remain prior-gated: it does not unconditionally relocate to
+    # the new widest section on the very first jumped frame.
+    assert jumped.meta["tracking_state"] not in {
+        "relocated",
+        "accepted_relocated",
+        "envelope_relocated",
+    }
+    assert abs(jumped.point_a_px[1] - 60) <= 6
+
+
+def test_prior_tracking_envelope_line_bundle_moves_ab_to_wider_top_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (30, 60), "b": (90, 60)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 60), point_b=(90, 60))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    first = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    # The widest envelope section moves to the upper part of the ROI and gets
+    # clearly wider.
+    holder["value"] = {"span": 90.0, "a": (20, 18), "b": (110, 18)}
+    frame1, temp1 = _frame_temp(2)
+    relocated = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert first.meta["tracking_state"] == "accepted_global_envelope"
+    assert relocated.meta["tracking_state"] == "envelope_relocated"
+    assert relocated.point_a_px == (20, 18)
+    assert relocated.point_b_px == (110, 18)
+
+
+def test_prior_tracking_envelope_near_tie_does_not_jitter_between_top_and_bottom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bottom = {"span": 60.0, "a": (30, 60), "b": (90, 60)}
+    top = {"span": 61.0, "a": (30, 18), "b": (90, 18)}
+    holder: dict = {"value": dict(bottom)}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 60), point_b=(90, 60))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    results = []
+    # Alternate between a bottom and a near-equal top candidate every frame.
+    sequence = [bottom, top, bottom, top, bottom, top]
+    for index, spec in enumerate(sequence):
+        holder["value"] = dict(spec)
+        frame, temp = _frame_temp(index + 1)
+        results.append(source.extract(frame, temp, sample_index=index, total_samples=len(sequence)))
+
+    # The near-tie top candidate never repeats on two consecutive frames, so A/B
+    # must never switch to the top and must never report a committed relocation.
+    for result in results:
+        assert result.point_a_px[1] >= 50
+        assert result.meta["tracking_state"] != "envelope_relocated"
+
+
+def test_envelope_gross_outlier_guards_reject_support_box_edge_and_side_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (30, 32), "b": (90, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(envelope_min_support_px=6, point_a=(30, 32), point_b=(90, 32))
+    source = PriorTrackingMetricSource(definition=definition)
+
+    def outlier(metric: ShapeMetric) -> bool:
+        return source._envelope_candidate_is_gross_outlier(metric, source._tracking_diagnostics(metric))
+
+    low_support = ShapeMetric(
+        timestamp_ms=1,
+        metric_name="directional_contour_span",
+        metric_raw=60.0,
+        quality=0.9,
+        roi=(0, 0, 160, 80),
+        point_a_px=(30, 32),
+        point_b_px=(90, 32),
+        meta={"envelope_support_px": 3},
+    )
+    box_grab = ShapeMetric(
+        timestamp_ms=1,
+        metric_name="directional_contour_span",
+        metric_raw=140.0,
+        quality=0.9,
+        roi=(0, 0, 160, 80),
+        point_a_px=(10, 40),
+        point_b_px=(150, 40),
+        meta={"envelope_support_px": 20},
+    )
+    side_guard_clutter = ShapeMetric(
+        timestamp_ms=1,
+        metric_name="directional_contour_span",
+        metric_raw=40.0,
+        quality=0.9,
+        roi=(0, 0, 160, 80),
+        point_a_px=(40, 32),
+        point_b_px=(80, 32),
+        meta={"envelope_support_px": 20, "side_guard_foreground_area": 99999},
+    )
+    good = ShapeMetric(
+        timestamp_ms=1,
+        metric_name="directional_contour_span",
+        metric_raw=60.0,
+        quality=0.9,
+        roi=(0, 0, 160, 80),
+        point_a_px=(30, 32),
+        point_b_px=(90, 32),
+        meta={"envelope_support_px": 20, "side_guard_foreground_area": 12},
+    )
+
+    assert outlier(low_support) is True
+    assert outlier(box_grab) is True
+    assert outlier(side_guard_clutter) is True
+    assert outlier(good) is False
 
 
 def test_prior_tracking_metric_source_rejects_directional_relocation_when_span_collapses(

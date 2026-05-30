@@ -588,6 +588,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "direction_projection_mode": definition.direction_projection_mode,
         "target_geometry_mode": definition.target_geometry_mode,
         "side_guard_ratio": definition.side_guard_ratio,
+        "envelope_min_support_px": definition.envelope_min_support_px,
+        "envelope_quantile": definition.envelope_quantile,
     }
 
 

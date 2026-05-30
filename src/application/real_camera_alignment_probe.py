@@ -438,6 +438,8 @@ def _measurement_definition_from_payload(payload: dict[str, Any]) -> Measurement
         direction_projection_mode=str(payload.get("direction_projection_mode", "max_chord")),
         target_geometry_mode=str(payload.get("target_geometry_mode", "single_component")),
         side_guard_ratio=float(payload.get("side_guard_ratio", 0.0) or 0.0),
+        envelope_min_support_px=int(payload.get("envelope_min_support_px", 3) or 3),
+        envelope_quantile=float(payload.get("envelope_quantile", 0.0) or 0.0),
         observation_axis=ObservationAxis(str(payload.get("observation_axis", ObservationAxis.LONG_AXIS.value))),
     )
 

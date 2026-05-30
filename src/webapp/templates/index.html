@@ -178,6 +178,26 @@
                     step="0.01"
                     value="0"
                   />
+                  <label for="live-envelope-min-support" data-i18n="home.sections.detection.envelope_min_support">外包络最小支撑像素</label>
+                  <input
+                    id="live-envelope-min-support"
+                    data-testid="live-envelope-min-support"
+                    type="number"
+                    min="2"
+                    max="500"
+                    step="1"
+                    value="3"
+                  />
+                  <label for="live-envelope-quantile" data-i18n="home.sections.detection.envelope_quantile">外包络分位裁剪</label>
+                  <input
+                    id="live-envelope-quantile"
+                    data-testid="live-envelope-quantile"
+                    type="number"
+                    min="0"
+                    max="0.2"
+                    step="0.01"
+                    value="0"
+                  />
                   <label for="live-min-target-area" data-i18n="home.sections.detection.min_area">最小面积</label>
                   <input id="live-min-target-area" data-testid="live-min-target-area" type="number" min="1" value="200" />
                   <label for="live-ignore-internal-texture" data-i18n="home.sections.detection.ignore_texture">忽略内部纹理</label>
