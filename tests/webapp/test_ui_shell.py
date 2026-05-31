@@ -108,6 +108,9 @@ def test_static_app_js_sends_width_extreme_mode() -> None:
     assert "width_extreme_mode: definition.width_extreme_mode || currentWidthExtremeMode()" in normalize_body
     assert "liveWidthExtremeModeSelect.value = uiDefinition.width_extreme_mode ||" in fill_body
     assert "selected_width_extreme_mode" in app_js
+    assert "candidate_selection_goal" in app_js
+    assert "envelopeSelectionDebugLabel" in app_js
+    assert "min_width_relaxed_candidate_count" in app_js
     assert "selected_candidate_span" in app_js
     assert "selected_candidate_axis_offset" in app_js
 

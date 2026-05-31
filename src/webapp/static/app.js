@@ -2338,7 +2338,10 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     candidate_span_floor_px: payload.candidate_span_floor_px ?? null,
     candidate_reject_reason: payload.candidate_reject_reason ?? null,
     min_width_valid_candidate_count: payload.min_width_valid_candidate_count ?? null,
+    min_width_relaxed_candidate_count: payload.min_width_relaxed_candidate_count ?? null,
     max_width_valid_candidate_count: payload.max_width_valid_candidate_count ?? null,
+    min_width_reject_reason: payload.min_width_reject_reason ?? null,
+    envelope_candidate_debug: payload.envelope_candidate_debug ?? null,
     side_guard_foreground_area: payload.side_guard_foreground_area ?? null,
     envelope_reject_reason: payload.envelope_reject_reason ?? null,
     rejected_components: previewRejectedComponentsFromPayload(payload.rejected_components),
@@ -2419,7 +2422,10 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     candidate_span_floor_px: latestTelemetry.candidate_span_floor_px ?? null,
     candidate_reject_reason: latestTelemetry.candidate_reject_reason ?? null,
     min_width_valid_candidate_count: latestTelemetry.min_width_valid_candidate_count ?? null,
+    min_width_relaxed_candidate_count: latestTelemetry.min_width_relaxed_candidate_count ?? null,
     max_width_valid_candidate_count: latestTelemetry.max_width_valid_candidate_count ?? null,
+    min_width_reject_reason: latestTelemetry.min_width_reject_reason ?? null,
+    envelope_candidate_debug: latestTelemetry.envelope_candidate_debug ?? null,
     side_guard_foreground_area: latestTelemetry.side_guard_foreground_area ?? null,
     envelope_reject_reason: latestTelemetry.envelope_reject_reason ?? null,
     rejected_components: previewRejectedComponentsFromPayload(latestTelemetry.rejected_components),
@@ -2663,6 +2669,10 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
       `<line class="live-overlay-envelope-bin" x1="${pointA.x}" y1="${pointA.y}" x2="${pointB.x}" y2="${pointB.y}"></line>`,
     );
   }
+  const selectionLabel = envelopeSelectionDebugLabel(overlay);
+  if (selectionLabel) {
+    fragments.push(`<text class="live-overlay-envelope-reject-label" x="12" y="36">${escapeHtml(selectionLabel)}</text>`);
+  }
   for (const component of Array.isArray(overlay.rejected_components) ? overlay.rejected_components : []) {
     const bbox = Array.isArray(component?.bbox) ? component.bbox : null;
     if (!bbox || bbox.length !== 4) {
@@ -2697,6 +2707,32 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
     const label = escapeHtml(reason);
     fragments.push(`<text class="live-overlay-envelope-reject-label" x="12" y="54">${label}</text>`);
   }
+}
+
+function envelopeSelectionDebugLabel(overlay) {
+  const mode = overlay.selected_width_extreme_mode || overlay.width_extreme_mode;
+  const goal = overlay.candidate_selection_goal;
+  if (!mode && !goal) {
+    return "";
+  }
+  const parts = [];
+  if (mode) {
+    parts.push(String(mode));
+  }
+  if (goal) {
+    parts.push(String(goal));
+  }
+  const reason = overlay.min_width_reject_reason || overlay.candidate_reject_reason || overlay.envelope_reject_reason;
+  if (reason) {
+    parts.push(String(reason));
+  }
+  const strictCount = overlay.min_width_valid_candidate_count;
+  const relaxedCount = overlay.min_width_relaxed_candidate_count;
+  const maxCount = overlay.max_width_valid_candidate_count;
+  if (strictCount != null || relaxedCount != null || maxCount != null) {
+    parts.push(`min=${strictCount ?? "-"} relaxed=${relaxedCount ?? "-"} max=${maxCount ?? "-"}`);
+  }
+  return parts.join(" | ");
 }
 
 function envelopeAxisOffsetLineToPreview(directionBox, axisOffset) {

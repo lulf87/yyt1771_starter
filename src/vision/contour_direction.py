@@ -82,7 +82,10 @@ class DirectionalProjection:
     candidate_selection_goal: str = "max_span"
     candidate_span_floor_px: float | None = None
     min_width_valid_candidate_count: int | None = None
+    min_width_relaxed_candidate_count: int | None = None
     max_width_valid_candidate_count: int | None = None
+    min_width_reject_reason: str | None = None
+    envelope_candidate_debug: dict[str, Any] | None = None
     source_point_a_component_id: int | None = None
     source_point_b_component_id: int | None = None
     source_point_a_trusted: bool = True
@@ -124,13 +127,17 @@ class DirectionalContourResult:
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
+    candidate_reject_reason: str | None = None
     envelope_reject_reason: str | None = None
     width_extreme_mode: str = "max_width"
     selected_width_extreme_mode: str = "max_width"
     candidate_selection_goal: str = "max_span"
     candidate_span_floor_px: float | None = None
     min_width_valid_candidate_count: int | None = None
+    min_width_relaxed_candidate_count: int | None = None
     max_width_valid_candidate_count: int | None = None
+    min_width_reject_reason: str | None = None
+    envelope_candidate_debug: dict[str, Any] | None = None
     rejected_component_reasons: list[str] | None = None
     rejected_components: list[dict[str, Any]] | None = None
     sample_core_descriptor: dict[str, Any] | None = None
@@ -154,9 +161,10 @@ class DirectionalContourResult:
 
 
 class DirectionalContourDetectionError(RuntimeError):
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, meta: dict[str, Any] | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.meta = dict(meta or {})
 
 
 @dataclass(slots=True)
@@ -197,16 +205,26 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
         try:
             result = detect_directional_contour(frame.image, self.config)
         except DirectionalContourDetectionError as exc:
+            failure_meta: dict[str, Any] = {
+                "reason": exc.reason,
+                "direction_angle_deg": float(self.config.direction_angle_deg),
+                "width_extreme_mode": resolve_width_extreme_mode(self.config),
+                "selected_width_extreme_mode": None,
+                "candidate_selection_goal": (
+                    "min_span" if resolve_width_extreme_mode(self.config) == "min_width" else "max_span"
+                ),
+                "min_width_reject_reason": (
+                    exc.reason if resolve_width_extreme_mode(self.config) == "min_width" else None
+                ),
+            }
+            failure_meta.update(exc.meta)
             return ShapeMetric(
                 timestamp_ms=frame.timestamp_ms,
                 metric_name="directional_contour_span",
                 metric_raw=None,
                 quality=0.0,
                 roi=_roi_tuple(self.config.analysis_roi),
-                meta={
-                    "reason": exc.reason,
-                    "direction_angle_deg": float(self.config.direction_angle_deg),
-                },
+                meta=failure_meta,
             )
 
         meta: dict[str, Any] = {
@@ -232,9 +250,12 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
             "selected_width_extreme_mode": result.selected_width_extreme_mode,
             "candidate_selection_goal": result.candidate_selection_goal,
             "candidate_span_floor_px": result.candidate_span_floor_px,
-            "candidate_reject_reason": result.envelope_reject_reason,
+            "candidate_reject_reason": result.candidate_reject_reason,
             "min_width_valid_candidate_count": result.min_width_valid_candidate_count,
+            "min_width_relaxed_candidate_count": result.min_width_relaxed_candidate_count,
             "max_width_valid_candidate_count": result.max_width_valid_candidate_count,
+            "min_width_reject_reason": result.min_width_reject_reason,
+            "envelope_candidate_debug": result.envelope_candidate_debug,
             "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
             "selected_component_count": result.selected_component_count,
             "rejected_component_count": result.rejected_component_count,
@@ -335,7 +356,10 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
     min_width_valid_candidate_count: int | None = None
+    min_width_relaxed_candidate_count: int | None = None
     max_width_valid_candidate_count: int | None = None
+    min_width_reject_reason: str | None = None
+    envelope_candidate_debug: dict[str, Any] | None = None
     rejected_component_reasons: list[str] = []
     rejected_components: list[dict[str, Any]] = []
     sample_core_descriptor: dict[str, Any] | None = None
@@ -419,7 +443,10 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         selected_candidate_score = projection.selected_candidate_score
         envelope_reject_reason = projection.candidate_reject_reason
         min_width_valid_candidate_count = projection.min_width_valid_candidate_count
+        min_width_relaxed_candidate_count = projection.min_width_relaxed_candidate_count
         max_width_valid_candidate_count = projection.max_width_valid_candidate_count
+        min_width_reject_reason = projection.min_width_reject_reason
+        envelope_candidate_debug = projection.envelope_candidate_debug
         configured_envelope_min_support_px = int(config.envelope_min_support_px)
         effective_envelope_min_support_px = int(
             resolve_envelope_min_support_px(
@@ -546,13 +573,17 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_left_px=endpoint_support_left_px,
         endpoint_support_right_px=endpoint_support_right_px,
         selected_candidate_score=selected_candidate_score,
+        candidate_reject_reason=envelope_reject_reason,
         envelope_reject_reason=envelope_reject_reason,
         width_extreme_mode=width_extreme_mode,
         selected_width_extreme_mode=projection.selected_width_extreme_mode,
         candidate_selection_goal=projection.candidate_selection_goal,
         candidate_span_floor_px=projection.candidate_span_floor_px,
         min_width_valid_candidate_count=min_width_valid_candidate_count,
+        min_width_relaxed_candidate_count=min_width_relaxed_candidate_count,
         max_width_valid_candidate_count=max_width_valid_candidate_count,
+        min_width_reject_reason=min_width_reject_reason,
+        envelope_candidate_debug=envelope_candidate_debug,
         rejected_component_reasons=rejected_component_reasons,
         rejected_components=rejected_components,
         sample_core_descriptor=sample_core_descriptor,
@@ -910,9 +941,12 @@ def measure_component_envelope_width(
     best_supported: dict[str, Any] | None = None
     best_trusted_supported: dict[str, Any] | None = None
     best_min_width: dict[str, Any] | None = None
+    best_min_width_relaxed: dict[str, Any] | None = None
     candidate_count = 0
     max_width_valid_candidate_count = 0
     min_width_valid_candidate_count = 0
+    min_width_relaxed_candidate_count = 0
+    candidate_debug_items: list[dict[str, Any]] = []
     unique_bins = np.unique(bin_indices)
     for bin_index in unique_bins:
         if window <= 0:
@@ -993,6 +1027,28 @@ def measure_component_envelope_width(
                 and endpoint_support_right >= endpoint_min_support
             )
         )
+        low_source_point = _pixel_point_from_xy(
+            points[low_index],
+            image_shape=image_shape,
+            clip_region=clip_region,
+        )
+        high_source_point = _pixel_point_from_xy(
+            points[high_index],
+            image_shape=image_shape,
+            clip_region=clip_region,
+        )
+        source_points_in_metric_box = (
+            True
+            if metric_box is None or allowed_mask is not None
+            else (
+                _point_in_metric_box_float(metric_box, low_source_point)
+                and _point_in_metric_box_float(metric_box, high_source_point)
+            )
+        )
+        source_points_in_analysis_roi = (
+            _point_in_region_float(roi, float(low_source_point.x), float(low_source_point.y))
+            and _point_in_region_float(roi, float(high_source_point.x), float(high_source_point.y))
+        )
         axis_jump = None if axis_prior_px is None else abs(axis_offset - float(axis_prior_px))
         score = _envelope_candidate_score(
             span=span,
@@ -1027,22 +1083,37 @@ def measure_component_envelope_width(
             "low_trusted": low_trusted,
             "high_trusted": high_trusted,
             "endpoints_trusted": endpoints_trusted,
+            "source_points_in_metric_box": source_points_in_metric_box,
+            "source_points_in_analysis_roi": source_points_in_analysis_roi,
+            "endpoint_weak": not endpoints_supported,
             "low_distance_to_core": low_distance_to_core,
             "high_distance_to_core": high_distance_to_core,
             "axis_jump": axis_jump,
             "score": score,
         }
         candidate_count += 1
+        min_width_reject_reason = _min_width_candidate_reject_reason(
+            candidate,
+            span_floor_px=span_floor,
+            lateral_min=lateral_min,
+            lateral_max=lateral_max,
+            lateral_extent=lateral_extent,
+            exclude_end_fraction=exclude_end_fraction,
+        )
+        relaxed_min_width_reject_reason = _min_width_candidate_relaxed_reject_reason(
+            candidate,
+            span_floor_px=span_floor,
+        )
+        strict_min_width_effective = min_width_reject_reason is None
+        relaxed_min_width_effective = relaxed_min_width_reject_reason is None
+        candidate["min_width_effective"] = strict_min_width_effective
+        candidate["min_width_relaxed_effective"] = relaxed_min_width_effective
+        candidate["min_width_reject_reason"] = min_width_reject_reason
+        candidate["min_width_relaxed_reject_reason"] = relaxed_min_width_reject_reason
+        candidate_debug_items.append(candidate)
         if endpoints_supported and endpoints_trusted:
             max_width_valid_candidate_count += 1
-            if _min_width_candidate_is_effective(
-                candidate,
-                span_floor_px=span_floor,
-                lateral_min=lateral_min,
-                lateral_max=lateral_max,
-                lateral_extent=lateral_extent,
-                exclude_end_fraction=exclude_end_fraction,
-            ):
+            if strict_min_width_effective:
                 min_width_valid_candidate_count += 1
                 if _envelope_candidate_is_better(
                     candidate,
@@ -1050,6 +1121,14 @@ def measure_component_envelope_width(
                     width_extreme_mode="min_width",
                 ):
                     best_min_width = candidate
+        if relaxed_min_width_effective and not strict_min_width_effective:
+            min_width_relaxed_candidate_count += 1
+            if _envelope_candidate_is_better(
+                candidate,
+                best_min_width_relaxed,
+                width_extreme_mode="min_width",
+            ):
+                best_min_width_relaxed = candidate
         if _envelope_candidate_is_better(candidate, best, width_extreme_mode="max_width"):
             best = candidate
         if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported, width_extreme_mode="max_width"):
@@ -1057,25 +1136,47 @@ def measure_component_envelope_width(
         if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(candidate, best_trusted_supported, width_extreme_mode="max_width"):
             best_trusted_supported = candidate
 
+    envelope_candidate_debug = _envelope_candidate_debug(candidate_debug_items)
     reject_reason: str | None = None
+    min_width_reject_reason: str | None = None
     if resolved_width_mode == "min_width":
-        chosen = best_min_width
-        if chosen is None:
-            reject_reason = "min_width_no_effective_candidate"
+        if best_min_width is not None:
+            chosen = best_min_width
+        elif best_min_width_relaxed is not None:
+            chosen = best_min_width_relaxed
+            reject_reason = "min_width_relaxed_candidate"
+            min_width_reject_reason = "min_width_relaxed_candidate"
+        else:
+            min_width_reject_reason = "min_width_no_effective_candidate"
+            raise DirectionalContourDetectionError(
+                "min_width_no_effective_candidate",
+                meta={
+                    "width_extreme_mode": resolved_width_mode,
+                    "selected_width_extreme_mode": None,
+                    "candidate_selection_goal": "min_span",
+                    "candidate_span_floor_px": float(span_floor),
+                    "min_width_valid_candidate_count": int(min_width_valid_candidate_count),
+                    "min_width_relaxed_candidate_count": int(min_width_relaxed_candidate_count),
+                    "max_width_valid_candidate_count": int(max_width_valid_candidate_count),
+                    "min_width_reject_reason": min_width_reject_reason,
+                    "candidate_reject_reason": min_width_reject_reason,
+                    "envelope_candidate_count": int(candidate_count),
+                    "side_guard_foreground_area": int(guard_area),
+                    "effective_envelope_min_support_px": int(effective_min_support),
+                    "envelope_candidate_debug": envelope_candidate_debug,
+                },
+            )
     else:
-        chosen = best_trusted_supported
-        if chosen is None and best_supported is not None:
-            chosen = best_supported
+        chosen = best_trusted_supported or best_supported or best
+        if chosen is best_supported and chosen is not None:
             if not bool(chosen.get("endpoints_trusted", True)):
                 reject_reason = "detached_endpoint"
-        if chosen is None:
-            chosen = best
-            if chosen is not None:
-                reject_reason = (
-                    "detached_endpoint"
-                    if not bool(chosen.get("endpoints_trusted", True))
-                    else "weak_endpoint_support"
-                )
+        elif chosen is best and chosen is not None and chosen is not best_trusted_supported:
+            reject_reason = (
+                "detached_endpoint"
+                if not bool(chosen.get("endpoints_trusted", True))
+                else "weak_endpoint_support"
+            )
     if chosen is None:
         raise DirectionalContourDetectionError("direction_projection_unavailable")
     best = chosen
@@ -1136,7 +1237,10 @@ def measure_component_envelope_width(
         candidate_selection_goal="min_span" if resolved_width_mode == "min_width" else "max_span",
         candidate_span_floor_px=float(span_floor),
         min_width_valid_candidate_count=int(min_width_valid_candidate_count),
+        min_width_relaxed_candidate_count=int(min_width_relaxed_candidate_count),
         max_width_valid_candidate_count=int(max_width_valid_candidate_count),
+        min_width_reject_reason=min_width_reject_reason,
+        envelope_candidate_debug=envelope_candidate_debug,
         source_point_a_component_id=best.get("low_component_id"),
         source_point_b_component_id=best.get("high_component_id"),
         source_point_a_trusted=bool(best.get("low_trusted", True)),
@@ -1215,6 +1319,71 @@ def _min_width_candidate_is_effective(
         if axis_offset <= lateral_min + margin or axis_offset >= lateral_max - margin:
             return False
     return True
+
+
+def _min_width_candidate_reject_reason(
+    candidate: dict[str, Any],
+    *,
+    span_floor_px: float,
+    lateral_min: float,
+    lateral_max: float,
+    lateral_extent: float,
+    exclude_end_fraction: float,
+) -> str | None:
+    if float(candidate["span"]) < float(span_floor_px):
+        return "span_below_floor"
+    if not bool(candidate.get("endpoints_supported", False)):
+        return "endpoint_weak"
+    if not bool(candidate.get("endpoints_trusted", False)):
+        return "detached_endpoint"
+    if lateral_extent > 0.0 and exclude_end_fraction > 0.0:
+        margin = lateral_extent * exclude_end_fraction
+        axis_offset = float(candidate["axis_offset"])
+        if axis_offset <= lateral_min + margin or axis_offset >= lateral_max - margin:
+            return "lateral_end_candidate"
+    return None
+
+
+def _min_width_candidate_relaxed_reject_reason(
+    candidate: dict[str, Any],
+    *,
+    span_floor_px: float,
+) -> str | None:
+    if float(candidate["span"]) < float(span_floor_px):
+        return "span_below_floor"
+    if not bool(candidate.get("endpoints_trusted", False)):
+        return "detached_endpoint"
+    if not bool(candidate.get("source_points_in_metric_box", True)):
+        return "source_outside_metric_box"
+    if not bool(candidate.get("source_points_in_analysis_roi", True)):
+        return "source_outside_analysis_roi"
+    return None
+
+
+def _envelope_candidate_debug(candidates: list[dict[str, Any]], *, limit: int = 5) -> dict[str, list[dict[str, Any]]]:
+    ordered_smallest = sorted(candidates, key=lambda candidate: float(candidate.get("span", 0.0)))
+    ordered_largest = sorted(candidates, key=lambda candidate: float(candidate.get("span", 0.0)), reverse=True)
+    return {
+        "smallest": [_envelope_candidate_debug_item(candidate) for candidate in ordered_smallest[:limit]],
+        "largest": [_envelope_candidate_debug_item(candidate) for candidate in ordered_largest[:limit]],
+    }
+
+
+def _envelope_candidate_debug_item(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "span": float(candidate.get("span", 0.0)),
+        "axis_offset": float(candidate.get("axis_offset", 0.0)),
+        "support": int(candidate.get("support", 0)),
+        "endpoint_support_left_px": int(candidate.get("endpoint_support_left", 0)),
+        "endpoint_support_right_px": int(candidate.get("endpoint_support_right", 0)),
+        "trusted": bool(candidate.get("endpoints_trusted", False)),
+        "supported": bool(candidate.get("endpoints_supported", False)),
+        "effective": bool(candidate.get("min_width_effective", False)),
+        "relaxed_effective": bool(candidate.get("min_width_relaxed_effective", False)),
+        "endpoint_weak": bool(candidate.get("endpoint_weak", False)),
+        "reject_reason": candidate.get("min_width_reject_reason"),
+        "relaxed_reject_reason": candidate.get("min_width_relaxed_reject_reason"),
+    }
 
 
 def _envelope_candidate_score(
@@ -2076,6 +2245,38 @@ def _roi_pixel_points(roi: RectRegion) -> np.ndarray:
     return np.column_stack([cols.ravel() + int(roi.x), rows.ravel() + int(roi.y)]).astype(float)
 
 
+def _envelope_candidate_debug_to_original_space(
+    debug: dict[str, Any] | None,
+    geometry: _ProcessingGeometry,
+    angle_deg: float,
+) -> dict[str, Any] | None:
+    if debug is None:
+        return None
+    scale = max(float(geometry.scale), 1e-9)
+    converted: dict[str, Any] = {}
+    for key in ("smallest", "largest"):
+        rows = debug.get(key)
+        if not isinstance(rows, list):
+            converted[key] = []
+            continue
+        converted_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            converted_row = dict(row)
+            if converted_row.get("span") is not None:
+                converted_row["span"] = float(converted_row["span"]) / scale
+            if converted_row.get("axis_offset") is not None:
+                converted_row["axis_offset"] = _axis_offset_to_original_space(
+                    float(converted_row["axis_offset"]),
+                    geometry,
+                    float(angle_deg),
+                )
+            converted_rows.append(converted_row)
+        converted[key] = converted_rows
+    return converted
+
+
 def _selection_mode_for_projection(projection_point_mode: str) -> str:
     if projection_point_mode == "envelope_max_width":
         return "directional_contour_envelope_max_width"
@@ -2177,7 +2378,14 @@ def _projection_to_original_roi(
             else float(projection.candidate_span_floor_px) / max(float(geometry.scale), 1e-9)
         ),
         min_width_valid_candidate_count=projection.min_width_valid_candidate_count,
+        min_width_relaxed_candidate_count=projection.min_width_relaxed_candidate_count,
         max_width_valid_candidate_count=projection.max_width_valid_candidate_count,
+        min_width_reject_reason=projection.min_width_reject_reason,
+        envelope_candidate_debug=_envelope_candidate_debug_to_original_space(
+            projection.envelope_candidate_debug,
+            geometry,
+            float(projection.direction_angle_deg),
+        ),
         source_point_a_component_id=projection.source_point_a_component_id,
         source_point_b_component_id=projection.source_point_b_component_id,
         source_point_a_trusted=projection.source_point_a_trusted,
@@ -2277,7 +2485,10 @@ def _refine_projection_on_original_axis(
             candidate_selection_goal=projection.candidate_selection_goal,
             candidate_span_floor_px=projection.candidate_span_floor_px,
             min_width_valid_candidate_count=projection.min_width_valid_candidate_count,
+            min_width_relaxed_candidate_count=projection.min_width_relaxed_candidate_count,
             max_width_valid_candidate_count=projection.max_width_valid_candidate_count,
+            min_width_reject_reason=projection.min_width_reject_reason,
+            envelope_candidate_debug=projection.envelope_candidate_debug,
         )
     except DirectionalContourDetectionError:
         return projection

@@ -268,7 +268,10 @@ class AutoDetectDefinitionResponse(BaseModel):
     candidate_span_floor_px: float | None = None
     candidate_reject_reason: str | None = None
     min_width_valid_candidate_count: int | None = None
+    min_width_relaxed_candidate_count: int | None = None
     max_width_valid_candidate_count: int | None = None
+    min_width_reject_reason: str | None = None
+    envelope_candidate_debug: dict[str, Any] | None = None
     envelope_reject_reason: str | None = None
     rejected_component_reasons: list[str] | None = None
     rejected_components: list[dict[str, Any]] | None = None
@@ -391,7 +394,10 @@ class RunTelemetryPointResponse(BaseModel):
     candidate_span_floor_px: float | None = None
     candidate_reject_reason: str | None = None
     min_width_valid_candidate_count: int | None = None
+    min_width_relaxed_candidate_count: int | None = None
     max_width_valid_candidate_count: int | None = None
+    min_width_reject_reason: str | None = None
+    envelope_candidate_debug: dict[str, Any] | None = None
     selected_candidate_span: float | None = None
     selected_candidate_axis_offset: float | None = None
     axis_offset_px: float | None = None

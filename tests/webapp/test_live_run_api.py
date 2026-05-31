@@ -1464,6 +1464,63 @@ def test_auto_detect_definition_uses_directional_contour_when_direction_angle_is
     assert payload["metric_raw"] == pytest.approx(19.0, abs=1.0)
 
 
+def test_web_auto_detect_min_and_max_differ_on_synthetic_geometry(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[49:53, 40:141] = 30  # span ~100
+    image[63:67, 72:133] = 30  # span ~60
+    image[77:81, 55:136] = 30  # span ~80
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="width_extreme_fixture", image=image, frame_id=12)
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    base_payload = {
+        "analysis_roi": {"x": 0, "y": 0, "width": 220, "height": 120},
+        "metric_box": {"center_x": 110, "center_y": 60, "width": 190, "height": 80, "angle_deg": 0.0},
+        "direction_angle_deg": 0.0,
+        "foreground_polarity": "dark_on_light",
+        "threshold_mode": "binary",
+        "ignore_internal_texture": True,
+        "min_target_area_px": 8,
+        "sensitivity": 50,
+        "direction_projection_mode": "envelope_max_width",
+        "target_geometry_mode": "line_bundle",
+        "envelope_min_support_px": 3,
+        "envelope_endpoint_support_radius_px": 1.0,
+        "envelope_endpoint_min_support_px": 20,
+    }
+
+    max_response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={**base_payload, "width_extreme_mode": "max_width"},
+    )
+    min_response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={**base_payload, "width_extreme_mode": "min_width"},
+    )
+
+    assert max_response.status_code == 200, max_response.text
+    assert min_response.status_code == 200, min_response.text
+    max_payload = max_response.json()
+    min_payload = min_response.json()
+    assert max_payload["metric_raw"] == pytest.approx(100.0, abs=2.0)
+    assert min_payload["metric_raw"] == pytest.approx(60.0, abs=2.0)
+    assert max_payload["point_a_px"] != min_payload["point_a_px"]
+    assert max_payload["point_b_px"] != min_payload["point_b_px"]
+    assert min_payload["width_extreme_mode"] == "min_width"
+    assert min_payload["selected_width_extreme_mode"] == "min_width"
+    assert min_payload["candidate_selection_goal"] == "min_span"
+    assert min_payload["candidate_reject_reason"] == "min_width_relaxed_candidate"
+    assert min_payload["min_width_valid_candidate_count"] == 0
+    assert min_payload["min_width_relaxed_candidate_count"] >= 1
+    assert min_payload["envelope_candidate_debug"]["smallest"][0]["span"] == pytest.approx(60.0, abs=2.0)
+
+
 def test_auto_detect_definition_directional_contour_can_flip_from_border_hugging_requested_polarity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

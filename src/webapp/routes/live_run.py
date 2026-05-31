@@ -473,7 +473,10 @@ def auto_detect_measurement_definition(
         candidate_span_floor_px=_metric_meta_float(metric, "candidate_span_floor_px"),
         candidate_reject_reason=_metric_meta_str(metric, "candidate_reject_reason"),
         min_width_valid_candidate_count=_metric_meta_int(metric, "min_width_valid_candidate_count"),
+        min_width_relaxed_candidate_count=_metric_meta_int(metric, "min_width_relaxed_candidate_count"),
         max_width_valid_candidate_count=_metric_meta_int(metric, "max_width_valid_candidate_count"),
+        min_width_reject_reason=_metric_meta_str(metric, "min_width_reject_reason"),
+        envelope_candidate_debug=metric.meta.get("envelope_candidate_debug"),
         envelope_reject_reason=_metric_meta_str(metric, "envelope_reject_reason"),
         rejected_component_reasons=metric.meta.get("rejected_component_reasons"),
         rejected_components=metric.meta.get("rejected_components"),
@@ -852,7 +855,13 @@ def _directional_auto_detect_metric_rank(
     endpoint_interior_score = 2 - _auto_detect_endpoint_edge_touch_count(metric, analysis_roi, metric_box=metric_box)
     quality = float(metric.quality or 0.0)
     span = float(metric.metric_raw or 0.0)
-    return (point_score, target_component_score, endpoint_interior_score, quality, int(round(span)))
+    width_mode = str(
+        getattr(metric, "meta", {}).get("selected_width_extreme_mode")
+        or getattr(metric, "meta", {}).get("width_extreme_mode")
+        or "max_width"
+    )
+    span_rank = -int(round(span)) if width_mode == "min_width" else int(round(span))
+    return (point_score, target_component_score, endpoint_interior_score, quality, span_rank)
 
 
 def _auto_detect_metric_is_acceptably_specific(
