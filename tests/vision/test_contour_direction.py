@@ -1188,6 +1188,37 @@ def test_mesh_lattice_effective_support_visible_or_respected() -> None:
     assert int(metric.meta["envelope_support_px"]) >= 20
 
 
+def test_effective_endpoint_min_support_scaled_for_downsampled_line_bundle() -> None:
+    image = np.full((240, 2048), 240, dtype=np.uint8)
+    image[92:100, 500:1501] = 30
+    extractor = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=2048, height=240),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=1024, center_y=96, width=1800, height=160, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            envelope_endpoint_support_radius_px=3.0,
+            envelope_endpoint_min_support_px=3,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=384,
+        )
+    )
+
+    metric = extractor.extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.meta["configured_endpoint_support_radius_px"] == pytest.approx(3.0)
+    assert metric.meta["effective_endpoint_support_radius_px"] == pytest.approx(1.5)
+    assert metric.meta["configured_endpoint_min_support_px"] == 3
+    assert metric.meta["effective_endpoint_min_support_px"] == 1
+    assert metric.meta["endpoint_support_mode"] == "pass"
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20

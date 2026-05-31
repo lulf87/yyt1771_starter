@@ -2329,6 +2329,13 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     rejected_component_count: payload.rejected_component_count ?? null,
     endpoint_support_left_px: payload.endpoint_support_left_px ?? null,
     endpoint_support_right_px: payload.endpoint_support_right_px ?? null,
+    configured_endpoint_support_radius_px: payload.configured_endpoint_support_radius_px ?? null,
+    effective_endpoint_support_radius_px: payload.effective_endpoint_support_radius_px ?? null,
+    configured_endpoint_min_support_px: payload.configured_endpoint_min_support_px ?? null,
+    effective_endpoint_min_support_px: payload.effective_endpoint_min_support_px ?? null,
+    endpoint_support_is_hard_reject: payload.endpoint_support_is_hard_reject ?? null,
+    endpoint_support_mode: payload.endpoint_support_mode ?? null,
+    endpoint_support_reject_policy: payload.endpoint_support_reject_policy ?? null,
     selected_candidate_score: payload.selected_candidate_score ?? null,
     selected_candidate_span: payload.selected_candidate_span ?? null,
     selected_candidate_axis_offset: payload.selected_candidate_axis_offset ?? null,
@@ -2415,6 +2422,13 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     rejected_component_count: latestTelemetry.rejected_component_count ?? null,
     endpoint_support_left_px: latestTelemetry.endpoint_support_left_px ?? null,
     endpoint_support_right_px: latestTelemetry.endpoint_support_right_px ?? null,
+    configured_endpoint_support_radius_px: latestTelemetry.configured_endpoint_support_radius_px ?? null,
+    effective_endpoint_support_radius_px: latestTelemetry.effective_endpoint_support_radius_px ?? null,
+    configured_endpoint_min_support_px: latestTelemetry.configured_endpoint_min_support_px ?? null,
+    effective_endpoint_min_support_px: latestTelemetry.effective_endpoint_min_support_px ?? null,
+    endpoint_support_is_hard_reject: latestTelemetry.endpoint_support_is_hard_reject ?? null,
+    endpoint_support_mode: latestTelemetry.endpoint_support_mode ?? null,
+    endpoint_support_reject_policy: latestTelemetry.endpoint_support_reject_policy ?? null,
     selected_candidate_score: latestTelemetry.selected_candidate_score ?? null,
     selected_candidate_span: latestTelemetry.selected_candidate_span ?? null,
     selected_candidate_axis_offset: latestTelemetry.selected_candidate_axis_offset ?? null,
@@ -2735,7 +2749,19 @@ function envelopeSelectionDebugLabel(overlay) {
     parts.push(`floor=${envelopeDebugNumber(spanFloor)}`);
   }
   if (overlay.endpoint_support_left_px != null || overlay.endpoint_support_right_px != null) {
-    parts.push(`ep=${overlay.endpoint_support_left_px ?? "-"}/${overlay.endpoint_support_right_px ?? "-"}`);
+    const left = Number(overlay.endpoint_support_left_px);
+    const right = Number(overlay.endpoint_support_right_px);
+    const effectiveMin = Number(overlay.effective_endpoint_min_support_px);
+    if (Number.isFinite(effectiveMin) && effectiveMin > 0 && (Number.isFinite(left) || Number.isFinite(right))) {
+      const observed = Math.min(
+        Number.isFinite(left) ? left : right,
+        Number.isFinite(right) ? right : left,
+      );
+      const mode = overlay.endpoint_support_mode || (observed >= effectiveMin ? "pass" : "weak");
+      parts.push(`ep=${envelopeDebugSupportNumber(observed)}/${envelopeDebugSupportNumber(effectiveMin)} ${mode}`);
+    } else {
+      parts.push(`ep=${overlay.endpoint_support_left_px ?? "-"}/${overlay.endpoint_support_right_px ?? "-"}`);
+    }
   }
   const sourceTrustState = overlay.envelope_source_trust_state;
   if (sourceTrustState && sourceTrustState !== "trusted") {
@@ -2778,6 +2804,14 @@ function envelopeDebugNumber(value) {
     return "-";
   }
   return Math.abs(numeric) >= 100 ? numeric.toFixed(0) : numeric.toFixed(1);
+}
+
+function envelopeDebugSupportNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "-";
+  }
+  return Number.isInteger(numeric) ? numeric.toFixed(0) : envelopeDebugNumber(numeric);
 }
 
 function envelopeAxisOffsetLineToPreview(directionBox, axisOffset) {
@@ -3395,11 +3429,17 @@ function liveProcessOutlierCategory(point) {
   if (trackingState === "envelope_pending_relocation" || trackingState === "envelope_near_tie_hold") {
     return "envelope_pending_relocation";
   }
+  if (trackingState === "envelope_endpoint_weak_pending") {
+    return "endpoint_weak_pending";
+  }
   if (trackingState === "envelope_prior_hold" || trackingState === "envelope_contaminated_hold") {
     return "envelope_prior_hold";
   }
   if (trackingState === "envelope_low_support_rejected") {
     return "envelope_low_support_rejected";
+  }
+  if (trackingState === "envelope_endpoint_unsupported_rejected") {
+    return "endpoint_unsupported_rejected";
   }
   if (trackingState === "envelope_background_component_rejected") {
     return "envelope_background_component_rejected";
@@ -3420,7 +3460,9 @@ const LIVE_PROCESS_OUTLIER_CATEGORIES = [
   "low_quality",
   "envelope_prior_hold",
   "envelope_pending_relocation",
+  "endpoint_weak_pending",
   "envelope_low_support_rejected",
+  "endpoint_unsupported_rejected",
   "envelope_background_component_rejected",
 ];
 
@@ -3430,7 +3472,9 @@ const LIVE_PROCESS_OUTLIER_LABELS = {
   low_quality: { zh: "低质量", en: "low quality" },
   envelope_prior_hold: { zh: "prior未接受", en: "prior hold" },
   envelope_pending_relocation: { zh: "待确认重定位", en: "pending relocation" },
+  endpoint_weak_pending: { zh: "端点弱待确认", en: "endpoint weak pending" },
   envelope_low_support_rejected: { zh: "支持不足", en: "low support" },
+  endpoint_unsupported_rejected: { zh: "端点不支持", en: "endpoint unsupported" },
   envelope_background_component_rejected: { zh: "背景误检", en: "background reject" },
 };
 
@@ -3478,7 +3522,9 @@ function liveProcessTrackingHint(latest) {
     "envelope_contaminated_hold",
     "envelope_pending_relocation",
     "envelope_near_tie_hold",
+    "envelope_endpoint_weak_pending",
     "envelope_low_support_rejected",
+    "envelope_endpoint_unsupported_rejected",
     "envelope_background_component_rejected",
   ]);
   if (hasCandidate && heldStates.has(trackingState)) {

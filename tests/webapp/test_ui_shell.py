@@ -525,8 +525,11 @@ def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
         '  { tracking_state: "holding_last_good", tracking_quality: 0.8 },\n'
         '  { tracking_state: "invalidated", tracking_quality: 0.0 },\n'
         '  { tracking_state: "envelope_pending_relocation", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "envelope_endpoint_weak_pending", tracking_quality: 0.8 },\n'
         '  { tracking_state: "envelope_low_support_rejected", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "envelope_endpoint_unsupported_rejected", tracking_quality: 0.8 },\n'
         '  { tracking_state: "envelope_background_component_rejected", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "accepted_envelope_endpoint_weak", tracking_quality: 0.8 },\n'
         '  { tracking_state: "accepted_global_envelope", tracking_quality: 0.3 },\n'
         "];\n"
         "const counts = liveProcessOutlierBreakdown(curve);\n"
@@ -548,9 +551,60 @@ def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
         "low_quality": 1,
         "envelope_prior_hold": 0,
         "envelope_pending_relocation": 1,
+        "endpoint_weak_pending": 1,
         "envelope_low_support_rejected": 1,
+        "endpoint_unsupported_rejected": 1,
         "envelope_background_component_rejected": 1,
     }
+
+
+def test_ui_debug_shows_endpoint_support_threshold() -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate envelope debug helpers")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function envelopeSelectionDebugLabel(",
+        "function envelopeAxisOffsetLineToPreview(",
+    )
+    driver = (
+        block
+        + "\n"
+        "const passLabel = envelopeSelectionDebugLabel({\n"
+        "  selected_width_extreme_mode: 'max_width',\n"
+        "  candidate_selection_goal: 'max_span',\n"
+        "  endpoint_support_left_px: 1,\n"
+        "  endpoint_support_right_px: 1,\n"
+        "  effective_endpoint_min_support_px: 1,\n"
+        "});\n"
+        "const weakLabel = envelopeSelectionDebugLabel({\n"
+        "  selected_width_extreme_mode: 'max_width',\n"
+        "  candidate_selection_goal: 'max_span',\n"
+        "  endpoint_support_left_px: 1,\n"
+        "  endpoint_support_right_px: 1,\n"
+        "  effective_endpoint_min_support_px: 3,\n"
+        "});\n"
+        "process.stdout.write(JSON.stringify({ passLabel, weakLabel }));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    labels = json.loads(completed.stdout)
+    assert "ep=1/1 pass" in labels["passLabel"]
+    assert "ep=1/3 weak" in labels["weakLabel"]
 
 
 def test_mesh_lattice_mode_not_single_component() -> None:

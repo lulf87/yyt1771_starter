@@ -1041,8 +1041,6 @@ class PriorTrackingMetricSource:
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
             return "envelope_low_support"
-        if self._envelope_endpoint_support_is_weak(observation):
-            return "envelope_endpoint_unsupported"
         if self._envelope_side_guard_area_is_gross(observation):
             return "envelope_side_guard_clutter"
         if self._envelope_endpoints_hug_metric_box_along_edges(observation):
@@ -1070,15 +1068,51 @@ class PriorTrackingMetricSource:
         return None
 
     def _envelope_endpoint_support_is_weak(self, observation: ShapeMetric) -> bool:
-        if self._envelope_endpoint_min_support_px <= 0:
+        endpoint_min_support_px = self._effective_envelope_endpoint_min_support_px(observation)
+        if endpoint_min_support_px <= 0:
             return False
         left = observation.meta.get("endpoint_support_left_px")
         right = observation.meta.get("endpoint_support_right_px")
-        if left is not None and int(left) < self._envelope_endpoint_min_support_px:
+        if left is not None and int(left) < endpoint_min_support_px:
             return True
-        if right is not None and int(right) < self._envelope_endpoint_min_support_px:
+        if right is not None and int(right) < endpoint_min_support_px:
             return True
         return False
+
+    def _effective_envelope_endpoint_min_support_px(self, observation: ShapeMetric) -> int:
+        value = observation.meta.get("effective_endpoint_min_support_px")
+        if value is None:
+            value = observation.meta.get("configured_endpoint_min_support_px")
+        if value is None:
+            return self._envelope_endpoint_min_support_px
+        return max(0, int(value))
+
+    def _envelope_endpoint_support_policy_meta(
+        self,
+        observation: ShapeMetric,
+        *,
+        hard_reject: bool = False,
+    ) -> dict[str, Any]:
+        endpoint_weak = self._envelope_endpoint_support_is_weak(observation)
+        configured_min = observation.meta.get(
+            "configured_endpoint_min_support_px",
+            self._envelope_endpoint_min_support_px,
+        )
+        effective_min = self._effective_envelope_endpoint_min_support_px(observation)
+        mode = "weak" if endpoint_weak else "pass"
+        return {
+            "configured_endpoint_support_radius_px": observation.meta.get("configured_endpoint_support_radius_px"),
+            "effective_endpoint_support_radius_px": observation.meta.get("effective_endpoint_support_radius_px"),
+            "configured_endpoint_min_support_px": None if configured_min is None else int(configured_min),
+            "effective_endpoint_min_support_px": int(effective_min),
+            "endpoint_support_mode": mode,
+            "endpoint_support_is_hard_reject": bool(hard_reject and endpoint_weak),
+            "endpoint_support_reject_policy": (
+                "hard_reject_with_source_risk"
+                if hard_reject and endpoint_weak
+                else ("warning_accept_or_pending" if endpoint_weak else "pass")
+            ),
+        }
 
     def _envelope_source_trust_failure_reason(self, observation: ShapeMetric) -> str | None:
         state = str(observation.meta.get("envelope_source_trust_state") or "trusted")
@@ -1176,6 +1210,7 @@ class PriorTrackingMetricSource:
         observation: ShapeMetric,
         diagnostics: dict[str, Any],
     ) -> ShapeMetric:
+        endpoint_weak = self._envelope_endpoint_support_is_weak(observation)
         # Bootstrap: accept the first plausible live candidate and establish the
         # runtime lock even when it differs from the preset soft prior.
         if not self._has_runtime_lock:
@@ -1198,7 +1233,7 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
-                state=self._envelope_accept_state(bootstrap=True),
+                state=self._envelope_accept_state(bootstrap=True, endpoint_weak=endpoint_weak),
             )
         # A candidate that stays within the lateral axis prior and along-axis span
         # prior is a normal, small per-frame update of the global envelope. This
@@ -1211,7 +1246,7 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
-                state=self._envelope_accept_state(),
+                state=self._envelope_accept_state(endpoint_weak=endpoint_weak),
             )
         # Past this point the candidate is a relocation (outside the prior). It
         # must be a plausible target before it can ever move A/B, otherwise hold.
@@ -1235,6 +1270,19 @@ class PriorTrackingMetricSource:
                     if low_support
                     else "envelope_background_component_rejected"
                 ),
+            )
+        if endpoint_weak:
+            self._record_envelope_pending(observation)
+            return self._hold_last_good_for_envelope_outlier(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                reason="endpoint_weak_pending",
+                tracking_state="envelope_endpoint_weak_pending",
+                fatal=False,
             )
         span_change_ratio = diagnostics.get("span_change_ratio")
         new_span = float(observation.metric_raw)
@@ -1334,8 +1382,6 @@ class PriorTrackingMetricSource:
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
             return "envelope_low_support"
-        if self._envelope_endpoint_support_is_weak(observation):
-            return "envelope_endpoint_unsupported"
         if self._envelope_side_guard_area_is_gross(observation):
             return "envelope_side_guard_clutter"
         return None
@@ -1383,6 +1429,7 @@ class PriorTrackingMetricSource:
             if candidate_axis_offset is None or last_clean_axis_offset is None
             else abs(float(candidate_axis_offset) - float(last_clean_axis_offset))
         )
+        endpoint_policy = self._envelope_endpoint_support_policy_meta(observation)
         return {
             "candidate_axis_offset_px": candidate_axis_offset,
             "last_good_axis_offset_px": last_good_axis_offset,
@@ -1405,6 +1452,7 @@ class PriorTrackingMetricSource:
             "envelope_support_px": observation.meta.get("envelope_support_px"),
             "endpoint_support_left_px": observation.meta.get("endpoint_support_left_px"),
             "endpoint_support_right_px": observation.meta.get("endpoint_support_right_px"),
+            **endpoint_policy,
             "selected_candidate_score": observation.meta.get("selected_candidate_score"),
         }
 
@@ -1468,7 +1516,15 @@ class PriorTrackingMetricSource:
             float(reference_span) * max(0.0, float(ratio)),
         )
 
-    def _envelope_accept_state(self, *, bootstrap: bool = False) -> str:
+    def _envelope_accept_state(self, *, bootstrap: bool = False, endpoint_weak: bool = False) -> str:
+        if endpoint_weak:
+            if self._is_min_width_envelope:
+                return (
+                    "bootstrapped_min_width_envelope_endpoint_weak"
+                    if bootstrap
+                    else "accepted_min_width_envelope_endpoint_weak"
+                )
+            return "bootstrapped_global_envelope_endpoint_weak" if bootstrap else "accepted_envelope_endpoint_weak"
         if self._is_min_width_envelope:
             return "bootstrapped_min_width_envelope" if bootstrap else "accepted_min_width_envelope"
         return "bootstrapped_global_envelope" if bootstrap else "accepted_global_envelope"
@@ -1602,7 +1658,8 @@ class PriorTrackingMetricSource:
             "envelope_span_too_small": "envelope_prior_hold",
             "min_width_span_below_floor": "min_width_span_below_floor",
             "envelope_low_support": "envelope_low_support_rejected",
-            "envelope_endpoint_unsupported": "envelope_low_support_rejected",
+            "envelope_endpoint_unsupported": "envelope_endpoint_unsupported_rejected",
+            "endpoint_weak_pending": "envelope_endpoint_weak_pending",
             "envelope_side_guard_clutter": "envelope_background_component_rejected",
             "envelope_full_box_span": "envelope_background_component_rejected",
             "envelope_span_spike_weak_support": "envelope_prior_hold",
@@ -1639,6 +1696,18 @@ class PriorTrackingMetricSource:
             "max_width_valid_candidate_count": observation.meta.get("max_width_valid_candidate_count"),
             "min_width_reject_reason": observation.meta.get("min_width_reject_reason"),
             "envelope_candidate_debug": observation.meta.get("envelope_candidate_debug"),
+            **self._envelope_endpoint_support_policy_meta(
+                observation,
+                hard_reject=reason
+                in {
+                    "envelope_endpoint_unsupported",
+                    "detached_source_endpoint",
+                    "source_outside_metric_box",
+                    "source_outside_analysis_roi",
+                    "envelope_side_guard_clutter",
+                    "envelope_full_box_span",
+                },
+            ),
             "preset_envelope_axis_prior_px": self._preset_envelope_axis_prior_px,
             "preset_envelope_span_px": self._preset_envelope_span_px,
             "last_clean_axis_offset_px": self._last_clean_axis_offset_px,
@@ -3473,6 +3542,13 @@ def _telemetry_row(
         "envelope_support_px": metric_meta.get("envelope_support_px"),
         "endpoint_support_left_px": metric_meta.get("endpoint_support_left_px"),
         "endpoint_support_right_px": metric_meta.get("endpoint_support_right_px"),
+        "configured_endpoint_support_radius_px": metric_meta.get("configured_endpoint_support_radius_px"),
+        "effective_endpoint_support_radius_px": metric_meta.get("effective_endpoint_support_radius_px"),
+        "configured_endpoint_min_support_px": metric_meta.get("configured_endpoint_min_support_px"),
+        "effective_endpoint_min_support_px": metric_meta.get("effective_endpoint_min_support_px"),
+        "endpoint_support_is_hard_reject": metric_meta.get("endpoint_support_is_hard_reject"),
+        "endpoint_support_mode": metric_meta.get("endpoint_support_mode"),
+        "endpoint_support_reject_policy": metric_meta.get("endpoint_support_reject_policy"),
         "selected_candidate_score": metric_meta.get("selected_candidate_score"),
         "selected_candidate_span": metric_meta.get("selected_candidate_span"),
         "selected_candidate_axis_offset": metric_meta.get("selected_candidate_axis_offset"),

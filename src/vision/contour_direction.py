@@ -75,6 +75,13 @@ class DirectionalProjection:
     side_guard_foreground_area: int | None = None
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
+    configured_endpoint_support_radius_px: float | None = None
+    effective_endpoint_support_radius_px: float | None = None
+    configured_endpoint_min_support_px: int | None = None
+    effective_endpoint_min_support_px: int | None = None
+    endpoint_support_is_hard_reject: bool | None = None
+    endpoint_support_mode: str | None = None
+    endpoint_support_reject_policy: str | None = None
     selected_candidate_score: float | None = None
     candidate_reject_reason: str | None = None
     width_extreme_mode: str = "max_width"
@@ -126,6 +133,13 @@ class DirectionalContourResult:
     axis_offset_px: float | None = None
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
+    configured_endpoint_support_radius_px: float | None = None
+    effective_endpoint_support_radius_px: float | None = None
+    configured_endpoint_min_support_px: int | None = None
+    effective_endpoint_min_support_px: int | None = None
+    endpoint_support_is_hard_reject: bool | None = None
+    endpoint_support_mode: str | None = None
+    endpoint_support_reject_policy: str | None = None
     selected_candidate_score: float | None = None
     candidate_reject_reason: str | None = None
     envelope_reject_reason: str | None = None
@@ -168,6 +182,14 @@ class DirectionalContourDetectionError(RuntimeError):
 
 
 @dataclass(slots=True)
+class _EndpointSupportParameters:
+    configured_radius_px: float
+    effective_radius_px: float
+    configured_min_support_px: int
+    effective_min_support_px: int
+
+
+@dataclass(slots=True)
 class _ProcessingGeometry:
     crop: np.ndarray
     original_roi: RectRegion
@@ -195,6 +217,29 @@ class _EnvelopeTargetSelection:
     rejected_component_reasons: list[str]
     rejected_components: list[dict[str, Any]]
     sample_core_descriptor: dict[str, Any] | None
+
+
+def _effective_endpoint_support_parameters(
+    config: DirectionalContourConfig,
+    *,
+    scale: float,
+    target_geometry_mode: str,
+) -> _EndpointSupportParameters:
+    configured_radius = max(0.0, float(config.envelope_endpoint_support_radius_px))
+    configured_min = max(0, int(config.envelope_endpoint_min_support_px))
+    effective_radius = max(configured_radius * max(float(scale), 0.0), 1.5)
+    if configured_min <= 0:
+        effective_min = 0
+    else:
+        effective_min = max(1, int(round(float(configured_min) * max(float(scale), 0.0))))
+        if str(target_geometry_mode or "") in {"line_bundle", "mesh_lattice"} and configured_min <= 3:
+            effective_min = min(effective_min, 2)
+    return _EndpointSupportParameters(
+        configured_radius_px=configured_radius,
+        effective_radius_px=effective_radius,
+        configured_min_support_px=configured_min,
+        effective_min_support_px=effective_min,
+    )
 
 
 class DirectionalContourMetricExtractor(VisionMetricExtractor):
@@ -264,6 +309,13 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
             "envelope_support_px": result.envelope_support_px,
             "endpoint_support_left_px": result.endpoint_support_left_px,
             "endpoint_support_right_px": result.endpoint_support_right_px,
+            "configured_endpoint_support_radius_px": result.configured_endpoint_support_radius_px,
+            "effective_endpoint_support_radius_px": result.effective_endpoint_support_radius_px,
+            "configured_endpoint_min_support_px": result.configured_endpoint_min_support_px,
+            "effective_endpoint_min_support_px": result.effective_endpoint_min_support_px,
+            "endpoint_support_is_hard_reject": result.endpoint_support_is_hard_reject,
+            "endpoint_support_mode": result.endpoint_support_mode,
+            "endpoint_support_reject_policy": result.endpoint_support_reject_policy,
             "selected_candidate_score": result.selected_candidate_score,
             "selected_candidate_span": result.metric_raw,
             "selected_candidate_axis_offset": result.axis_offset_px,
@@ -353,6 +405,13 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     envelope_support_px: int | None = None
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
+    configured_endpoint_support_radius_px: float | None = None
+    effective_endpoint_support_radius_px: float | None = None
+    configured_endpoint_min_support_px: int | None = None
+    effective_endpoint_min_support_px: int | None = None
+    endpoint_support_is_hard_reject: bool | None = None
+    endpoint_support_mode: str | None = None
+    endpoint_support_reject_policy: str | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
     min_width_valid_candidate_count: int | None = None
@@ -392,6 +451,11 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         boundary_mask = _actual_component_boundary_mask(source_mask, candidate_mask)
         trusted_boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
         scale = max(float(processing.scale), 1e-6)
+        endpoint_support = _effective_endpoint_support_parameters(
+            config,
+            scale=scale,
+            target_geometry_mode=target_geometry_mode,
+        )
         projection = measure_component_envelope_width(
             boundary_mask,
             processing_roi,
@@ -408,8 +472,10 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
                 int(config.envelope_min_support_px),
             ),
             quantile=float(config.envelope_quantile),
-            endpoint_support_radius_px=max(0.0, float(config.envelope_endpoint_support_radius_px) * scale),
-            endpoint_min_support_px=int(config.envelope_endpoint_min_support_px),
+            endpoint_support_radius_px=endpoint_support.effective_radius_px,
+            endpoint_min_support_px=endpoint_support.effective_min_support_px,
+            configured_endpoint_support_radius_px=endpoint_support.configured_radius_px,
+            configured_endpoint_min_support_px=endpoint_support.configured_min_support_px,
             trusted_mask=trusted_boundary_mask,
             component_labels=target_selection.component_labels,
             trusted_component_ids=target_selection.trusted_component_ids,
@@ -440,6 +506,13 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         envelope_support_px = projection.envelope_support_px
         endpoint_support_left_px = projection.endpoint_support_left_px
         endpoint_support_right_px = projection.endpoint_support_right_px
+        configured_endpoint_support_radius_px = projection.configured_endpoint_support_radius_px
+        effective_endpoint_support_radius_px = projection.effective_endpoint_support_radius_px
+        configured_endpoint_min_support_px = projection.configured_endpoint_min_support_px
+        effective_endpoint_min_support_px = projection.effective_endpoint_min_support_px
+        endpoint_support_is_hard_reject = projection.endpoint_support_is_hard_reject
+        endpoint_support_mode = projection.endpoint_support_mode
+        endpoint_support_reject_policy = projection.endpoint_support_reject_policy
         selected_candidate_score = projection.selected_candidate_score
         envelope_reject_reason = projection.candidate_reject_reason
         min_width_valid_candidate_count = projection.min_width_valid_candidate_count
@@ -572,6 +645,13 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         envelope_support_px=envelope_support_px,
         endpoint_support_left_px=endpoint_support_left_px,
         endpoint_support_right_px=endpoint_support_right_px,
+        configured_endpoint_support_radius_px=configured_endpoint_support_radius_px,
+        effective_endpoint_support_radius_px=effective_endpoint_support_radius_px,
+        configured_endpoint_min_support_px=configured_endpoint_min_support_px,
+        effective_endpoint_min_support_px=effective_endpoint_min_support_px,
+        endpoint_support_is_hard_reject=endpoint_support_is_hard_reject,
+        endpoint_support_mode=endpoint_support_mode,
+        endpoint_support_reject_policy=endpoint_support_reject_policy,
         selected_candidate_score=selected_candidate_score,
         candidate_reject_reason=envelope_reject_reason,
         envelope_reject_reason=envelope_reject_reason,
@@ -862,6 +942,8 @@ def measure_component_envelope_width(
     quantile: float = 0.0,
     endpoint_support_radius_px: float = 0.0,
     endpoint_min_support_px: int = 0,
+    configured_endpoint_support_radius_px: float | None = None,
+    configured_endpoint_min_support_px: int | None = None,
     trusted_mask: np.ndarray | None = None,
     component_labels: np.ndarray | None = None,
     trusted_component_ids: set[int] | None = None,
@@ -922,6 +1004,16 @@ def measure_component_envelope_width(
     window = max(0, int(lateral_window_bins))
     endpoint_radius = max(0.0, float(endpoint_support_radius_px))
     endpoint_min_support = max(0, int(endpoint_min_support_px))
+    configured_endpoint_radius = (
+        endpoint_radius
+        if configured_endpoint_support_radius_px is None
+        else max(0.0, float(configured_endpoint_support_radius_px))
+    )
+    configured_endpoint_min_support = (
+        endpoint_min_support
+        if configured_endpoint_min_support_px is None
+        else max(0, int(configured_endpoint_min_support_px))
+    )
     resolved_width_mode = _resolve_projection_width_extreme_mode(width_extreme_mode)
     span_floor = _min_width_span_floor_px(
         roi=roi,
@@ -1095,6 +1187,7 @@ def measure_component_envelope_width(
             "center_distance": abs(axis_offset - median_lateral),
             "endpoint_support_left": endpoint_support_left,
             "endpoint_support_right": endpoint_support_right,
+            "effective_endpoint_min_support_px": endpoint_min_support,
             "endpoints_supported": endpoints_supported,
             "low_component_id": low_component_id,
             "high_component_id": high_component_id,
@@ -1202,6 +1295,13 @@ def measure_component_envelope_width(
                     "envelope_candidate_count": int(candidate_count),
                     "side_guard_foreground_area": int(guard_area),
                     "effective_envelope_min_support_px": int(effective_min_support),
+                    "configured_endpoint_support_radius_px": float(configured_endpoint_radius),
+                    "effective_endpoint_support_radius_px": float(endpoint_radius),
+                    "configured_endpoint_min_support_px": int(configured_endpoint_min_support),
+                    "effective_endpoint_min_support_px": int(endpoint_min_support),
+                    "endpoint_support_is_hard_reject": False,
+                    "endpoint_support_mode": None,
+                    "endpoint_support_reject_policy": "min_width_no_candidate",
                     "envelope_candidate_debug": envelope_candidate_debug,
                 },
             )
@@ -1259,6 +1359,7 @@ def measure_component_envelope_width(
     axis_b_xy = direction * float(best["high_value"]) + normal * best_axis_offset
     axis_point_a = _pixel_point_from_xy(axis_a_xy, image_shape=image_shape, clip_region=clip_region)
     axis_point_b = _pixel_point_from_xy(axis_b_xy, image_shape=image_shape, clip_region=clip_region)
+    endpoint_support_mode = "pass" if bool(best.get("endpoints_supported", True)) else "weak"
     return DirectionalProjection(
         point_a=axis_point_a,
         point_b=axis_point_b,
@@ -1274,6 +1375,15 @@ def measure_component_envelope_width(
         side_guard_foreground_area=int(guard_area),
         endpoint_support_left_px=int(best.get("endpoint_support_left", best["support"])),
         endpoint_support_right_px=int(best.get("endpoint_support_right", best["support"])),
+        configured_endpoint_support_radius_px=float(configured_endpoint_radius),
+        effective_endpoint_support_radius_px=float(endpoint_radius),
+        configured_endpoint_min_support_px=int(configured_endpoint_min_support),
+        effective_endpoint_min_support_px=int(endpoint_min_support),
+        endpoint_support_is_hard_reject=False,
+        endpoint_support_mode=endpoint_support_mode,
+        endpoint_support_reject_policy=(
+            "pass" if endpoint_support_mode == "pass" else "warning_accept_or_pending"
+        ),
         selected_candidate_score=float(best.get("score", best["span"])),
         candidate_reject_reason=reject_reason,
         width_extreme_mode=resolved_width_mode,
@@ -1434,12 +1544,14 @@ def _envelope_candidate_debug_item(candidate: dict[str, Any]) -> dict[str, Any]:
         "support": int(candidate.get("support", 0)),
         "endpoint_support_left_px": int(candidate.get("endpoint_support_left", 0)),
         "endpoint_support_right_px": int(candidate.get("endpoint_support_right", 0)),
+        "effective_endpoint_min_support_px": int(candidate.get("effective_endpoint_min_support_px", 0)),
         "trusted": bool(candidate.get("endpoints_trusted", False)),
         "supported": bool(candidate.get("endpoints_supported", False)),
         "effective": bool(candidate.get("min_width_effective", False)),
         "relaxed_effective": bool(candidate.get("min_width_relaxed_effective", False)),
         "max_effective": bool(candidate.get("max_width_effective", False)),
         "endpoint_weak": bool(candidate.get("endpoint_weak", False)),
+        "endpoint_support_mode": "weak" if bool(candidate.get("endpoint_weak", False)) else "pass",
         "source_in_metric_box": bool(candidate.get("source_points_in_metric_box", True)),
         "source_in_analysis_roi": bool(candidate.get("source_points_in_analysis_roi", True)),
         "trusted_support_sufficient": bool(candidate.get("trusted_support_sufficient", True)),
@@ -2441,6 +2553,13 @@ def _projection_to_original_roi(
         side_guard_foreground_area=projection.side_guard_foreground_area,
         endpoint_support_left_px=projection.endpoint_support_left_px,
         endpoint_support_right_px=projection.endpoint_support_right_px,
+        configured_endpoint_support_radius_px=projection.configured_endpoint_support_radius_px,
+        effective_endpoint_support_radius_px=projection.effective_endpoint_support_radius_px,
+        configured_endpoint_min_support_px=projection.configured_endpoint_min_support_px,
+        effective_endpoint_min_support_px=projection.effective_endpoint_min_support_px,
+        endpoint_support_is_hard_reject=projection.endpoint_support_is_hard_reject,
+        endpoint_support_mode=projection.endpoint_support_mode,
+        endpoint_support_reject_policy=projection.endpoint_support_reject_policy,
         selected_candidate_score=projection.selected_candidate_score,
         candidate_reject_reason=projection.candidate_reject_reason,
         width_extreme_mode=projection.width_extreme_mode,

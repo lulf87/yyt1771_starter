@@ -260,6 +260,13 @@ class AutoDetectDefinitionResponse(BaseModel):
     envelope_support_px: int | None = None
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
+    configured_endpoint_support_radius_px: float | None = None
+    effective_endpoint_support_radius_px: float | None = None
+    configured_endpoint_min_support_px: int | None = None
+    effective_endpoint_min_support_px: int | None = None
+    endpoint_support_is_hard_reject: bool | None = None
+    endpoint_support_mode: str | None = None
+    endpoint_support_reject_policy: str | None = None
     selected_candidate_score: float | None = None
     selected_width_extreme_mode: str | None = None
     selected_candidate_span: float | None = None
@@ -387,6 +394,13 @@ class RunTelemetryPointResponse(BaseModel):
     envelope_support_px: int | None = None
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
+    configured_endpoint_support_radius_px: float | None = None
+    effective_endpoint_support_radius_px: float | None = None
+    configured_endpoint_min_support_px: int | None = None
+    effective_endpoint_min_support_px: int | None = None
+    endpoint_support_is_hard_reject: bool | None = None
+    endpoint_support_mode: str | None = None
+    endpoint_support_reject_policy: str | None = None
     selected_candidate_score: float | None = None
     width_extreme_mode: str | None = None
     selected_width_extreme_mode: str | None = None

@@ -1575,6 +1575,7 @@ def _envelope_definition(
     *,
     target_geometry_mode: str = "line_bundle",
     envelope_min_support_px: int = 3,
+    envelope_endpoint_min_support_px: int = 3,
     width_extreme_mode: str = "max_width",
     point_a: tuple[int, int] = (20, 32),
     point_b: tuple[int, int] = (80, 32),
@@ -1594,6 +1595,7 @@ def _envelope_definition(
         target_geometry_mode=target_geometry_mode,
         side_guard_ratio=0.10,
         envelope_min_support_px=envelope_min_support_px,
+        envelope_endpoint_min_support_px=envelope_endpoint_min_support_px,
     )
 
 
@@ -1622,11 +1624,19 @@ def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
                 "candidate_selection_goal": spec.get("candidate_selection_goal", "max_span"),
                 "candidate_span_floor_px": spec.get("candidate_span_floor_px", 5.0),
                 "min_width_valid_candidate_count": spec.get("min_width_valid_candidate_count"),
+                "min_width_relaxed_candidate_count": spec.get("min_width_relaxed_candidate_count"),
                 "max_width_valid_candidate_count": spec.get("max_width_valid_candidate_count"),
                 "component_area": 400,
                 "envelope_support_px": spec.get("envelope_support_px", 24),
                 "endpoint_support_left_px": spec.get("endpoint_support_left_px", 8),
                 "endpoint_support_right_px": spec.get("endpoint_support_right_px", 8),
+                "configured_endpoint_min_support_px": spec.get("configured_endpoint_min_support_px", 3),
+                "effective_endpoint_min_support_px": spec.get("effective_endpoint_min_support_px", 3),
+                "configured_endpoint_support_radius_px": spec.get("configured_endpoint_support_radius_px", 3.0),
+                "effective_endpoint_support_radius_px": spec.get("effective_endpoint_support_radius_px", 3.0),
+                "endpoint_support_mode": spec.get("endpoint_support_mode"),
+                "endpoint_support_reject_policy": spec.get("endpoint_support_reject_policy"),
+                "endpoint_support_is_hard_reject": spec.get("endpoint_support_is_hard_reject"),
                 "side_guard_foreground_area": spec.get("side_guard_foreground_area", 0),
                 "source_point_a_px": spec.get("source_point_a_px", spec["a"]),
                 "source_point_b_px": spec.get("source_point_b_px", spec["b"]),
@@ -2113,6 +2123,151 @@ def test_source_point_outside_metric_box_rejected_without_refreshing_last_good(
     assert held.point_a_px == clean.point_a_px
     assert held.point_b_px == clean.point_b_px
     assert source._last_good_span_px == pytest.approx(60.0)
+
+
+def test_envelope_endpoint_weak_does_not_hard_reject_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {
+        "value": {
+            "span": 60.0,
+            "a": (20, 32),
+            "b": (80, 32),
+            "endpoint_support_left_px": 1,
+            "endpoint_support_right_px": 1,
+            "effective_endpoint_min_support_px": 3,
+            "endpoint_support_mode": "weak",
+        }
+    }
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(point_a=(20, 32), point_b=(80, 32), envelope_endpoint_min_support_px=3),
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    metric = source.extract(frame0, temp0, sample_index=0, total_samples=1)
+
+    assert metric.point_a_px == (20, 32)
+    assert metric.point_b_px == (80, 32)
+    assert metric.meta["tracking_state"] == "bootstrapped_global_envelope_endpoint_weak"
+    assert metric.meta["endpoint_support_mode"] == "weak"
+    assert metric.meta["endpoint_support_is_hard_reject"] is False
+
+
+def test_envelope_endpoint_weak_continuous_candidate_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(point_a=(20, 32), point_b=(80, 32), envelope_endpoint_min_support_px=3),
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 61.0,
+        "a": (20, 32),
+        "b": (81, 32),
+        "endpoint_support_left_px": 1,
+        "endpoint_support_right_px": 1,
+        "effective_endpoint_min_support_px": 3,
+        "endpoint_support_mode": "weak",
+    }
+    frame1, temp1 = _frame_temp(2)
+    metric = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert metric.meta["tracking_state"] == "accepted_envelope_endpoint_weak"
+    assert metric.point_b_px == (81, 32)
+    assert metric.meta["endpoint_support_mode"] == "weak"
+    assert metric.meta["endpoint_support_is_hard_reject"] is False
+
+
+def test_envelope_endpoint_weak_axis_jump_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(point_a=(20, 32), point_b=(80, 32), envelope_endpoint_min_support_px=3),
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    clean = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 60.0,
+        "a": (20, 54),
+        "b": (80, 54),
+        "endpoint_support_left_px": 1,
+        "endpoint_support_right_px": 1,
+        "effective_endpoint_min_support_px": 3,
+        "endpoint_support_mode": "weak",
+    }
+    frame1, temp1 = _frame_temp(2)
+    metric = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert metric.meta["tracking_state"] == "envelope_endpoint_weak_pending"
+    assert metric.meta["reason"] == "endpoint_weak_pending"
+    assert metric.point_a_px == clean.point_a_px
+    assert metric.point_b_px == clean.point_b_px
+    assert metric.meta["endpoint_support_is_hard_reject"] is False
+
+
+def test_envelope_endpoint_weak_with_detached_source_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(point_a=(20, 32), point_b=(80, 32), envelope_endpoint_min_support_px=3),
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    clean = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 61.0,
+        "a": (20, 32),
+        "b": (81, 32),
+        "endpoint_support_left_px": 1,
+        "endpoint_support_right_px": 1,
+        "effective_endpoint_min_support_px": 3,
+        "source_point_a_trusted": False,
+        "envelope_source_trust_state": "detached_endpoint",
+    }
+    frame1, temp1 = _frame_temp(2)
+    metric = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert metric.meta["tracking_state"] == "envelope_contaminated_hold"
+    assert metric.meta["original_rejection_reason"] == "detached_source_endpoint"
+    assert metric.point_a_px == clean.point_a_px
+    assert metric.point_b_px == clean.point_b_px
 
 
 def test_min_width_no_candidate_hold_reports_explicit_reason(
