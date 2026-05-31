@@ -214,8 +214,18 @@ def _measurement_definition_from_payload(payload: MeasurementDefinitionRequest) 
         sensitivity=payload.sensitivity,
         direction_angle_deg=payload.direction_angle_deg,
         direction_projection_mode=payload.direction_projection_mode,
+        width_extreme_mode=payload.width_extreme_mode,
         target_geometry_mode=payload.target_geometry_mode,
         side_guard_ratio=payload.side_guard_ratio,
+        envelope_min_support_px=payload.envelope_min_support_px,
+        envelope_quantile=payload.envelope_quantile,
+        envelope_normal_bin_width_px=payload.envelope_normal_bin_width_px,
+        envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
+        envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
+        envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
+        envelope_relocate_confirm_frames=payload.envelope_relocate_confirm_frames,
+        envelope_near_tie_span_ratio=payload.envelope_near_tie_span_ratio,
+        envelope_immediate_span_gain_ratio=payload.envelope_immediate_span_gain_ratio,
         observation_axis=ObservationAxis(payload.observation_axis),
     )
 

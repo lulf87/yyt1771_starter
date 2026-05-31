@@ -30,7 +30,7 @@ from src.application.real_offline_alignment_guard import (
 from src.application.runtime_config import RuntimeConfig
 from src.core.config_models import DeviceRoiConfig
 from src.core.enums import CaptureMode, RunStatus
-from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord
+from src.core.models import FramePacket, MeasurementDefinition, RunDraftRecord, resolve_width_extreme_mode
 from src.storage.session_artifacts import SessionArtifactStore
 from src.storage.sqlite_repo import SqliteSessionRepo
 from src.workflow.live_run import (
@@ -593,6 +593,7 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "sensitivity": definition.sensitivity,
         "direction_angle_deg": definition.direction_angle_deg,
         "direction_projection_mode": definition.direction_projection_mode,
+        "width_extreme_mode": resolve_width_extreme_mode(definition),
         "target_geometry_mode": definition.target_geometry_mode,
         "side_guard_ratio": definition.side_guard_ratio,
         "envelope_min_support_px": definition.envelope_min_support_px,

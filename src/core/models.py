@@ -12,6 +12,7 @@ from src.core.enums import CaptureMode, ObservationAxis, RunStatus, SessionState
 ScalarPointValue = bool | float | int | str
 ANALYSIS_ROI_FLOAT_EPSILON = 0.5
 METRIC_BOX_POINT_FLOAT_EPSILON = 2.0
+WIDTH_EXTREME_MODES = {"max_width", "min_width"}
 
 
 @dataclass(slots=True)
@@ -58,6 +59,7 @@ class MeasurementDefinition:
     sensitivity: float = 50.0
     direction_angle_deg: float | None = None
     direction_projection_mode: str = "max_chord"
+    width_extreme_mode: str = "max_width"
     target_geometry_mode: str = "single_component"
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
@@ -97,6 +99,7 @@ class MeasurementDefinition:
             and self.has_valid_window()
             and self.min_target_area_px > 0
             and 0.0 <= float(self.sensitivity) <= 100.0
+            and str(self.width_extreme_mode or "max_width") in WIDTH_EXTREME_MODES
             and 0.0 <= float(self.side_guard_ratio) <= 0.45
             and int(self.envelope_min_support_px) >= 2
             and 0.0 <= float(self.envelope_quantile) <= 0.20
@@ -145,6 +148,13 @@ def resolve_measurement_angle_deg(definition: "MeasurementDefinition") -> float:
     directional mode is active.
     """
     return float(definition.metric_box.angle_deg)
+
+
+def resolve_width_extreme_mode(definition: object) -> str:
+    """Return a backward-compatible width extreme mode for old definitions."""
+    value = getattr(definition, "width_extreme_mode", "max_width")
+    value = str(value or "max_width")
+    return value if value in WIDTH_EXTREME_MODES else "max_width"
 
 
 @dataclass(slots=True)

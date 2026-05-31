@@ -93,6 +93,226 @@ def test_envelope_max_width_line_bundle_uses_multi_component_union() -> None:
     assert result.envelope_support_px >= 6
 
 
+def test_envelope_max_width_default_unchanged_when_width_extreme_mode_missing() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[46:56, 40:141] = 30
+    image[60:70, 72:133] = 30
+    image[74:84, 55:136] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=190, height=80, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            envelope_min_support_px=3,
+            envelope_endpoint_min_support_px=3,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(100.0, abs=2.0)
+    assert result.selected_width_extreme_mode == "max_width"
+
+
+def test_envelope_min_width_selects_smallest_valid_band() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[49:53, 40:141] = 30  # span ~100
+    image[63:67, 72:133] = 30  # span ~60
+    image[77:81, 55:136] = 30  # span ~80
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=190, height=80, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="line_bundle",
+            envelope_min_support_px=3,
+            envelope_endpoint_min_support_px=3,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert result.metric_raw == pytest.approx(60.0, abs=2.0)
+    assert result.selected_width_extreme_mode == "min_width"
+    assert result.candidate_selection_goal == "min_span"
+    assert result.min_width_valid_candidate_count >= 1
+    assert result.max_width_valid_candidate_count >= 3
+
+
+def test_envelope_min_width_reports_span_floor_in_original_pixels_after_downscale() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[46:56, 40:141] = 30
+    image[60:70, 72:133] = 30
+    image[74:84, 55:136] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=190, height=80, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="line_bundle",
+            envelope_min_support_px=2,
+            envelope_endpoint_min_support_px=2,
+            min_width_min_span_px=10.0,
+            min_width_min_span_ratio=0.0,
+            processing_max_side_px=110,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=4.0)
+    assert result.candidate_span_floor_px == pytest.approx(10.0, abs=0.5)
+
+
+def test_envelope_min_width_ignores_zero_or_tip_span() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[60:66, 72:133] = 30
+    image[44:50, 102:104] = 30  # tip-like span below floor
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=190, height=80, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=4,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="single_component",
+            envelope_min_support_px=2,
+            envelope_endpoint_min_support_px=2,
+            min_width_min_span_px=5.0,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=2.0)
+    assert result.candidate_span_floor_px >= 5.0
+    assert result.envelope_reject_reason in {None, ""}
+
+
+def test_envelope_min_width_requires_support() -> None:
+    image = np.full((120, 220), 240, dtype=np.uint8)
+    image[60:68, 72:133] = 30
+    image[42:43, 90:111] = 30  # lower span, but support below floor
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=220, height=120),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=110, center_y=60, width=190, height=80, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=1,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="single_component",
+            envelope_min_support_px=4,
+            envelope_endpoint_min_support_px=2,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=2.0)
+    assert result.envelope_support_px >= 4
+
+
+def test_envelope_min_width_rejects_debris() -> None:
+    image = np.full((160, 240), 240, dtype=np.uint8)
+    image[72:78, 72:133] = 30
+    image[24:30, 86:107] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=160),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=120, center_y=80, width=200, height=110, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=6,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="line_bundle",
+            envelope_min_support_px=3,
+            envelope_endpoint_min_support_px=2,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=2.0)
+    assert result.rejected_component_count >= 1
+
+
+def test_envelope_min_width_axis_projected_points_parallel() -> None:
+    image = np.full((160, 240), 240, dtype=np.uint8)
+    angle_deg = 18.0
+    angle_rad = math.radians(angle_deg)
+    center_x = 120
+    center_y = 80
+    for local_x in range(-30, 31):
+        for local_y in range(-3, 4):
+            world_x = int(round(center_x + local_x * math.cos(angle_rad) - local_y * math.sin(angle_rad)))
+            world_y = int(round(center_y + local_x * math.sin(angle_rad) + local_y * math.cos(angle_rad)))
+            if 0 <= world_x < image.shape[1] and 0 <= world_y < image.shape[0]:
+                image[world_y, world_x] = 30
+
+    metric = DirectionalContourMetricExtractor(
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=160),
+            direction_angle_deg=angle_deg,
+            metric_box=MetricBox(center_x=120, center_y=80, width=170, height=90, angle_deg=angle_deg),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=8,
+            projection_mode="envelope_max_width",
+            width_extreme_mode="min_width",
+            target_geometry_mode="single_component",
+            envelope_min_support_px=3,
+            envelope_endpoint_min_support_px=2,
+            processing_max_side_px=0,
+        )
+    ).extract(FramePacket(timestamp_ms=1, source="fixture", image=image))
+
+    assert metric.metric_raw == pytest.approx(60.0, abs=3.0)
+    assert metric.meta["display_point_mode"] == "axis_projected"
+    assert metric.meta["source_point_mode"] == "foreground_support"
+    assert metric.meta["metric_raw_mode"] == "along_axis_span"
+    assert metric.meta["selected_width_extreme_mode"] == "min_width"
+    dx = metric.point_b_px[0] - metric.point_a_px[0]
+    dy = metric.point_b_px[1] - metric.point_a_px[1]
+    observed_angle = math.degrees(math.atan2(dy, dx))
+    assert observed_angle == pytest.approx(angle_deg, abs=3.0)
+
+
 def test_envelope_max_width_line_bundle_rejects_horizontal_background_scratch() -> None:
     # A dense vertical-stack line bundle (filaments along the measurement
     # direction) plus a wide, thick horizontal scratch far above it. The scratch

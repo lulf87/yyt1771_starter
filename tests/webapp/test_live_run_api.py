@@ -570,8 +570,56 @@ def test_put_definition_saves_measurement_definition_and_waits_for_temperature_c
     assert payload["definition"]["metric_box"]["angle_deg"] == 12.0
     assert payload["definition"]["direction_angle_deg"] == 12.0
     assert payload["definition"]["direction_projection_mode"] == "max_chord"
+    assert payload["definition"]["width_extreme_mode"] == "max_width"
     assert payload["definition"]["observation_axis"] == "long_axis"
     assert payload["definition"]["point_a_px"] == {"x": 210, "y": 320}
+
+
+def test_webapp_payload_preserves_width_extreme_mode(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    captured: dict[str, object] = {}
+
+    def wrapped_build_metric_source(*, runtime_config, definition, target_temperature_celsius: float):
+        captured["metric_definition"] = definition
+        return MockLiveMetricSource(
+            definition=definition,
+            target_temperature_celsius=target_temperature_celsius,
+        )
+
+    app.state.live_run_service._build_metric_source = wrapped_build_metric_source
+    client = TestClient(app)
+    run_id = _create_ready_run(
+        client,
+        definition_payload={
+            "analysis_roi": {"x": 0, "y": 0, "width": 240, "height": 160},
+            "metric_box": {"center_x": 120, "center_y": 80, "width": 140, "height": 70, "angle_deg": 0.0},
+            "point_a_px": {"x": 60, "y": 80},
+            "point_b_px": {"x": 180, "y": 80},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 50,
+            "direction_angle_deg": 0.0,
+            "direction_projection_mode": "envelope_max_width",
+            "width_extreme_mode": "min_width",
+            "target_geometry_mode": "line_bundle",
+        },
+    )
+
+    detail = client.get(f"/api/runs/{run_id}").json()
+    assert detail["definition"]["width_extreme_mode"] == "min_width"
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 45.0},
+    )
+    deadline = time.time() + 3.0
+    while "metric_definition" not in captured and time.time() < deadline:
+        time.sleep(0.05)
+
+    assert start_response.status_code == 200
+    assert captured["metric_definition"].width_extreme_mode == "min_width"
 
 
 def test_put_definition_syncs_direction_angle_to_metric_box_angle(tmp_path: Path) -> None:

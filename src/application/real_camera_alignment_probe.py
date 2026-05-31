@@ -244,6 +244,7 @@ def _probe_formal_ab_detection(
                 direction_angle_deg=direction_angle_deg,
             ),
             projection_mode=definition.direction_projection_mode,
+            width_extreme_mode=definition.width_extreme_mode,
             target_geometry_mode=definition.target_geometry_mode,
             side_guard_ratio=definition.side_guard_ratio,
             envelope_min_support_px=definition.envelope_min_support_px,
@@ -442,6 +443,7 @@ def _measurement_definition_from_payload(payload: dict[str, Any]) -> Measurement
             None if payload.get("direction_angle_deg") is None else float(payload["direction_angle_deg"])
         ),
         direction_projection_mode=str(payload.get("direction_projection_mode", "max_chord")),
+        width_extreme_mode=str(payload.get("width_extreme_mode", "max_width")),
         target_geometry_mode=str(payload.get("target_geometry_mode", "single_component")),
         side_guard_ratio=float(payload.get("side_guard_ratio", 0.0) or 0.0),
         envelope_min_support_px=int(payload.get("envelope_min_support_px", 3) or 3),

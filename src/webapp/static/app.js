@@ -74,6 +74,7 @@ const livePointBYInput = document.getElementById("live-point-b-y");
 const liveForegroundPolaritySelect = document.getElementById("live-foreground-polarity");
 const liveThresholdModeSelect = document.getElementById("live-threshold-mode");
 const liveDirectionProjectionModeSelect = document.getElementById("live-direction-projection-mode");
+const liveWidthExtremeModeSelect = document.getElementById("live-width-extreme-mode");
 const liveTargetGeometryModeSelect = document.getElementById("live-target-geometry-mode");
 const liveSideGuardRatioInput = document.getElementById("live-side-guard-ratio");
 const liveEnvelopeMinSupportInput = document.getElementById("live-envelope-min-support");
@@ -473,6 +474,9 @@ const TRANSLATIONS = {
     "home.options.projection_max_chord": "Max Chord",
     "home.options.projection_envelope_max_width": "Envelope Width",
     "home.options.projection_mask_projection": "Mask Projection",
+    "home.sections.detection.width_extreme_mode": "Width Selection",
+    "home.options.width_extreme_max": "Widest",
+    "home.options.width_extreme_min": "Narrowest",
     "home.sections.detection.target_geometry": "Target Type",
     "home.options.geometry_single_component": "Single Body",
     "home.options.geometry_line_bundle": "Line Bundle",
@@ -2017,6 +2021,15 @@ function isDirectionProjectionMode(value) {
   return value === "auto" || value === "max_chord" || value === "mask_projection" || value === "envelope_max_width";
 }
 
+function currentWidthExtremeMode() {
+  const value = liveWidthExtremeModeSelect ? liveWidthExtremeModeSelect.value : "";
+  return isWidthExtremeMode(value) ? value : "max_width";
+}
+
+function isWidthExtremeMode(value) {
+  return value === "max_width" || value === "min_width";
+}
+
 function currentTargetGeometryMode() {
   const value = liveTargetGeometryModeSelect ? liveTargetGeometryModeSelect.value : "";
   return value === "line_bundle" || value === "mesh_lattice" || value === "single_component" ? value : "single_component";
@@ -2223,6 +2236,7 @@ function normalizeDefinitionForComparison(definition) {
     sensitivity: Number(definition.sensitivity ?? 50),
     direction_angle_deg: definition.direction_angle_deg == null ? null : Number(definition.direction_angle_deg),
     direction_projection_mode: definition.direction_projection_mode || currentDirectionProjectionMode(),
+    width_extreme_mode: definition.width_extreme_mode || currentWidthExtremeMode(),
     target_geometry_mode: definition.target_geometry_mode || currentTargetGeometryMode(),
     side_guard_ratio: Number(definition.side_guard_ratio ?? currentSideGuardRatio()),
     envelope_min_support_px: Number(definition.envelope_min_support_px ?? currentEnvelopeMinSupportPx()),
@@ -2316,6 +2330,15 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     endpoint_support_left_px: payload.endpoint_support_left_px ?? null,
     endpoint_support_right_px: payload.endpoint_support_right_px ?? null,
     selected_candidate_score: payload.selected_candidate_score ?? null,
+    selected_candidate_span: payload.selected_candidate_span ?? null,
+    selected_candidate_axis_offset: payload.selected_candidate_axis_offset ?? null,
+    width_extreme_mode: payload.width_extreme_mode ?? currentWidthExtremeMode(),
+    selected_width_extreme_mode: payload.selected_width_extreme_mode ?? null,
+    candidate_selection_goal: payload.candidate_selection_goal ?? null,
+    candidate_span_floor_px: payload.candidate_span_floor_px ?? null,
+    candidate_reject_reason: payload.candidate_reject_reason ?? null,
+    min_width_valid_candidate_count: payload.min_width_valid_candidate_count ?? null,
+    max_width_valid_candidate_count: payload.max_width_valid_candidate_count ?? null,
     side_guard_foreground_area: payload.side_guard_foreground_area ?? null,
     envelope_reject_reason: payload.envelope_reject_reason ?? null,
     rejected_components: previewRejectedComponentsFromPayload(payload.rejected_components),
@@ -2388,6 +2411,15 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     endpoint_support_left_px: latestTelemetry.endpoint_support_left_px ?? null,
     endpoint_support_right_px: latestTelemetry.endpoint_support_right_px ?? null,
     selected_candidate_score: latestTelemetry.selected_candidate_score ?? null,
+    selected_candidate_span: latestTelemetry.selected_candidate_span ?? null,
+    selected_candidate_axis_offset: latestTelemetry.selected_candidate_axis_offset ?? null,
+    width_extreme_mode: latestTelemetry.width_extreme_mode ?? currentWidthExtremeMode(),
+    selected_width_extreme_mode: latestTelemetry.selected_width_extreme_mode ?? null,
+    candidate_selection_goal: latestTelemetry.candidate_selection_goal ?? null,
+    candidate_span_floor_px: latestTelemetry.candidate_span_floor_px ?? null,
+    candidate_reject_reason: latestTelemetry.candidate_reject_reason ?? null,
+    min_width_valid_candidate_count: latestTelemetry.min_width_valid_candidate_count ?? null,
+    max_width_valid_candidate_count: latestTelemetry.max_width_valid_candidate_count ?? null,
     side_guard_foreground_area: latestTelemetry.side_guard_foreground_area ?? null,
     envelope_reject_reason: latestTelemetry.envelope_reject_reason ?? null,
     rejected_components: previewRejectedComponentsFromPayload(latestTelemetry.rejected_components),
@@ -2855,6 +2887,12 @@ function fillLiveDefinitionInputs(definition, { updatePoints = true } = {}) {
   if (liveDirectionProjectionModeSelect) {
     liveDirectionProjectionModeSelect.value = uiDefinition.direction_projection_mode || "max_chord";
   }
+  if (liveWidthExtremeModeSelect) {
+    liveWidthExtremeModeSelect.value = uiDefinition.width_extreme_mode || "max_width";
+    if (!isWidthExtremeMode(liveWidthExtremeModeSelect.value)) {
+      liveWidthExtremeModeSelect.value = "max_width";
+    }
+  }
   if (liveTargetGeometryModeSelect) {
     liveTargetGeometryModeSelect.value = uiDefinition.target_geometry_mode || "single_component";
   }
@@ -2923,6 +2961,9 @@ function seedLiveDefinitionDefaults(width, height) {
   if (liveDirectionProjectionModeSelect) {
     liveDirectionProjectionModeSelect.value = "max_chord";
   }
+  if (liveWidthExtremeModeSelect) {
+    liveWidthExtremeModeSelect.value = "max_width";
+  }
   if (liveTargetGeometryModeSelect) {
     liveTargetGeometryModeSelect.value = "single_component";
   }
@@ -2935,6 +2976,9 @@ function seedLiveDefinitionDefaults(width, height) {
   liveRunState.resolvedDirectionProjectionMode = "max_chord";
   if (liveDirectionProjectionModeSelect) {
     liveDirectionProjectionModeSelect.value = "max_chord";
+  }
+  if (liveWidthExtremeModeSelect) {
+    liveWidthExtremeModeSelect.value = "max_width";
   }
   if (liveTargetGeometryModeSelect) {
     liveTargetGeometryModeSelect.value = "single_component";
@@ -3848,6 +3892,7 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     metric_box: metricBox,
     direction_angle_deg: Number(roiBox.angle_deg || 0),
     direction_projection_mode: currentDirectionProjectionMode(),
+    width_extreme_mode: currentWidthExtremeMode(),
     // Use the same contour-direction path for preset and live run. The backend
     // still receives the rotated ROI box and clips the contour search to it.
     observation_axis: "long_axis",
@@ -4210,6 +4255,11 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
       : "max_chord";
     if (liveDirectionProjectionModeSelect) {
       liveDirectionProjectionModeSelect.value = liveRunState.resolvedDirectionProjectionMode;
+    }
+    if (liveWidthExtremeModeSelect && payload.width_extreme_mode) {
+      liveWidthExtremeModeSelect.value = isWidthExtremeMode(payload.width_extreme_mode)
+        ? String(payload.width_extreme_mode)
+        : "max_width";
     }
     if (liveTargetGeometryModeSelect && payload.target_geometry_mode) {
       liveTargetGeometryModeSelect.value = String(payload.target_geometry_mode);
@@ -7062,6 +7112,7 @@ for (const liveInput of [
   liveForegroundPolaritySelect,
   liveThresholdModeSelect,
   liveDirectionProjectionModeSelect,
+  liveWidthExtremeModeSelect,
   liveTargetGeometryModeSelect,
   liveSideGuardRatioInput,
   liveEnvelopeMinSupportInput,
@@ -7083,6 +7134,7 @@ for (const liveInput of [
 }
 for (const envelopeInput of [
   liveDirectionProjectionModeSelect,
+  liveWidthExtremeModeSelect,
   liveTargetGeometryModeSelect,
   liveSideGuardRatioInput,
   liveEnvelopeMinSupportInput,

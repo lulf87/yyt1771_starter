@@ -1575,6 +1575,7 @@ def _envelope_definition(
     *,
     target_geometry_mode: str = "line_bundle",
     envelope_min_support_px: int = 3,
+    width_extreme_mode: str = "max_width",
     point_a: tuple[int, int] = (20, 32),
     point_b: tuple[int, int] = (80, 32),
 ) -> MeasurementDefinition:
@@ -1589,6 +1590,7 @@ def _envelope_definition(
         min_target_area_px=20,
         direction_angle_deg=0.0,
         direction_projection_mode="envelope_max_width",
+        width_extreme_mode=width_extreme_mode,
         target_geometry_mode=target_geometry_mode,
         side_guard_ratio=0.10,
         envelope_min_support_px=envelope_min_support_px,
@@ -1599,6 +1601,8 @@ def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
     class FakeDirectionalExtractor:
         def __init__(self, config):
             assert config.projection_mode == expected_projection_mode
+            if "expected_width_extreme_mode" in holder:
+                assert config.width_extreme_mode == holder["expected_width_extreme_mode"]
 
         def extract(self, frame):
             spec = holder["value"]
@@ -1607,6 +1611,18 @@ def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
                     "selection_mode", "directional_contour_envelope_max_width"
                 ),
                 "projection_point_mode": spec.get("projection_point_mode", "envelope_max_width"),
+                "width_extreme_mode": spec.get(
+                    "width_extreme_mode",
+                    holder.get("expected_width_extreme_mode", "max_width"),
+                ),
+                "selected_width_extreme_mode": spec.get(
+                    "selected_width_extreme_mode",
+                    spec.get("width_extreme_mode", holder.get("expected_width_extreme_mode", "max_width")),
+                ),
+                "candidate_selection_goal": spec.get("candidate_selection_goal", "max_span"),
+                "candidate_span_floor_px": spec.get("candidate_span_floor_px", 5.0),
+                "min_width_valid_candidate_count": spec.get("min_width_valid_candidate_count"),
+                "max_width_valid_candidate_count": spec.get("max_width_valid_candidate_count"),
                 "component_area": 400,
                 "envelope_support_px": spec.get("envelope_support_px", 24),
                 "endpoint_support_left_px": spec.get("endpoint_support_left_px", 8),
@@ -1853,6 +1869,113 @@ def test_envelope_axis_projected_points_do_not_cause_holding_last_good(
     # The display endpoints really did jump far more than the endpoint prior, so
     # the absence of holds is specifically because tracking ignores them.
     assert max(jumps) > source._max_endpoint_jump_px
+
+
+def test_live_run_min_width_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    holder: dict = {
+        "expected_width_extreme_mode": "min_width",
+        "value": {
+            "span": 52.0,
+            "a": (34, 32),
+            "b": (86, 32),
+            "width_extreme_mode": "min_width",
+            "selected_width_extreme_mode": "min_width",
+            "candidate_selection_goal": "min_span",
+            "min_width_valid_candidate_count": 3,
+        },
+    }
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(width_extreme_mode="min_width", point_a=(20, 32), point_b=(90, 32)),
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=10.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame, temp = _frame_temp(1)
+    metric = source.extract(frame, temp, sample_index=0, total_samples=1)
+
+    assert metric.meta["tracking_state"] == "bootstrapped_min_width_envelope"
+    assert metric.meta["selected_width_extreme_mode"] == "min_width"
+    assert metric.meta["candidate_selection_goal"] == "min_span"
+    assert metric.metric_raw == 52.0
+
+
+def test_live_run_min_width_span_decrease_not_outlier(monkeypatch: pytest.MonkeyPatch) -> None:
+    holder: dict = {
+        "expected_width_extreme_mode": "min_width",
+        "value": {"span": 60.0, "a": (30, 32), "b": (90, 32), "width_extreme_mode": "min_width"},
+    }
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(width_extreme_mode="min_width", point_a=(30, 32), point_b=(90, 32)),
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=10.0,
+        max_span_change_ratio=0.05,
+    )
+    frame0, temp0 = _frame_temp(1)
+    first = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 44.0,
+        "a": (38, 32),
+        "b": (82, 32),
+        "width_extreme_mode": "min_width",
+        "selected_width_extreme_mode": "min_width",
+        "candidate_selection_goal": "min_span",
+    }
+    frame1, temp1 = _frame_temp(2)
+    decreased = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert first.meta["tracking_state"] == "bootstrapped_min_width_envelope"
+    assert decreased.meta["tracking_state"] == "accepted_min_width_envelope"
+    assert decreased.metric_raw == 44.0
+    assert decreased.meta.get("reason") is None
+
+
+def test_live_run_min_width_near_tie_stability(monkeypatch: pytest.MonkeyPatch) -> None:
+    bottom = {
+        "span": 60.0,
+        "a": (30, 60),
+        "b": (90, 60),
+        "width_extreme_mode": "min_width",
+        "selected_width_extreme_mode": "min_width",
+    }
+    top = {
+        "span": 59.0,
+        "a": (30, 18),
+        "b": (89, 18),
+        "width_extreme_mode": "min_width",
+        "selected_width_extreme_mode": "min_width",
+    }
+    holder: dict = {"expected_width_extreme_mode": "min_width", "value": dict(bottom)}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(width_extreme_mode="min_width", point_a=(30, 60), point_b=(90, 60)),
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    results = []
+    for index, spec in enumerate([bottom, top, bottom, top]):
+        holder["value"] = dict(spec)
+        frame, temp = _frame_temp(index + 1)
+        results.append(source.extract(frame, temp, sample_index=index, total_samples=4))
+
+    assert results[0].meta["tracking_state"] == "bootstrapped_min_width_envelope"
+    for result in results:
+        assert result.point_a_px[1] >= 50
+        assert result.meta["tracking_state"] != "envelope_relocated"
 
 
 def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
@@ -2631,11 +2754,13 @@ def test_workflow_definition_payload_includes_directional_fields() -> None:
     definition = _definition()
     definition.direction_angle_deg = 0.0
     definition.direction_projection_mode = "max_chord"
+    definition.width_extreme_mode = "min_width"
 
     payload = _definition_payload(definition)
 
     assert payload["direction_angle_deg"] == 0.0
     assert payload["direction_projection_mode"] == "max_chord"
+    assert payload["width_extreme_mode"] == "min_width"
 
 
 def test_live_run_coordinator_raises_when_artifact_finalize_fails(tmp_path) -> None:

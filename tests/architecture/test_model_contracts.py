@@ -10,6 +10,7 @@ from src.core.models import (
     RunDraftRecord,
     ShapeMetric,
     resolve_measurement_angle_deg,
+    resolve_width_extreme_mode,
 )
 from src.vision.metric_end_displacement import EndDisplacementMetricExtractor
 
@@ -81,8 +82,33 @@ def test_measurement_definition_uses_semantic_two_point_fields() -> None:
     assert definition.metric_box.angle_deg == 12.5
     assert definition.direction_angle_deg == 12.5
     assert definition.direction_projection_mode == "max_chord"
+    assert definition.width_extreme_mode == "max_width"
+    assert resolve_width_extreme_mode(definition) == "max_width"
     assert definition.point_a_px.x == 60
     assert definition.is_complete() is True
+
+
+def test_measurement_definition_validates_width_extreme_mode() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=10, y=0, width=400, height=160),
+        metric_box=MetricBox(center_x=200, center_y=75, width=300, height=80, angle_deg=0.0),
+        point_a_px=PixelPoint(x=60, y=75),
+        point_b_px=PixelPoint(x=320, y=75),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=200,
+        direction_angle_deg=0.0,
+        direction_projection_mode="envelope_max_width",
+        width_extreme_mode="min_width",
+    )
+
+    assert definition.is_complete() is True
+    assert resolve_width_extreme_mode(definition) == "min_width"
+
+    definition.width_extreme_mode = "narrowest_pixel"
+
+    assert definition.is_complete() is False
 
 
 def test_run_draft_record_keeps_live_status_separate_from_session_state() -> None:

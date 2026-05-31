@@ -18,6 +18,7 @@ from src.core.models import (
     RectRegion,
     ShapeMetric,
     resolve_envelope_min_support_px,
+    resolve_width_extreme_mode,
 )
 
 
@@ -35,6 +36,7 @@ class DirectionalContourConfig:
     component_bridge_kernel: int = 11
     open_kernel: int = 1
     projection_mode: str = "max_chord"
+    width_extreme_mode: str = "max_width"
     target_geometry_mode: str = "single_component"
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
@@ -46,6 +48,9 @@ class DirectionalContourConfig:
     envelope_axis_prior_px: float | None = None
     envelope_axis_prior_tolerance_px: float | None = None
     envelope_sample_core_descriptor: dict[str, Any] | None = None
+    min_width_min_span_px: float = 5.0
+    min_width_min_span_ratio: float = 0.02
+    min_width_exclude_end_fraction: float = 0.03
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
     max_chord_prior_point_a: PixelPoint | None = None
@@ -72,6 +77,12 @@ class DirectionalProjection:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     candidate_reject_reason: str | None = None
+    width_extreme_mode: str = "max_width"
+    selected_width_extreme_mode: str = "max_width"
+    candidate_selection_goal: str = "max_span"
+    candidate_span_floor_px: float | None = None
+    min_width_valid_candidate_count: int | None = None
+    max_width_valid_candidate_count: int | None = None
     source_point_a_component_id: int | None = None
     source_point_b_component_id: int | None = None
     source_point_a_trusted: bool = True
@@ -114,6 +125,12 @@ class DirectionalContourResult:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    width_extreme_mode: str = "max_width"
+    selected_width_extreme_mode: str = "max_width"
+    candidate_selection_goal: str = "max_span"
+    candidate_span_floor_px: float | None = None
+    min_width_valid_candidate_count: int | None = None
+    max_width_valid_candidate_count: int | None = None
     rejected_component_reasons: list[str] | None = None
     rejected_components: list[dict[str, Any]] | None = None
     sample_core_descriptor: dict[str, Any] | None = None
@@ -211,6 +228,13 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
             "raw_component_fill_ratio": result.raw_component_fill_ratio,
             "target_geometry_mode": result.target_geometry_mode,
             "projection_point_mode": result.projection_point_mode,
+            "width_extreme_mode": result.width_extreme_mode,
+            "selected_width_extreme_mode": result.selected_width_extreme_mode,
+            "candidate_selection_goal": result.candidate_selection_goal,
+            "candidate_span_floor_px": result.candidate_span_floor_px,
+            "candidate_reject_reason": result.envelope_reject_reason,
+            "min_width_valid_candidate_count": result.min_width_valid_candidate_count,
+            "max_width_valid_candidate_count": result.max_width_valid_candidate_count,
             "selection_mode": _selection_mode_for_projection(result.projection_point_mode),
             "selected_component_count": result.selected_component_count,
             "rejected_component_count": result.rejected_component_count,
@@ -298,6 +322,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         source_mask = _apply_allowed_mask(cv2, source_mask, allowed_mask)
     raw_mask = mask
     projection_mode = str(config.projection_mode or "max_chord")
+    width_extreme_mode = resolve_width_extreme_mode(config)
     mask = _cleanup_mask(cv2, mask, config)
     target_geometry_mode = str(config.target_geometry_mode or "single_component")
     selected_component_count = 1
@@ -309,6 +334,8 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    min_width_valid_candidate_count: int | None = None
+    max_width_valid_candidate_count: int | None = None
     rejected_component_reasons: list[str] = []
     rejected_components: list[dict[str, Any]] = []
     sample_core_descriptor: dict[str, Any] | None = None
@@ -341,7 +368,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         boundary_mask = _actual_component_boundary_mask(source_mask, candidate_mask)
         trusted_boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
         scale = max(float(processing.scale), 1e-6)
-        projection = measure_component_envelope_max_width(
+        projection = measure_component_envelope_width(
             boundary_mask,
             processing_roi,
             resolved_angle_deg,
@@ -378,6 +405,10 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
                 if config.envelope_axis_prior_tolerance_px is None
                 else float(config.envelope_axis_prior_tolerance_px) * scale
             ),
+            width_extreme_mode=width_extreme_mode,
+            min_width_min_span_px=max(0.0, float(config.min_width_min_span_px) * scale),
+            min_width_min_span_ratio=float(config.min_width_min_span_ratio),
+            min_width_exclude_end_fraction=float(config.min_width_exclude_end_fraction),
         )
         projection_point_mode = "envelope_max_width"
         envelope_candidate_count = projection.envelope_candidate_count
@@ -387,6 +418,8 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_right_px = projection.endpoint_support_right_px
         selected_candidate_score = projection.selected_candidate_score
         envelope_reject_reason = projection.candidate_reject_reason
+        min_width_valid_candidate_count = projection.min_width_valid_candidate_count
+        max_width_valid_candidate_count = projection.max_width_valid_candidate_count
         configured_envelope_min_support_px = int(config.envelope_min_support_px)
         effective_envelope_min_support_px = int(
             resolve_envelope_min_support_px(
@@ -446,6 +479,9 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             endpoint_prior_a=endpoint_prior_a,
             endpoint_prior_b=endpoint_prior_b,
             endpoint_prior_tolerance_px=endpoint_prior_tolerance_px,
+            width_extreme_mode=width_extreme_mode,
+            min_width_min_span_px=max(0.0, float(config.min_width_min_span_px) * float(processing.scale)),
+            min_width_min_span_ratio=float(config.min_width_min_span_ratio),
         )
         projection_point_mode = "max_chord"
     else:
@@ -511,6 +547,12 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_right_px=endpoint_support_right_px,
         selected_candidate_score=selected_candidate_score,
         envelope_reject_reason=envelope_reject_reason,
+        width_extreme_mode=width_extreme_mode,
+        selected_width_extreme_mode=projection.selected_width_extreme_mode,
+        candidate_selection_goal=projection.candidate_selection_goal,
+        candidate_span_floor_px=projection.candidate_span_floor_px,
+        min_width_valid_candidate_count=min_width_valid_candidate_count,
+        max_width_valid_candidate_count=max_width_valid_candidate_count,
         rejected_component_reasons=rejected_component_reasons,
         rejected_components=rejected_components,
         sample_core_descriptor=sample_core_descriptor,
@@ -654,6 +696,9 @@ def measure_component_max_chord_along_direction(
     endpoint_prior_a: np.ndarray | None = None,
     endpoint_prior_b: np.ndarray | None = None,
     endpoint_prior_tolerance_px: float | None = None,
+    width_extreme_mode: str = "max_width",
+    min_width_min_span_px: float = 5.0,
+    min_width_min_span_ratio: float = 0.02,
 ) -> DirectionalProjection:
     rows, cols = np.where(np.asarray(component_mask) > 0)
     if len(rows) == 0:
@@ -663,11 +708,19 @@ def measure_component_max_chord_along_direction(
     normal = np.array([-direction[1], direction[0]], dtype=float)
     along = points @ direction
     lateral = points @ normal
+    resolved_width_mode = _resolve_projection_width_extreme_mode(width_extreme_mode)
     bin_width = max(0.5, float(normal_bin_width_px))
     median_lateral = float(np.median(lateral))
     bin_anchor = float(lateral_prior_px) if lateral_prior_px is not None else median_lateral
     bin_indices = np.round((lateral - bin_anchor) / bin_width).astype(np.int64)
 
+    span_floor = _min_width_span_floor_px(
+        roi=roi,
+        angle_deg=angle_deg,
+        metric_box=None,
+        min_span_px=min_width_min_span_px,
+        min_span_ratio=min_width_min_span_ratio,
+    )
     best: dict[str, Any] | None = None
     candidates: list[dict[str, Any]] = []
     for bin_index in np.unique(bin_indices):
@@ -703,7 +756,7 @@ def measure_component_max_chord_along_direction(
             ),
         }
         candidates.append(candidate)
-        if _max_chord_candidate_is_better(candidate, best):
+        if _max_chord_candidate_is_better(candidate, best, width_extreme_mode=resolved_width_mode, span_floor_px=span_floor):
             best = candidate
 
     if lateral_prior_px is not None and candidates:
@@ -717,10 +770,16 @@ def measure_component_max_chord_along_direction(
             for candidate in candidates
             if tolerance_px is None or float(candidate["prior_distance"]) <= tolerance_px
         ]
+        if resolved_width_mode == "min_width":
+            prior_candidates = [
+                candidate
+                for candidate in prior_candidates
+                if float(candidate["span"]) >= span_floor
+            ]
         if prior_candidates:
             best = None
             for candidate in prior_candidates:
-                if _max_chord_prior_candidate_is_better(candidate, best):
+                if _max_chord_prior_candidate_is_better(candidate, best, width_extreme_mode=resolved_width_mode, span_floor_px=span_floor):
                     best = candidate
 
     if best is None:
@@ -747,10 +806,16 @@ def measure_component_max_chord_along_direction(
         metric_raw=_distance_between(source_point_a, source_point_b),
         direction_angle_deg=float(angle_deg),
         axis_offset_px=axis_offset,
+        width_extreme_mode=resolved_width_mode,
+        selected_width_extreme_mode=resolved_width_mode,
+        candidate_selection_goal="min_span" if resolved_width_mode == "min_width" else "max_span",
+        candidate_span_floor_px=span_floor,
+        min_width_valid_candidate_count=sum(1 for candidate in candidates if float(candidate["span"]) >= span_floor),
+        max_width_valid_candidate_count=len(candidates),
     )
 
 
-def measure_component_envelope_max_width(
+def measure_component_envelope_width(
     component_mask: np.ndarray,
     roi: RectRegion,
     angle_deg: float,
@@ -773,6 +838,10 @@ def measure_component_envelope_max_width(
     metric_box: MetricBox | None = None,
     axis_prior_px: float | None = None,
     axis_prior_tolerance_px: float | None = None,
+    width_extreme_mode: str = "max_width",
+    min_width_min_span_px: float = 5.0,
+    min_width_min_span_ratio: float = 0.02,
+    min_width_exclude_end_fraction: float = 0.03,
 ) -> DirectionalProjection:
     rows, cols = np.where(np.asarray(component_mask) > 0)
     if len(rows) == 0:
@@ -819,6 +888,18 @@ def measure_component_envelope_max_width(
     window = max(0, int(lateral_window_bins))
     endpoint_radius = max(0.0, float(endpoint_support_radius_px))
     endpoint_min_support = max(0, int(endpoint_min_support_px))
+    resolved_width_mode = _resolve_projection_width_extreme_mode(width_extreme_mode)
+    span_floor = _min_width_span_floor_px(
+        roi=roi,
+        angle_deg=angle_deg,
+        metric_box=metric_box,
+        min_span_px=min_width_min_span_px,
+        min_span_ratio=min_width_min_span_ratio,
+    )
+    exclude_end_fraction = max(0.0, min(0.45, float(min_width_exclude_end_fraction)))
+    lateral_min = float(np.min(lateral))
+    lateral_max = float(np.max(lateral))
+    lateral_extent = max(0.0, lateral_max - lateral_min)
 
     endpoint_tree: cKDTree | None = None
     if endpoint_radius > 0.0 and endpoint_min_support > 0 and len(points) > 0:
@@ -828,7 +909,10 @@ def measure_component_envelope_max_width(
     best: dict[str, Any] | None = None
     best_supported: dict[str, Any] | None = None
     best_trusted_supported: dict[str, Any] | None = None
+    best_min_width: dict[str, Any] | None = None
     candidate_count = 0
+    max_width_valid_candidate_count = 0
+    min_width_valid_candidate_count = 0
     unique_bins = np.unique(bin_indices)
     for bin_index in unique_bins:
         if window <= 0:
@@ -945,30 +1029,53 @@ def measure_component_envelope_max_width(
             "endpoints_trusted": endpoints_trusted,
             "low_distance_to_core": low_distance_to_core,
             "high_distance_to_core": high_distance_to_core,
+            "axis_jump": axis_jump,
             "score": score,
         }
         candidate_count += 1
-        if _envelope_candidate_is_better(candidate, best):
+        if endpoints_supported and endpoints_trusted:
+            max_width_valid_candidate_count += 1
+            if _min_width_candidate_is_effective(
+                candidate,
+                span_floor_px=span_floor,
+                lateral_min=lateral_min,
+                lateral_max=lateral_max,
+                lateral_extent=lateral_extent,
+                exclude_end_fraction=exclude_end_fraction,
+            ):
+                min_width_valid_candidate_count += 1
+                if _envelope_candidate_is_better(
+                    candidate,
+                    best_min_width,
+                    width_extreme_mode="min_width",
+                ):
+                    best_min_width = candidate
+        if _envelope_candidate_is_better(candidate, best, width_extreme_mode="max_width"):
             best = candidate
-        if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported):
+        if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported, width_extreme_mode="max_width"):
             best_supported = candidate
-        if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(candidate, best_trusted_supported):
+        if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(candidate, best_trusted_supported, width_extreme_mode="max_width"):
             best_trusted_supported = candidate
 
     reject_reason: str | None = None
-    chosen = best_trusted_supported
-    if chosen is None and best_supported is not None:
-        chosen = best_supported
-        if not bool(chosen.get("endpoints_trusted", True)):
-            reject_reason = "detached_endpoint"
-    if chosen is None:
-        chosen = best
-        if chosen is not None:
-            reject_reason = (
-                "detached_endpoint"
-                if not bool(chosen.get("endpoints_trusted", True))
-                else "weak_endpoint_support"
-            )
+    if resolved_width_mode == "min_width":
+        chosen = best_min_width
+        if chosen is None:
+            reject_reason = "min_width_no_effective_candidate"
+    else:
+        chosen = best_trusted_supported
+        if chosen is None and best_supported is not None:
+            chosen = best_supported
+            if not bool(chosen.get("endpoints_trusted", True)):
+                reject_reason = "detached_endpoint"
+        if chosen is None:
+            chosen = best
+            if chosen is not None:
+                reject_reason = (
+                    "detached_endpoint"
+                    if not bool(chosen.get("endpoints_trusted", True))
+                    else "weak_endpoint_support"
+                )
     if chosen is None:
         raise DirectionalContourDetectionError("direction_projection_unavailable")
     best = chosen
@@ -1024,6 +1131,12 @@ def measure_component_envelope_max_width(
         endpoint_support_right_px=int(best.get("endpoint_support_right", best["support"])),
         selected_candidate_score=float(best.get("score", best["span"])),
         candidate_reject_reason=reject_reason,
+        width_extreme_mode=resolved_width_mode,
+        selected_width_extreme_mode=resolved_width_mode,
+        candidate_selection_goal="min_span" if resolved_width_mode == "min_width" else "max_span",
+        candidate_span_floor_px=float(span_floor),
+        min_width_valid_candidate_count=int(min_width_valid_candidate_count),
+        max_width_valid_candidate_count=int(max_width_valid_candidate_count),
         source_point_a_component_id=best.get("low_component_id"),
         source_point_b_component_id=best.get("high_component_id"),
         source_point_a_trusted=bool(best.get("low_trusted", True)),
@@ -1036,6 +1149,72 @@ def measure_component_envelope_max_width(
         source_point_a_in_analysis_roi=source_a_in_roi,
         source_point_b_in_analysis_roi=source_b_in_roi,
     )
+
+
+def measure_component_envelope_max_width(
+    component_mask: np.ndarray,
+    roi: RectRegion,
+    angle_deg: float,
+    **kwargs: Any,
+) -> DirectionalProjection:
+    """Backward-compatible alias for max-width envelope measurement."""
+    kwargs.setdefault("width_extreme_mode", "max_width")
+    return measure_component_envelope_width(component_mask, roi, angle_deg, **kwargs)
+
+
+def _resolve_projection_width_extreme_mode(value: str | None) -> str:
+    return "min_width" if str(value or "max_width") == "min_width" else "max_width"
+
+
+def _min_width_span_floor_px(
+    *,
+    roi: RectRegion,
+    angle_deg: float,
+    metric_box: MetricBox | None,
+    min_span_px: float,
+    min_span_ratio: float,
+) -> float:
+    if metric_box is not None:
+        reference = max(float(metric_box.width), 1.0)
+    else:
+        direction = directional_unit_vector(float(angle_deg))
+        normal = np.array([-direction[1], direction[0]], dtype=float)
+        corners = np.array(
+            [
+                [float(roi.x), float(roi.y)],
+                [float(roi.x + roi.width - 1), float(roi.y)],
+                [float(roi.x + roi.width - 1), float(roi.y + roi.height - 1)],
+                [float(roi.x), float(roi.y + roi.height - 1)],
+            ],
+            dtype=float,
+        )
+        del normal
+        along = corners @ direction
+        reference = max(float(np.max(along) - np.min(along)), 1.0)
+    return max(0.0, float(min_span_px), reference * max(0.0, float(min_span_ratio)))
+
+
+def _min_width_candidate_is_effective(
+    candidate: dict[str, Any],
+    *,
+    span_floor_px: float,
+    lateral_min: float,
+    lateral_max: float,
+    lateral_extent: float,
+    exclude_end_fraction: float,
+) -> bool:
+    if float(candidate["span"]) < float(span_floor_px):
+        return False
+    if not bool(candidate.get("endpoints_supported", False)):
+        return False
+    if not bool(candidate.get("endpoints_trusted", False)):
+        return False
+    if lateral_extent > 0.0 and exclude_end_fraction > 0.0:
+        margin = lateral_extent * exclude_end_fraction
+        axis_offset = float(candidate["axis_offset"])
+        if axis_offset <= lateral_min + margin or axis_offset >= lateral_max - margin:
+            return False
+    return True
 
 
 def _envelope_candidate_score(
@@ -1087,7 +1266,12 @@ def _envelope_candidate_score(
     )
 
 
-def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+def _envelope_candidate_is_better(
+    candidate: dict[str, Any],
+    current: dict[str, Any] | None,
+    *,
+    width_extreme_mode: str = "max_width",
+) -> bool:
     if current is None:
         return True
     candidate_score = float(candidate.get("score", candidate["span"]))
@@ -1096,6 +1280,21 @@ def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, 
     current_trusted = bool(current.get("endpoints_trusted", True))
     if candidate_trusted != current_trusted:
         return candidate_trusted
+    if width_extreme_mode == "min_width":
+        span_delta = float(candidate["span"]) - float(current["span"])
+        meaningful_span_delta = max(2.0, min(float(candidate["span"]), float(current["span"])) * 0.03)
+        if abs(span_delta) > meaningful_span_delta:
+            return span_delta < 0.0
+        candidate_axis_jump = candidate.get("axis_jump")
+        current_axis_jump = current.get("axis_jump")
+        if candidate_axis_jump is not None and current_axis_jump is not None:
+            axis_delta = float(candidate_axis_jump) - float(current_axis_jump)
+            if abs(axis_delta) > 1e-9:
+                return axis_delta < 0.0
+        support_delta = int(candidate["support"]) - int(current["support"])
+        if support_delta != 0:
+            return support_delta > 0
+        return float(candidate["center_distance"]) < float(current["center_distance"])
     score_delta = candidate_score - current_score
     if abs(score_delta) > 1e-9:
         return score_delta > 0.0
@@ -1687,19 +1886,37 @@ def _actual_component_boundary_mask(source_mask: np.ndarray, component_mask: np.
     return actual.astype(np.uint8)
 
 
-def _max_chord_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+def _max_chord_candidate_is_better(
+    candidate: dict[str, Any],
+    current: dict[str, Any] | None,
+    *,
+    width_extreme_mode: str = "max_width",
+    span_floor_px: float | None = None,
+) -> bool:
+    if width_extreme_mode == "min_width" and span_floor_px is not None:
+        if float(candidate["span"]) < float(span_floor_px):
+            return False
     if current is None:
         return True
     span_delta = float(candidate["span"]) - float(current["span"])
     if abs(span_delta) > 1e-9:
-        return span_delta > 0
+        return span_delta < 0 if width_extreme_mode == "min_width" else span_delta > 0
     count_delta = int(candidate["count"]) - int(current["count"])
     if count_delta != 0:
         return count_delta > 0
     return float(candidate["center_distance"]) < float(current["center_distance"])
 
 
-def _max_chord_prior_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
+def _max_chord_prior_candidate_is_better(
+    candidate: dict[str, Any],
+    current: dict[str, Any] | None,
+    *,
+    width_extreme_mode: str = "max_width",
+    span_floor_px: float | None = None,
+) -> bool:
+    if width_extreme_mode == "min_width" and span_floor_px is not None:
+        if float(candidate["span"]) < float(span_floor_px):
+            return False
     if current is None:
         return True
     candidate_endpoint_distance = candidate.get("endpoint_prior_distance")
@@ -1716,7 +1933,7 @@ def _max_chord_prior_candidate_is_better(candidate: dict[str, Any], current: dic
     span_delta = float(candidate["span"]) - float(current["span"])
     meaningful_span_delta = max(8.0, float(current["span"]) * 0.05)
     if abs(span_delta) > meaningful_span_delta:
-        return span_delta > 0
+        return span_delta < 0 if width_extreme_mode == "min_width" else span_delta > 0
     prior_delta = float(candidate["prior_distance"]) - float(current["prior_distance"])
     if abs(prior_delta) > 1e-9:
         return prior_delta < 0
@@ -1951,6 +2168,16 @@ def _projection_to_original_roi(
         endpoint_support_right_px=projection.endpoint_support_right_px,
         selected_candidate_score=projection.selected_candidate_score,
         candidate_reject_reason=projection.candidate_reject_reason,
+        width_extreme_mode=projection.width_extreme_mode,
+        selected_width_extreme_mode=projection.selected_width_extreme_mode,
+        candidate_selection_goal=projection.candidate_selection_goal,
+        candidate_span_floor_px=(
+            None
+            if projection.candidate_span_floor_px is None
+            else float(projection.candidate_span_floor_px) / max(float(geometry.scale), 1e-9)
+        ),
+        min_width_valid_candidate_count=projection.min_width_valid_candidate_count,
+        max_width_valid_candidate_count=projection.max_width_valid_candidate_count,
         source_point_a_component_id=projection.source_point_a_component_id,
         source_point_b_component_id=projection.source_point_b_component_id,
         source_point_a_trusted=projection.source_point_a_trusted,
@@ -2041,6 +2268,16 @@ def _refine_projection_on_original_axis(
             envelope_support_px=projection.envelope_support_px,
             envelope_candidate_count=projection.envelope_candidate_count,
             side_guard_foreground_area=projection.side_guard_foreground_area,
+            endpoint_support_left_px=projection.endpoint_support_left_px,
+            endpoint_support_right_px=projection.endpoint_support_right_px,
+            selected_candidate_score=projection.selected_candidate_score,
+            candidate_reject_reason=projection.candidate_reject_reason,
+            width_extreme_mode=projection.width_extreme_mode,
+            selected_width_extreme_mode=projection.selected_width_extreme_mode,
+            candidate_selection_goal=projection.candidate_selection_goal,
+            candidate_span_floor_px=projection.candidate_span_floor_px,
+            min_width_valid_candidate_count=projection.min_width_valid_candidate_count,
+            max_width_valid_candidate_count=projection.max_width_valid_candidate_count,
         )
     except DirectionalContourDetectionError:
         return projection

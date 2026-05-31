@@ -22,6 +22,7 @@ from src.core.models import (
     TempReading,
     resolve_envelope_min_support_px,
     resolve_measurement_angle_deg,
+    resolve_width_extreme_mode,
 )
 from src.curve.af95 import normalize_sync_points
 from src.curve.afas import AfasAnalysisResult, analyze_afas
@@ -279,6 +280,7 @@ class LockedDefinitionMetricSource:
                     direction_angle_deg=measurement_angle_deg,
                 ),
                 projection_mode=definition.direction_projection_mode,
+                width_extreme_mode=resolve_width_extreme_mode(definition),
                 target_geometry_mode=definition.target_geometry_mode,
                 side_guard_ratio=definition.side_guard_ratio,
                 envelope_min_support_px=definition.envelope_min_support_px,
@@ -492,6 +494,8 @@ class PriorTrackingMetricSource:
     ) -> None:
         self._tracking_mode = "prior_gated_reacquire"
         self._direction_projection_mode = definition.direction_projection_mode
+        self._width_extreme_mode = resolve_width_extreme_mode(definition)
+        self._is_min_width_envelope = self._width_extreme_mode == "min_width"
         self._is_envelope_max_width = definition.direction_projection_mode == "envelope_max_width"
         if self._is_envelope_max_width:
             self._tracking_mode = "global_envelope_reacquire"
@@ -502,6 +506,10 @@ class PriorTrackingMetricSource:
         )
         self._envelope_endpoint_min_support_px = max(0, int(definition.envelope_endpoint_min_support_px))
         self._envelope_target_geometry_mode = str(definition.target_geometry_mode or "single_component")
+        self._min_width_span_floor_px = max(
+            5.0,
+            float(definition.metric_box.width) * 0.02,
+        )
         self._is_directional_max_chord = (
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode == "max_chord"
@@ -1021,6 +1029,8 @@ class PriorTrackingMetricSource:
                 box_span = max(float(observation.roi[2]), float(observation.roi[3]), box_span)
         if float(observation.metric_raw) > box_span * 1.10:
             return "envelope_span_too_large"
+        if self._is_min_width_envelope and float(observation.metric_raw) < self._min_width_span_floor_px:
+            return "min_width_span_below_floor"
         if float(observation.metric_raw) < max(2.0, box_span * 0.01):
             return "envelope_span_too_small"
         # Envelope-only guards. These never run for max_chord because the caller
@@ -1175,7 +1185,7 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
-                state="bootstrapped_global_envelope",
+                state=self._envelope_accept_state(bootstrap=True),
             )
         # A candidate that stays within the lateral axis prior and along-axis span
         # prior is a normal, small per-frame update of the global envelope. This
@@ -1188,7 +1198,7 @@ class PriorTrackingMetricSource:
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
-                state="accepted_global_envelope",
+                state=self._envelope_accept_state(),
             )
         # Past this point the candidate is a relocation (outside the prior). It
         # must be a plausible target before it can ever move A/B, otherwise hold.
@@ -1215,27 +1225,34 @@ class PriorTrackingMetricSource:
             )
         span_change_ratio = diagnostics.get("span_change_ratio")
         new_span = float(observation.metric_raw)
-        span_gain_px = new_span - self._last_good_span_px
-        immediate_gain_px = max(8.0, self._last_good_span_px * self._envelope_immediate_span_gain_ratio)
         # A clearly wider, well-supported global envelope is accepted immediately
         # so the widest A/B can move (e.g. from the lower to the upper part of the
         # ROI) without being held back by the previous endpoint location.
-        if span_gain_px >= immediate_gain_px:
+        if self._span_improved_enough(
+            new_span,
+            self._last_good_span_px,
+            self._width_extreme_mode,
+            ratio=self._envelope_immediate_span_gain_ratio,
+            px=8.0,
+        ):
             self._clear_envelope_pending()
             return self._accept_envelope_metric(
                 observation,
                 diagnostics,
                 sample_index=sample_index,
                 total_samples=total_samples,
-                state="envelope_relocated",
+                state="accepted_min_width_envelope" if self._is_min_width_envelope else "envelope_relocated",
             )
         # Near-equal span (or modest growth) but large lateral relocation: this
         # looks like the widest section jumped sideways. Require the relocation to
         # repeat for envelope_relocate_confirm_frames before committing, to
         # suppress near-tie jitter.
-        near_tie = (
-            span_change_ratio is not None
-            and float(span_change_ratio) <= max(self._envelope_near_tie_ratio, self._envelope_immediate_span_gain_ratio)
+        near_tie = self._span_near_tie(
+            new_span,
+            self._last_good_span_px,
+            self._width_extreme_mode,
+            ratio=max(self._envelope_near_tie_ratio, self._envelope_immediate_span_gain_ratio),
+            px=6.0,
         )
         lateral_drift_px = self._envelope_lateral_drift_px(diagnostics)
         large_lateral_drift = lateral_drift_px is not None and float(lateral_drift_px) > self._max_midpoint_drift_px
@@ -1299,6 +1316,8 @@ class PriorTrackingMetricSource:
         source_trust_reason = self._envelope_source_trust_failure_reason(observation)
         if source_trust_reason is not None:
             return source_trust_reason
+        if self._is_min_width_envelope and float(observation.metric_raw) < self._min_width_span_floor_px:
+            return "min_width_span_below_floor"
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
             return "envelope_low_support"
@@ -1360,6 +1379,13 @@ class PriorTrackingMetricSource:
             "candidate_clean_axis_jump_px": candidate_clean_axis_jump,
             "span_change_px": base_diagnostics.get("span_change_px"),
             "span_change_ratio": base_diagnostics.get("span_change_ratio"),
+            "observed_metric_raw": observation.metric_raw,
+            "width_extreme_mode": self._width_extreme_mode,
+            "selected_width_extreme_mode": observation.meta.get("selected_width_extreme_mode"),
+            "candidate_selection_goal": observation.meta.get("candidate_selection_goal"),
+            "candidate_span_floor_px": observation.meta.get("candidate_span_floor_px", self._min_width_span_floor_px),
+            "min_width_valid_candidate_count": observation.meta.get("min_width_valid_candidate_count"),
+            "max_width_valid_candidate_count": observation.meta.get("max_width_valid_candidate_count"),
             "envelope_support_px": observation.meta.get("envelope_support_px"),
             "endpoint_support_left_px": observation.meta.get("endpoint_support_left_px"),
             "endpoint_support_right_px": observation.meta.get("endpoint_support_right_px"),
@@ -1378,7 +1404,58 @@ class PriorTrackingMetricSource:
             return False
         if float(axis_jump) > self._max_midpoint_drift_px:
             return False
+        if self._is_min_width_envelope:
+            candidate_span = diagnostics.get("observed_metric_raw")
+            if candidate_span is not None and self._span_is_better(
+                float(candidate_span),
+                self._last_good_span_px,
+                self._width_extreme_mode,
+            ):
+                return True
         return self._span_change_within_limits(diagnostics)
+
+    @staticmethod
+    def _span_is_better(candidate_span: float, reference_span: float, mode: str) -> bool:
+        if str(mode) == "min_width":
+            return float(candidate_span) < float(reference_span)
+        return float(candidate_span) > float(reference_span)
+
+    @classmethod
+    def _span_improved_enough(
+        cls,
+        candidate_span: float,
+        reference_span: float,
+        mode: str,
+        *,
+        ratio: float,
+        px: float,
+    ) -> bool:
+        delta = (
+            float(reference_span) - float(candidate_span)
+            if str(mode) == "min_width"
+            else float(candidate_span) - float(reference_span)
+        )
+        return delta >= max(float(px), float(reference_span) * max(0.0, float(ratio)))
+
+    @staticmethod
+    def _span_near_tie(
+        candidate_span: float,
+        reference_span: float,
+        mode: str,
+        *,
+        ratio: float,
+        px: float,
+    ) -> bool:
+        del mode
+        return abs(float(candidate_span) - float(reference_span)) <= max(
+            float(px),
+            float(reference_span) * max(0.0, float(ratio)),
+        )
+
+    def _envelope_accept_state(self, *, bootstrap: bool = False) -> str:
+        if self._is_min_width_envelope:
+            return "bootstrapped_min_width_envelope" if bootstrap else "accepted_min_width_envelope"
+        return "bootstrapped_global_envelope" if bootstrap else "accepted_global_envelope"
 
     def _envelope_lateral_drift_px(self, diagnostics: dict[str, Any]) -> float | None:
         lateral_drift_px = diagnostics.get("midpoint_lateral_drift_px")
@@ -1506,6 +1583,7 @@ class PriorTrackingMetricSource:
             "envelope_border_touch": "envelope_background_component_rejected",
             "envelope_span_too_large": "envelope_prior_hold",
             "envelope_span_too_small": "envelope_prior_hold",
+            "min_width_span_below_floor": "min_width_span_below_floor",
             "envelope_low_support": "envelope_low_support_rejected",
             "envelope_endpoint_unsupported": "envelope_low_support_rejected",
             "envelope_side_guard_clutter": "envelope_background_component_rejected",
@@ -1535,6 +1613,10 @@ class PriorTrackingMetricSource:
             "nonfatal_reject_count": self._nonfatal_reject_count,
             "has_visual_candidate": has_visual_candidate,
             "observed_metric_raw": observation.metric_raw,
+            "width_extreme_mode": self._width_extreme_mode,
+            "selected_width_extreme_mode": observation.meta.get("selected_width_extreme_mode"),
+            "candidate_selection_goal": observation.meta.get("candidate_selection_goal"),
+            "candidate_span_floor_px": observation.meta.get("candidate_span_floor_px", self._min_width_span_floor_px),
             "preset_envelope_axis_prior_px": self._preset_envelope_axis_prior_px,
             "preset_envelope_span_px": self._preset_envelope_span_px,
             "last_clean_axis_offset_px": self._last_clean_axis_offset_px,
@@ -1650,6 +1732,13 @@ class PriorTrackingMetricSource:
             "selected_candidate_score",
             "selected_candidate_span",
             "selected_candidate_axis_offset",
+            "width_extreme_mode",
+            "selected_width_extreme_mode",
+            "candidate_selection_goal",
+            "candidate_span_floor_px",
+            "candidate_reject_reason",
+            "min_width_valid_candidate_count",
+            "max_width_valid_candidate_count",
             "selected_component_count",
             "rejected_component_count",
             "envelope_candidate_count",
@@ -3276,6 +3365,7 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "sensitivity": definition.sensitivity,
         "direction_angle_deg": definition.direction_angle_deg,
         "direction_projection_mode": definition.direction_projection_mode,
+        "width_extreme_mode": resolve_width_extreme_mode(definition),
         "target_geometry_mode": definition.target_geometry_mode,
         "side_guard_ratio": definition.side_guard_ratio,
         "envelope_min_support_px": definition.envelope_min_support_px,
@@ -3341,6 +3431,13 @@ def _telemetry_row(
         "selection_mode": metric_meta.get("selection_mode"),
         "target_geometry_mode": metric_meta.get("target_geometry_mode"),
         "projection_point_mode": metric_meta.get("projection_point_mode"),
+        "width_extreme_mode": metric_meta.get("width_extreme_mode"),
+        "selected_width_extreme_mode": metric_meta.get("selected_width_extreme_mode"),
+        "candidate_selection_goal": metric_meta.get("candidate_selection_goal"),
+        "candidate_span_floor_px": metric_meta.get("candidate_span_floor_px"),
+        "candidate_reject_reason": metric_meta.get("candidate_reject_reason"),
+        "min_width_valid_candidate_count": metric_meta.get("min_width_valid_candidate_count"),
+        "max_width_valid_candidate_count": metric_meta.get("max_width_valid_candidate_count"),
         "selected_component_count": metric_meta.get("selected_component_count"),
         "rejected_component_count": metric_meta.get("rejected_component_count"),
         "envelope_candidate_count": metric_meta.get("envelope_candidate_count"),

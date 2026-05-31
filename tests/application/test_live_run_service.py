@@ -10,6 +10,7 @@ from src.application.live_run_service import (
     _augment_telemetry_for_setup_preview,
     _coerce_native_bitmap_pixels,
     _composite_tracking_frame_into_setup_preview,
+    _definition_payload,
     _definition_in_setup_source_space,
     _measurement_capture_plan_payload,
     _preview_scaled_grayscale_image,
@@ -55,6 +56,27 @@ class _FetchPreviewService:
 
     def fetch_frame(self, runtime_config, *, run_id: str = "", prefer_cached: bool = False) -> FramePacket:
         return self._frame
+
+
+def test_application_artifact_definition_payload_includes_width_extreme_mode() -> None:
+    definition = MeasurementDefinition(
+        analysis_roi=RectRegion(x=0, y=0, width=200, height=100),
+        metric_box=MetricBox(center_x=100, center_y=50, width=160, height=60, angle_deg=0.0),
+        point_a_px=PixelPoint(x=40, y=50),
+        point_b_px=PixelPoint(x=160, y=50),
+        foreground_polarity="dark_on_light",
+        threshold_mode="adaptive",
+        ignore_internal_texture=True,
+        min_target_area_px=50,
+        direction_angle_deg=0.0,
+        direction_projection_mode="envelope_max_width",
+        width_extreme_mode="min_width",
+    )
+
+    payload = _definition_payload(definition)
+
+    assert payload["direction_projection_mode"] == "envelope_max_width"
+    assert payload["width_extreme_mode"] == "min_width"
 
 
 def test_augment_telemetry_for_setup_preview_adds_preview_coordinates() -> None:

@@ -552,6 +552,7 @@ def _measurement_definition_from_payload(
             if direction_projection_mode is None
             else str(direction_projection_mode)
         ),
+        width_extreme_mode=str(payload.get("width_extreme_mode", "max_width")),
         target_geometry_mode=str(payload.get("target_geometry_mode", "single_component")),
         side_guard_ratio=float(payload.get("side_guard_ratio", 0.0) or 0.0),
         envelope_min_support_px=int(payload.get("envelope_min_support_px", 3) or 3),

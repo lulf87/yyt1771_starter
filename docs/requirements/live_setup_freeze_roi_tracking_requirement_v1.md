@@ -313,6 +313,40 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
   不得被上一帧 endpoint prior 卡在旧位置；但仍需保留 gross outlier 保护，
   避免明显非目标候选写入曲线
 
+#### R6.1.2. Width extreme selection for directional envelope modes
+
+`direction_projection_mode=envelope_max_width` 和支持候选集合的 directional
+模式必须支持一个显式选择参数：
+
+- `width_extreme_mode=max_width`：默认值，保持当前行为，选择最大有效宽度
+- `width_extreme_mode=min_width`：选择最小有效宽度
+
+这里的“最小”不是所有 candidate span 的数学最小值，而是：
+
+> 在同一待测样品、ROI / rotated metric box 内、通过 support / endpoint
+> support / source trust / side guard / sample-core 约束之后的最小有效宽度。
+
+因此 `min_width` 必须继续满足：
+
+- candidate 来自 trusted sample component，不得来自背景杂物、灰尘、漂浮物或
+  detached debris
+- source endpoint 必须在 analysis ROI 与 rotated metric box 内，且不能来自
+  untrusted component
+- candidate span 必须不小于最小有效跨度 floor，避免尖端、断裂点、单根丝或
+  低支持点导致的接近 0 宽度
+- 正式 `point_a_px / point_b_px` 仍沿 ROI / metric box 角度方向输出；内部
+  `source_point_a / source_point_b` 只能作为 foreground support/debug
+- `metric_raw` 继续表示 along-axis span
+
+live run 的 tracking 比较必须随 `width_extreme_mode` 切换：
+
+- `max_width` 中，span 变大是目标改善
+- `min_width` 中，span 变小是目标改善，但小于有效 span floor、低支持、
+  source untrusted、source outside metric box 或 side guard 污染必须 reject
+- near-tie 时优先靠近 `last_clean_axis`
+- contaminated candidate 不得刷新 last_good A/B、last_good span、last_clean
+  axis 或 sample core descriptor
+
 ### R6.2. Accepted offline material is the truth source for real profiles
 
 当前已完成离线验证的标准素材是 `dev_offline_capture` profile 读取的：

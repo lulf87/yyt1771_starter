@@ -97,6 +97,21 @@ def test_static_app_js_sends_envelope_detection_fields() -> None:
     assert "liveSideGuardRatioInput.value = String(uiDefinition.side_guard_ratio ?? 0)" in fill_body
 
 
+def test_static_app_js_sends_width_extreme_mode() -> None:
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+
+    payload_body = _js_function_body(app_js, "buildLiveDefinitionBasePayload")
+    normalize_body = _js_function_body(app_js, "normalizeDefinitionForComparison")
+    fill_body = _js_function_body(app_js, "fillLiveDefinitionInputs")
+
+    assert "width_extreme_mode: currentWidthExtremeMode()" in payload_body
+    assert "width_extreme_mode: definition.width_extreme_mode || currentWidthExtremeMode()" in normalize_body
+    assert "liveWidthExtremeModeSelect.value = uiDefinition.width_extreme_mode ||" in fill_body
+    assert "selected_width_extreme_mode" in app_js
+    assert "selected_candidate_span" in app_js
+    assert "selected_candidate_axis_offset" in app_js
+
+
 def test_static_app_js_rotates_roi_without_resizing() -> None:
     app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
 
@@ -193,6 +208,10 @@ def test_ui_shell_route_returns_html_with_expected_hooks(tmp_path: Path) -> None
     assert 'id="live-ignore-internal-texture"' in response.text
     assert 'id="live-direction-projection-mode"' in response.text
     assert 'value="envelope_max_width"' in response.text
+    assert 'id="live-width-extreme-mode"' in response.text
+    assert 'value="max_width"' in response.text
+    assert 'value="min_width"' in response.text
+    assert ">宽度选择<" in response.text
     assert 'id="live-target-geometry-mode"' in response.text
     assert 'value="line_bundle"' in response.text
     assert 'value="mesh_lattice"' in response.text

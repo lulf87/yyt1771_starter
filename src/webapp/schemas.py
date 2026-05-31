@@ -144,6 +144,7 @@ class MeasurementDefinitionRequest(BaseModel):
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
     direction_angle_deg: float | None = None
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    width_extreme_mode: Literal["max_width", "min_width"] = "max_width"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
     envelope_min_support_px: int = Field(default=3, ge=2, le=500)
@@ -191,6 +192,7 @@ class AutoDetectDefinitionRequest(BaseModel):
     min_target_area_px: int = Field(gt=0)
     sensitivity: float = Field(default=50.0, ge=0.0, le=100.0)
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    width_extreme_mode: Literal["max_width", "min_width"] = "max_width"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = Field(default=0.0, ge=0.0, le=0.45)
     envelope_min_support_px: int = Field(default=3, ge=2, le=500)
@@ -238,6 +240,7 @@ class AutoDetectDefinitionResponse(BaseModel):
     foreground_polarity_used: Literal["dark_on_light", "light_on_dark"]
     direction_angle_deg: float | None = None
     direction_projection_mode: Literal["auto", "max_chord", "mask_projection", "envelope_max_width"] = "max_chord"
+    width_extreme_mode: Literal["max_width", "min_width"] = "max_width"
     target_geometry_mode: Literal["single_component", "line_bundle", "mesh_lattice"] = "single_component"
     side_guard_ratio: float = 0.0
     envelope_min_support_px: int = 3
@@ -258,6 +261,14 @@ class AutoDetectDefinitionResponse(BaseModel):
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
+    selected_width_extreme_mode: str | None = None
+    selected_candidate_span: float | None = None
+    selected_candidate_axis_offset: float | None = None
+    candidate_selection_goal: str | None = None
+    candidate_span_floor_px: float | None = None
+    candidate_reject_reason: str | None = None
+    min_width_valid_candidate_count: int | None = None
+    max_width_valid_candidate_count: int | None = None
     envelope_reject_reason: str | None = None
     rejected_component_reasons: list[str] | None = None
     rejected_components: list[dict[str, Any]] | None = None
@@ -374,6 +385,13 @@ class RunTelemetryPointResponse(BaseModel):
     endpoint_support_left_px: int | None = None
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
+    width_extreme_mode: str | None = None
+    selected_width_extreme_mode: str | None = None
+    candidate_selection_goal: str | None = None
+    candidate_span_floor_px: float | None = None
+    candidate_reject_reason: str | None = None
+    min_width_valid_candidate_count: int | None = None
+    max_width_valid_candidate_count: int | None = None
     selected_candidate_span: float | None = None
     selected_candidate_axis_offset: float | None = None
     axis_offset_px: float | None = None
