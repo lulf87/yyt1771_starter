@@ -62,6 +62,29 @@ class LiveRunDraftRegistry:
         self._records[run_id] = updated_record
         return updated_record
 
+    def mark_temperature_power_zero_after_stop(self, run_id: str) -> RunDraftRecord:
+        record = self.get(run_id)
+        if record is None:
+            raise LookupError(f"Run not found: {run_id}")
+        if record.temperature_settings is None:
+            return record
+
+        now_ms = _now_ms()
+        updated_settings = replace(
+            record.temperature_settings,
+            output_power_percent=0.0,
+            confirmed_output_power_percent=0.0,
+            confirmed_at_ms=now_ms,
+            source="live_run_stop",
+        )
+        updated_record = replace(
+            record,
+            temperature_settings=updated_settings,
+            updated_at_ms=now_ms,
+        )
+        self._records[run_id] = updated_record
+        return updated_record
+
     def mark_preview_streaming(self, run_id: str) -> RunDraftRecord:
         record = self.get(run_id)
         if record is None:

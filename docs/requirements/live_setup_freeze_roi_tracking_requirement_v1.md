@@ -483,6 +483,11 @@ UI 或帮助文案至少必须把“大 / 小”的方向意义表达清楚。
   - power
   - confirmed / unconfirmed state
 - 具体寄存器写入时机与设备启停细节，仍由 `temp` adapter 决定
+- live run 进入 terminal stop 后必须把温度功率归零：
+  - 自动到目标温度完成后，controller output power 必须为 `0%`
+  - 操作员手动停止后，controller output power 必须为 `0%`
+  - run detail / telemetry handoff 中的 temperature settings 也必须反映
+    `output_power_percent = 0` 与 `confirmed_output_power_percent = 0`
 
 ---
 

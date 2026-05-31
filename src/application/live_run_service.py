@@ -266,6 +266,7 @@ class LiveRunService:
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
             )
+            self._mark_temperature_power_zero_after_stop(registry, record.run_id)
             self._update_status(
                 active_run,
                 registry,
@@ -286,6 +287,7 @@ class LiveRunService:
                 terminal_reason=exc.reason,
                 terminal_detail=exc.detail,
             )
+            self._mark_temperature_power_zero_after_stop(registry, record.run_id)
             self._update_status(
                 active_run,
                 registry,
@@ -318,6 +320,7 @@ class LiveRunService:
                 active_run.execution = execution
                 active_run.events = list(execution.events)
                 active_run.telemetry = list(execution.telemetry)
+            self._mark_temperature_power_zero_after_stop(registry, record.run_id)
             self._update_status(
                 active_run,
                 registry,
@@ -390,6 +393,10 @@ class LiveRunService:
     def _store_error(self, active_run: _ActiveLiveRun, detail: str) -> None:
         with self._state_lock:
             active_run.error_detail = detail
+
+    @staticmethod
+    def _mark_temperature_power_zero_after_stop(registry: LiveRunDraftRegistry, run_id: str) -> None:
+        registry.mark_temperature_power_zero_after_stop(run_id)
 
     def _persist_partial_terminal_execution(
         self,

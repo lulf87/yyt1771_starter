@@ -2931,7 +2931,7 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
     app.state.runtime_config.live.temp.control.completion_mode = "manual_stop_only"
     app.state.runtime_config.live.run.capture_interval_ms = 500
     client = TestClient(app)
-    run_id = _create_ready_run(client)
+    run_id = _create_ready_run(client, output_power_percent=68.0)
 
     start_response = client.post(
         f"/api/runs/{run_id}/start",
@@ -2950,6 +2950,8 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
     assert stop_response.status_code == 200
     assert stop_response.json()["status"] == "stopping"
     assert aborted_detail["status"] == "aborted"
+    assert aborted_detail["temperature_settings"]["output_power_percent"] == 0.0
+    assert aborted_detail["temperature_settings"]["confirmed_output_power_percent"] == 0.0
     assert telemetry_response.status_code == 200
     assert telemetry_response.json()["status"] == "aborted"
     assert result_response.status_code == 200
@@ -2959,6 +2961,23 @@ def test_stop_live_run_transitions_from_running_to_aborted(tmp_path: Path) -> No
     assert session_response.json()["state"] == "aborted"
     assert session_detail_response.status_code == 200
     assert session_detail_response.json()["source"] == "live_run"
+
+
+def test_auto_completed_live_run_sets_temperature_power_to_zero(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    run_id = _create_ready_run(client, target_temperature_celsius=35.0, output_power_percent=68.0)
+
+    start_response = client.post(
+        f"/api/runs/{run_id}/start",
+        json={"target_temperature_celsius": 35.0},
+    )
+    completed_detail = _wait_for_run_status(client, run_id, "completed")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+    assert completed_detail["status"] == "completed"
+    assert completed_detail["temperature_settings"]["output_power_percent"] == 0.0
+    assert completed_detail["temperature_settings"]["confirmed_output_power_percent"] == 0.0
 
 
 def test_manual_stop_only_mode_keeps_mock_run_running_until_stop(tmp_path: Path) -> None:
