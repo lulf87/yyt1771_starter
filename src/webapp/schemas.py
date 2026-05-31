@@ -219,6 +219,17 @@ class AutoDetectDefinitionResponse(BaseModel):
     point_b_px: PixelPointResponse
     source_point_a_px: PixelPointResponse | None = None
     source_point_b_px: PixelPointResponse | None = None
+    source_point_a_component_id: int | None = None
+    source_point_b_component_id: int | None = None
+    source_point_a_trusted: bool | None = None
+    source_point_b_trusted: bool | None = None
+    source_point_a_distance_to_core_px: float | None = None
+    source_point_b_distance_to_core_px: float | None = None
+    source_point_a_in_metric_box: bool | None = None
+    source_point_b_in_metric_box: bool | None = None
+    source_point_a_in_analysis_roi: bool | None = None
+    source_point_b_in_analysis_roi: bool | None = None
+    envelope_source_trust_state: str | None = None
     axis_point_a_px: PixelPointResponse | None = None
     axis_point_b_px: PixelPointResponse | None = None
     quality: float
@@ -248,6 +259,8 @@ class AutoDetectDefinitionResponse(BaseModel):
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    rejected_component_reasons: list[str] | None = None
+    rejected_components: list[dict[str, Any]] | None = None
     axis_offset_px: float | None = None
     tracking_state: str | None = None
     detail: str = ""
@@ -331,6 +344,17 @@ class RunTelemetryPointResponse(BaseModel):
     point_b_preview_px: list[int] | None = None
     source_point_a_px: list[int] | None = None
     source_point_b_px: list[int] | None = None
+    source_point_a_component_id: int | None = None
+    source_point_b_component_id: int | None = None
+    source_point_a_trusted: bool | None = None
+    source_point_b_trusted: bool | None = None
+    source_point_a_distance_to_core_px: float | None = None
+    source_point_b_distance_to_core_px: float | None = None
+    source_point_a_in_metric_box: bool | None = None
+    source_point_b_in_metric_box: bool | None = None
+    source_point_a_in_analysis_roi: bool | None = None
+    source_point_b_in_analysis_roi: bool | None = None
+    envelope_source_trust_state: str | None = None
     axis_point_a_px: list[int] | None = None
     axis_point_b_px: list[int] | None = None
     source_point_a_preview_px: list[int] | None = None
@@ -357,7 +381,11 @@ class RunTelemetryPointResponse(BaseModel):
     candidate_axis_offset_px: float | None = None
     last_good_axis_offset: float | None = None
     last_good_axis_offset_px: float | None = None
+    last_clean_axis_offset_px: float | None = None
+    last_clean_axis: float | None = None
+    last_clean_span_px: float | None = None
     candidate_axis_jump_px: float | None = None
+    candidate_clean_axis_jump_px: float | None = None
     envelope_reject_reason: str | None = None
     rejection_reason: str | None = None
     display_point_mode: str | None = None

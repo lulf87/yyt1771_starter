@@ -1022,10 +1022,39 @@ code {
   pointer-events: none;
 }
 
+.live-overlay-envelope-last-clean-axis {
+  stroke: rgba(151, 226, 179, 0.86);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.live-overlay-envelope-rejected-component {
+  fill: rgba(243, 139, 79, 0.1);
+  stroke: rgba(243, 139, 79, 0.82);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
 .live-overlay-envelope-source {
   fill: rgba(120, 196, 255, 0.55);
   stroke: rgba(120, 196, 255, 0.9);
   stroke-width: 1;
+  pointer-events: none;
+}
+
+.live-overlay-envelope-source--untrusted {
+  fill: rgba(243, 139, 79, 0.72);
+  stroke: rgba(213, 69, 44, 0.96);
+  stroke-width: 1.5;
+}
+
+.live-overlay-envelope-reject-label {
+  fill: rgba(243, 139, 79, 0.95);
+  font-size: 12px;
+  font-weight: 700;
   pointer-events: none;
 }
 

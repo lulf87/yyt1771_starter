@@ -291,6 +291,24 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 - 操作员保证 ROI 本地测量方向的左右两端有背景留白；系统可使用
   `side_guard_ratio` 统计左右 guard 区域前景面积，用于过滤边界杂物和避免
   endpoint 落在非样品区域
+- `line_bundle` / `mesh_lattice` 的 target mask 必须维护样品身份约束：
+  live run 应从 preset 或第一帧 clean accepted envelope 建立
+  `sample_core_descriptor`，后续组件必须与该 core mask / bbox / lateral-along
+  范围足够重叠或足够接近，才可作为 trusted sample component
+- 与样品处在同一 lateral band、但沿 measurement direction 与 core 断开的
+  小面积或短暂组件，必须标记为 detached/background debris，不得参与正式
+  `envelope_target_mask`
+- `source_point_a / source_point_b` 只能表示 trusted foreground support debug 点；
+  若任一 source endpoint 来自 detached/untrusted component，或落在 analysis ROI /
+  rotated metric box 外，该候选只能作为 raw visual candidate 暴露，不能成为
+  accepted A/B
+- detached/untrusted source endpoint 产生的污染帧必须返回 non-fatal
+  `envelope_contaminated_hold` / `envelope_detached_endpoint_rejected`，保留
+  `observed_metric_raw` 与 raw debug 点，但不得刷新 last_good A/B、last_good span、
+  envelope axis prior 或 sample core descriptor
+- live run 必须同时维护 `last_good_axis` 与更严格的 `last_clean_axis`。near-tie
+  envelope candidate 排序优先靠近 `last_clean_axis`，污染 hold 后恢复时也必须优先
+  回到 last_clean band，而不是继续跟随被污染候选带偏的 axis prior
 - live run 中 `envelope_max_width` 必须允许 A/B 随当前帧整体外包络全局更新，
   不得被上一帧 endpoint prior 卡在旧位置；但仍需保留 gross outlier 保护，
   避免明显非目标候选写入曲线

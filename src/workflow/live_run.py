@@ -248,6 +248,7 @@ class LockedDefinitionMetricSource:
         max_chord_prior_endpoint_tolerance_provider: Callable[[], float | None] | None = None,
         envelope_axis_prior_provider: Callable[[], float | None] | None = None,
         envelope_axis_prior_tolerance_provider: Callable[[], float | None] | None = None,
+        envelope_sample_core_descriptor_provider: Callable[[], dict[str, Any] | None] | None = None,
     ) -> None:
         self._directional_config: DirectionalContourConfig | None = None
         self._directional_axis_prior_provider = max_chord_axis_prior_provider
@@ -257,6 +258,7 @@ class LockedDefinitionMetricSource:
         self._directional_prior_endpoint_tolerance_provider = max_chord_prior_endpoint_tolerance_provider
         self._envelope_axis_prior_provider = envelope_axis_prior_provider
         self._envelope_axis_prior_tolerance_provider = envelope_axis_prior_tolerance_provider
+        self._envelope_sample_core_descriptor_provider = envelope_sample_core_descriptor_provider
         self._extractor = None
         if definition.direction_angle_deg is not None:
             # Measure along the metric box angle (single source of truth). The
@@ -331,6 +333,7 @@ class LockedDefinitionMetricSource:
                 endpoint_prior_tolerance_provider=self._directional_prior_endpoint_tolerance_provider,
                 envelope_axis_prior_provider=self._envelope_axis_prior_provider,
                 envelope_axis_prior_tolerance_provider=self._envelope_axis_prior_tolerance_provider,
+                envelope_sample_core_descriptor_provider=self._envelope_sample_core_descriptor_provider,
             )
             if component_bridge_kernel is not None:
                 config = _directional_config_with_component_bridge_kernel(
@@ -411,6 +414,7 @@ def _directional_config_with_axis_prior(
     endpoint_prior_tolerance_provider: Callable[[], float | None] | None = None,
     envelope_axis_prior_provider: Callable[[], float | None] | None = None,
     envelope_axis_prior_tolerance_provider: Callable[[], float | None] | None = None,
+    envelope_sample_core_descriptor_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> DirectionalContourConfig:
     axis_prior_point = axis_prior_provider() if axis_prior_provider is not None else None
     axis_prior_tolerance_px = (
@@ -433,6 +437,11 @@ def _directional_config_with_axis_prior(
         if envelope_axis_prior_tolerance_provider is not None
         else None
     )
+    envelope_sample_core_descriptor = (
+        envelope_sample_core_descriptor_provider()
+        if envelope_sample_core_descriptor_provider is not None
+        else None
+    )
     if (
         axis_prior_point is None
         and axis_prior_tolerance_px is None
@@ -441,12 +450,14 @@ def _directional_config_with_axis_prior(
         and endpoint_prior_tolerance_px is None
         and envelope_axis_prior_px is None
         and envelope_axis_prior_tolerance_px is None
+        and envelope_sample_core_descriptor is None
     ):
         return config
     return replace(
         config,
         envelope_axis_prior_px=envelope_axis_prior_px,
         envelope_axis_prior_tolerance_px=envelope_axis_prior_tolerance_px,
+        envelope_sample_core_descriptor=envelope_sample_core_descriptor,
         max_chord_axis_prior_point=axis_prior_point,
         max_chord_axis_prior_tolerance_px=axis_prior_tolerance_px,
         max_chord_prior_point_a=point_a_prior,
@@ -579,6 +590,10 @@ class PriorTrackingMetricSource:
             if definition.point_a_px is not None and definition.point_b_px is not None
             else None
         )
+        self._last_good_axis_offset_px: float | None = None
+        self._last_clean_axis_offset_px: float | None = None
+        self._last_clean_span_px: float | None = self._preset_envelope_span_px
+        self._last_clean_sample_core_descriptor: dict[str, Any] | None = None
         self._nonfatal_reject_count = 0
         self._last_nonfatal_envelope_reason: str | None = None
         self._analysis_roi = definition.analysis_roi
@@ -627,6 +642,8 @@ class PriorTrackingMetricSource:
                 definition.point_a_px,
                 definition.point_b_px,
             )
+            self._last_good_axis_offset_px = self._preset_envelope_axis_prior_px
+            self._last_clean_axis_offset_px = self._preset_envelope_axis_prior_px
         self._allows_directional_relocation = (
             definition.direction_angle_deg is not None
             and definition.direction_projection_mode in {"max_chord", "mask_projection", "auto"}
@@ -674,6 +691,9 @@ class PriorTrackingMetricSource:
             ),
             envelope_axis_prior_tolerance_provider=(
                 self._current_envelope_axis_prior_tolerance_px if self._is_envelope_max_width else None
+            ),
+            envelope_sample_core_descriptor_provider=(
+                self._current_envelope_sample_core_descriptor if self._is_envelope_max_width else None
             ),
         )
 
@@ -983,6 +1003,9 @@ class PriorTrackingMetricSource:
         """
         if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
             return "envelope_observation_unavailable"
+        source_trust_reason = self._envelope_source_trust_failure_reason(observation)
+        if source_trust_reason is not None:
+            return source_trust_reason
         if float(observation.quality or 0.0) <= 0.0:
             return "envelope_quality_zero"
         if _metric_endpoint_border_touch_count(observation, self._analysis_roi) >= 2:
@@ -1044,6 +1067,22 @@ class PriorTrackingMetricSource:
         if right is not None and int(right) < self._envelope_endpoint_min_support_px:
             return True
         return False
+
+    def _envelope_source_trust_failure_reason(self, observation: ShapeMetric) -> str | None:
+        state = str(observation.meta.get("envelope_source_trust_state") or "trusted")
+        if observation.meta.get("source_point_a_in_analysis_roi") is False or observation.meta.get("source_point_b_in_analysis_roi") is False:
+            return "source_outside_analysis_roi"
+        if observation.meta.get("source_point_a_in_metric_box") is False or observation.meta.get("source_point_b_in_metric_box") is False:
+            return "source_outside_metric_box"
+        if observation.meta.get("source_point_a_trusted") is False or observation.meta.get("source_point_b_trusted") is False:
+            return "detached_source_endpoint"
+        if state in {"detached_endpoint", "source_outside_core"}:
+            return "detached_source_endpoint"
+        if state == "source_outside_metric_box":
+            return "source_outside_metric_box"
+        if state == "source_outside_analysis_roi":
+            return "source_outside_analysis_roi"
+        return None
 
     def _envelope_side_guard_area_is_gross(self, observation: ShapeMetric) -> bool:
         guard_area = observation.meta.get("side_guard_foreground_area")
@@ -1257,6 +1296,9 @@ class PriorTrackingMetricSource:
     def _envelope_plausibility_failure_reason(self, observation: ShapeMetric) -> str | None:
         if observation.metric_raw is None or observation.point_a_px is None or observation.point_b_px is None:
             return "envelope_observation_unavailable"
+        source_trust_reason = self._envelope_source_trust_failure_reason(observation)
+        if source_trust_reason is not None:
+            return source_trust_reason
         support = observation.meta.get("envelope_support_px")
         if support is not None and int(support) < self._envelope_min_support_px:
             return "envelope_low_support"
@@ -1297,15 +1339,25 @@ class PriorTrackingMetricSource:
             if self._has_runtime_lock
             else self._preset_envelope_axis_prior_px
         )
+        self._last_good_axis_offset_px = last_good_axis_offset
+        last_clean_axis_offset = self._last_clean_axis_offset_px
         candidate_axis_jump = (
             None
             if candidate_axis_offset is None or last_good_axis_offset is None
             else abs(float(candidate_axis_offset) - float(last_good_axis_offset))
         )
+        candidate_clean_axis_jump = (
+            None
+            if candidate_axis_offset is None or last_clean_axis_offset is None
+            else abs(float(candidate_axis_offset) - float(last_clean_axis_offset))
+        )
         return {
             "candidate_axis_offset_px": candidate_axis_offset,
             "last_good_axis_offset_px": last_good_axis_offset,
+            "last_clean_axis_offset_px": last_clean_axis_offset,
+            "last_clean_axis": last_clean_axis_offset,
             "candidate_axis_jump_px": candidate_axis_jump,
+            "candidate_clean_axis_jump_px": candidate_clean_axis_jump,
             "span_change_px": base_diagnostics.get("span_change_px"),
             "span_change_ratio": base_diagnostics.get("span_change_ratio"),
             "envelope_support_px": observation.meta.get("envelope_support_px"),
@@ -1389,7 +1441,10 @@ class PriorTrackingMetricSource:
         total_samples: int,
         state: str,
     ) -> ShapeMetric:
+        clean_envelope = self._envelope_observation_is_clean(observation)
         self._remember(observation)
+        if clean_envelope:
+            self._remember_clean_envelope(observation)
         self._consecutive_misses = 0
         self._clear_pending_reacquire()
         observation.meta["tracking_mode"] = self._tracking_mode
@@ -1397,6 +1452,9 @@ class PriorTrackingMetricSource:
         observation.meta["sample_index"] = sample_index
         observation.meta["total_samples"] = total_samples
         observation.meta["envelope_reject_reason"] = observation.meta.get("envelope_reject_reason")
+        observation.meta["last_clean_axis_offset_px"] = self._last_clean_axis_offset_px
+        observation.meta["last_clean_axis"] = self._last_clean_axis_offset_px
+        observation.meta["last_clean_span_px"] = self._last_clean_span_px
         # ``diagnostics`` already carries the envelope axis metrics
         # (candidate_axis_offset_px, last_good_axis_offset_px, candidate_axis_jump_px)
         # merged in by ``extract``; they describe the candidate relative to the
@@ -1412,6 +1470,35 @@ class PriorTrackingMetricSource:
             and float(observation.quality or 0.0) > 0.0
         )
 
+    def _envelope_observation_is_clean(self, observation: ShapeMetric) -> bool:
+        if self._envelope_source_trust_failure_reason(observation) is not None:
+            return False
+        if observation.meta.get("envelope_reject_reason") not in {None, ""}:
+            return False
+        if observation.meta.get("source_point_a_trusted") is False or observation.meta.get("source_point_b_trusted") is False:
+            return False
+        if observation.meta.get("source_point_a_in_metric_box") is False or observation.meta.get("source_point_b_in_metric_box") is False:
+            return False
+        if observation.meta.get("source_point_a_in_analysis_roi") is False or observation.meta.get("source_point_b_in_analysis_roi") is False:
+            return False
+        if self._envelope_endpoint_support_is_weak(observation):
+            return False
+        if self._envelope_side_guard_area_is_gross(observation):
+            return False
+        return True
+
+    def _remember_clean_envelope(self, observation: ShapeMetric) -> None:
+        axis_offset = observation.meta.get("axis_offset_px")
+        if axis_offset is None:
+            axis_offset = self._envelope_axis_offset_px(
+                _shape_metric_point(observation.point_a_px),
+                _shape_metric_point(observation.point_b_px),
+            )
+        self._last_clean_axis_offset_px = None if axis_offset is None else float(axis_offset)
+        self._last_clean_span_px = None if observation.metric_raw is None else float(observation.metric_raw)
+        descriptor = observation.meta.get("sample_core_descriptor")
+        self._last_clean_sample_core_descriptor = dict(descriptor) if isinstance(descriptor, dict) else None
+
     def _envelope_tracking_state_for_reason(self, reason: str) -> str:
         mapping = {
             "envelope_observation_unavailable": "envelope_observation_unavailable",
@@ -1425,6 +1512,9 @@ class PriorTrackingMetricSource:
             "envelope_full_box_span": "envelope_background_component_rejected",
             "envelope_span_spike_weak_support": "envelope_prior_hold",
             "envelope_gross_jump": "envelope_prior_hold",
+            "detached_source_endpoint": "envelope_contaminated_hold",
+            "source_outside_metric_box": "envelope_contaminated_hold",
+            "source_outside_analysis_roi": "envelope_contaminated_hold",
             "envelope_relocation_pending": "envelope_pending_relocation",
             "envelope_near_tie_axis_jitter": "envelope_near_tie_hold",
         }
@@ -1447,6 +1537,9 @@ class PriorTrackingMetricSource:
             "observed_metric_raw": observation.metric_raw,
             "preset_envelope_axis_prior_px": self._preset_envelope_axis_prior_px,
             "preset_envelope_span_px": self._preset_envelope_span_px,
+            "last_clean_axis_offset_px": self._last_clean_axis_offset_px,
+            "last_clean_axis": self._last_clean_axis_offset_px,
+            "last_clean_span_px": self._last_clean_span_px,
         }
 
     def _hold_last_good_for_envelope_outlier(
@@ -1568,6 +1661,22 @@ class PriorTrackingMetricSource:
             "metric_raw_mode",
             "configured_envelope_min_support_px",
             "effective_envelope_min_support_px",
+            "source_point_a_px",
+            "source_point_b_px",
+            "source_point_a_component_id",
+            "source_point_b_component_id",
+            "source_point_a_trusted",
+            "source_point_b_trusted",
+            "source_point_a_distance_to_core_px",
+            "source_point_b_distance_to_core_px",
+            "source_point_a_in_metric_box",
+            "source_point_b_in_metric_box",
+            "source_point_a_in_analysis_roi",
+            "source_point_b_in_analysis_roi",
+            "envelope_source_trust_state",
+            "sample_core_descriptor",
+            "rejected_component_reasons",
+            "rejected_components",
         ):
             if key in observation.meta:
                 metric.meta[key] = observation.meta.get(key)
@@ -1585,6 +1694,9 @@ class PriorTrackingMetricSource:
         )
         metric.meta["last_good_axis_offset"] = last_good_axis_offset
         metric.meta["last_good_axis_offset_px"] = last_good_axis_offset
+        metric.meta["last_clean_axis_offset_px"] = self._last_clean_axis_offset_px
+        metric.meta["last_clean_axis"] = self._last_clean_axis_offset_px
+        metric.meta["last_clean_span_px"] = self._last_clean_span_px
         metric.meta["candidate_axis_jump_px"] = (
             None
             if last_good_axis_offset is None or candidate_axis_offset is None
@@ -2189,6 +2301,7 @@ class PriorTrackingMetricSource:
         self._last_good_point_a = point_a
         self._last_good_point_b = point_b
         self._last_good_span_px = float(observation.metric_raw)
+        self._last_good_axis_offset_px = self._envelope_axis_offset_px(point_a, point_b) if self._is_envelope_max_width else None
         self._has_runtime_lock = True
 
     def _directional_component_bridge_retry(
@@ -2507,10 +2620,13 @@ class PriorTrackingMetricSource:
         return min(64.0, max(24.0, float(self._max_frame_span_jump_px) * 8.0))
 
     def _current_envelope_axis_prior_px(self) -> float | None:
-        # Before runtime lock the preset midpoint projection anchors vision; after
-        # lock the last accepted A/B midpoint is the prior.
+        # Clean accepted envelopes are the identity prior. A contaminated visual
+        # candidate may be shown, but it must not drag the next extraction away
+        # from the last clean sample band.
         if self._normal_unit is None:
             return None
+        if self._last_clean_axis_offset_px is not None:
+            return self._last_clean_axis_offset_px
         if not self._has_runtime_lock:
             return self._preset_envelope_axis_prior_px
         if self._last_good_point_a is None or self._last_good_point_b is None:
@@ -2523,6 +2639,9 @@ class PriorTrackingMetricSource:
         if self._last_good_point_a is None or self._last_good_point_b is None:
             return None
         return max(self._max_midpoint_drift_px, 8.0)
+
+    def _current_envelope_sample_core_descriptor(self) -> dict[str, Any] | None:
+        return None if self._last_clean_sample_core_descriptor is None else dict(self._last_clean_sample_core_descriptor)
 
 
 class LiveRunCoordinator:
@@ -3204,6 +3323,17 @@ def _telemetry_row(
         else [int(metric.point_b_px[0]), int(metric.point_b_px[1])],
         "source_point_a_px": _metric_meta_point(metric_meta, "source_point_a_px"),
         "source_point_b_px": _metric_meta_point(metric_meta, "source_point_b_px"),
+        "source_point_a_component_id": metric_meta.get("source_point_a_component_id"),
+        "source_point_b_component_id": metric_meta.get("source_point_b_component_id"),
+        "source_point_a_trusted": metric_meta.get("source_point_a_trusted"),
+        "source_point_b_trusted": metric_meta.get("source_point_b_trusted"),
+        "source_point_a_distance_to_core_px": metric_meta.get("source_point_a_distance_to_core_px"),
+        "source_point_b_distance_to_core_px": metric_meta.get("source_point_b_distance_to_core_px"),
+        "source_point_a_in_metric_box": metric_meta.get("source_point_a_in_metric_box"),
+        "source_point_b_in_metric_box": metric_meta.get("source_point_b_in_metric_box"),
+        "source_point_a_in_analysis_roi": metric_meta.get("source_point_a_in_analysis_roi"),
+        "source_point_b_in_analysis_roi": metric_meta.get("source_point_b_in_analysis_roi"),
+        "envelope_source_trust_state": metric_meta.get("envelope_source_trust_state"),
         "axis_point_a_px": _metric_meta_point(metric_meta, "axis_point_a_px"),
         "axis_point_b_px": _metric_meta_point(metric_meta, "axis_point_b_px"),
         "tracking_mode": metric_meta.get("tracking_mode"),
@@ -3227,7 +3357,11 @@ def _telemetry_row(
         "candidate_axis_offset_px": metric_meta.get("candidate_axis_offset_px"),
         "last_good_axis_offset": metric_meta.get("last_good_axis_offset"),
         "last_good_axis_offset_px": metric_meta.get("last_good_axis_offset_px"),
+        "last_clean_axis_offset_px": metric_meta.get("last_clean_axis_offset_px"),
+        "last_clean_axis": metric_meta.get("last_clean_axis"),
+        "last_clean_span_px": metric_meta.get("last_clean_span_px"),
         "candidate_axis_jump_px": metric_meta.get("candidate_axis_jump_px"),
+        "candidate_clean_axis_jump_px": metric_meta.get("candidate_clean_axis_jump_px"),
         "axis_offset_px": metric_meta.get("axis_offset_px"),
         "display_point_mode": metric_meta.get("display_point_mode"),
         "source_point_mode": metric_meta.get("source_point_mode"),

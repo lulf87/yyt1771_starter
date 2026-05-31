@@ -2318,7 +2318,14 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     selected_candidate_score: payload.selected_candidate_score ?? null,
     side_guard_foreground_area: payload.side_guard_foreground_area ?? null,
     envelope_reject_reason: payload.envelope_reject_reason ?? null,
+    rejected_components: previewRejectedComponentsFromPayload(payload.rejected_components),
     tracking_state: payload.tracking_state ?? null,
+    envelope_source_trust_state: payload.envelope_source_trust_state ?? "trusted",
+    source_point_a_trusted: payload.source_point_a_trusted ?? true,
+    source_point_b_trusted: payload.source_point_b_trusted ?? true,
+    source_point_a_in_metric_box: payload.source_point_a_in_metric_box ?? null,
+    source_point_b_in_metric_box: payload.source_point_b_in_metric_box ?? null,
+    last_clean_axis: payload.last_clean_axis ?? null,
     display_point_mode: "axis_projected",
     source_point_a_px: previewSourcePointFromObject(payload.source_point_a_px),
     source_point_b_px: previewSourcePointFromObject(payload.source_point_b_px),
@@ -2330,6 +2337,33 @@ function previewSourcePointFromObject(point) {
     return null;
   }
   return convertPointToPreview({ x: Number(point.x), y: Number(point.y) });
+}
+
+function previewRejectedComponentsFromPayload(components) {
+  if (!Array.isArray(components)) {
+    return [];
+  }
+  return components
+    .map((component) => {
+      const bbox = Array.isArray(component?.bbox) ? component.bbox : null;
+      if (!bbox || bbox.length !== 4) {
+        return null;
+      }
+      const rect = convertRectToPreview({
+        x: Number(bbox[0]),
+        y: Number(bbox[1]),
+        width: Number(bbox[2]),
+        height: Number(bbox[3]),
+      });
+      if (![rect.x, rect.y, rect.width, rect.height].every((value) => Number.isFinite(value))) {
+        return null;
+      }
+      return {
+        ...component,
+        bbox: [rect.x, rect.y, rect.width, rect.height],
+      };
+    })
+    .filter(Boolean);
 }
 
 function previewPointFromTelemetryArray(point) {
@@ -2356,9 +2390,16 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     selected_candidate_score: latestTelemetry.selected_candidate_score ?? null,
     side_guard_foreground_area: latestTelemetry.side_guard_foreground_area ?? null,
     envelope_reject_reason: latestTelemetry.envelope_reject_reason ?? null,
+    rejected_components: previewRejectedComponentsFromPayload(latestTelemetry.rejected_components),
     last_good_axis_offset: latestTelemetry.last_good_axis_offset ?? null,
+    last_clean_axis: latestTelemetry.last_clean_axis ?? latestTelemetry.last_clean_axis_offset_px ?? null,
     candidate_axis_jump_px: latestTelemetry.candidate_axis_jump_px ?? null,
     tracking_state: latestTelemetry.tracking_state ?? null,
+    envelope_source_trust_state: latestTelemetry.envelope_source_trust_state ?? "trusted",
+    source_point_a_trusted: latestTelemetry.source_point_a_trusted ?? true,
+    source_point_b_trusted: latestTelemetry.source_point_b_trusted ?? true,
+    source_point_a_in_metric_box: latestTelemetry.source_point_a_in_metric_box ?? null,
+    source_point_b_in_metric_box: latestTelemetry.source_point_b_in_metric_box ?? null,
     display_point_mode: "axis_projected",
     point_a_px: pointA,
     point_b_px: pointB,
@@ -2579,9 +2620,28 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
     fragments.push(`<polygon class="live-overlay-envelope-side-guard" points="${leftGuard}"></polygon>`);
     fragments.push(`<polygon class="live-overlay-envelope-side-guard" points="${rightGuard}"></polygon>`);
   }
+  const lastCleanAxisLine = envelopeAxisOffsetLineToPreview(directionBox, overlay.last_clean_axis);
+  if (lastCleanAxisLine) {
+    fragments.push(
+      `<line class="live-overlay-envelope-last-clean-axis" x1="${lastCleanAxisLine.a.x}" y1="${lastCleanAxisLine.a.y}" x2="${lastCleanAxisLine.b.x}" y2="${lastCleanAxisLine.b.y}"></line>`,
+    );
+  }
   if (pointA && pointB) {
     fragments.push(
       `<line class="live-overlay-envelope-bin" x1="${pointA.x}" y1="${pointA.y}" x2="${pointB.x}" y2="${pointB.y}"></line>`,
+    );
+  }
+  for (const component of Array.isArray(overlay.rejected_components) ? overlay.rejected_components : []) {
+    const bbox = Array.isArray(component?.bbox) ? component.bbox : null;
+    if (!bbox || bbox.length !== 4) {
+      continue;
+    }
+    const [x, y, width, height] = bbox.map((value) => Number(value));
+    if (![x, y, width, height].every((value) => Number.isFinite(value)) || width <= 0 || height <= 0) {
+      continue;
+    }
+    fragments.push(
+      `<rect class="live-overlay-envelope-rejected-component" x="${x}" y="${y}" width="${width}" height="${height}"></rect>`,
     );
   }
   // Debug-only: the foreground support points the span was measured from. They
@@ -2589,15 +2649,40 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
   const sourceA = overlay.source_point_a_px;
   const sourceB = overlay.source_point_b_px;
   if (sourceA && Number.isFinite(sourceA.x) && Number.isFinite(sourceA.y)) {
+    const trustClass = overlay.source_point_a_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
     fragments.push(
-      `<circle class="live-overlay-envelope-source" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
+      `<circle class="live-overlay-envelope-source${trustClass}" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
     );
   }
   if (sourceB && Number.isFinite(sourceB.x) && Number.isFinite(sourceB.y)) {
+    const trustClass = overlay.source_point_b_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
     fragments.push(
-      `<circle class="live-overlay-envelope-source" cx="${sourceB.x}" cy="${sourceB.y}" r="3"></circle>`,
+      `<circle class="live-overlay-envelope-source${trustClass}" cx="${sourceB.x}" cy="${sourceB.y}" r="3"></circle>`,
     );
   }
+  if (overlay.envelope_reject_reason || overlay.tracking_state === "envelope_contaminated_hold") {
+    const reason = String(overlay.envelope_reject_reason || overlay.envelope_source_trust_state || "");
+    const label = escapeHtml(reason);
+    fragments.push(`<text class="live-overlay-envelope-reject-label" x="12" y="54">${label}</text>`);
+  }
+}
+
+function envelopeAxisOffsetLineToPreview(directionBox, axisOffset) {
+  const value = Number(axisOffset);
+  if (!directionBox || !Number.isFinite(value)) {
+    return null;
+  }
+  const sourceBox = convertMetricBoxToSource(directionBox);
+  const angleRad = (Number(sourceBox.angle_deg) * Math.PI) / 180;
+  const normalX = -Math.sin(angleRad);
+  const normalY = Math.cos(angleRad);
+  const centerProjection = Number(sourceBox.center_x) * normalX + Number(sourceBox.center_y) * normalY;
+  const localY = value - centerProjection;
+  const halfWidth = Number(sourceBox.width) / 2;
+  return {
+    a: convertPointToPreview(worldPointFromMetricBoxLocal(sourceBox, -halfWidth, localY)),
+    b: convertPointToPreview(worldPointFromMetricBoxLocal(sourceBox, halfWidth, localY)),
+  };
 }
 
 function metricBoxLocalPolygon(box, localPoints) {
@@ -3185,7 +3270,7 @@ function liveProcessOutlierCategory(point) {
   if (trackingState === "envelope_pending_relocation" || trackingState === "envelope_near_tie_hold") {
     return "envelope_pending_relocation";
   }
-  if (trackingState === "envelope_prior_hold") {
+  if (trackingState === "envelope_prior_hold" || trackingState === "envelope_contaminated_hold") {
     return "envelope_prior_hold";
   }
   if (trackingState === "envelope_low_support_rejected") {
@@ -3265,6 +3350,7 @@ function liveProcessTrackingHint(latest) {
     "invalidated",
     "envelope_outlier_hold",
     "envelope_prior_hold",
+    "envelope_contaminated_hold",
     "envelope_pending_relocation",
     "envelope_near_tie_hold",
     "envelope_low_support_rejected",

@@ -1602,6 +1602,40 @@ def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
 
         def extract(self, frame):
             spec = holder["value"]
+            meta = {
+                "selection_mode": spec.get(
+                    "selection_mode", "directional_contour_envelope_max_width"
+                ),
+                "projection_point_mode": spec.get("projection_point_mode", "envelope_max_width"),
+                "component_area": 400,
+                "envelope_support_px": spec.get("envelope_support_px", 24),
+                "endpoint_support_left_px": spec.get("endpoint_support_left_px", 8),
+                "endpoint_support_right_px": spec.get("endpoint_support_right_px", 8),
+                "side_guard_foreground_area": spec.get("side_guard_foreground_area", 0),
+                "source_point_a_px": spec.get("source_point_a_px", spec["a"]),
+                "source_point_b_px": spec.get("source_point_b_px", spec["b"]),
+                "source_point_a_trusted": spec.get("source_point_a_trusted", True),
+                "source_point_b_trusted": spec.get("source_point_b_trusted", True),
+                "source_point_a_in_analysis_roi": spec.get("source_point_a_in_analysis_roi", True),
+                "source_point_b_in_analysis_roi": spec.get("source_point_b_in_analysis_roi", True),
+                "source_point_a_in_metric_box": spec.get("source_point_a_in_metric_box", True),
+                "source_point_b_in_metric_box": spec.get("source_point_b_in_metric_box", True),
+                "envelope_source_trust_state": spec.get("envelope_source_trust_state", "trusted"),
+                "sample_core_descriptor": spec.get(
+                    "sample_core_descriptor",
+                    {
+                        "core_along_min": float(min(spec["a"][0], spec["b"][0])),
+                        "core_along_max": float(max(spec["a"][0], spec["b"][0])),
+                        "core_lateral_min": float(min(spec["a"][1], spec["b"][1]) - 2),
+                        "core_lateral_max": float(max(spec["a"][1], spec["b"][1]) + 2),
+                        "core_centroid_along": float((spec["a"][0] + spec["b"][0]) / 2),
+                        "core_centroid_lateral": float((spec["a"][1] + spec["b"][1]) / 2),
+                        "core_component_area": 400,
+                        "core_component_count": 1,
+                    },
+                ),
+            }
+            meta.update(spec.get("meta", {}))
             return ShapeMetric(
                 timestamp_ms=frame.timestamp_ms,
                 metric_name="directional_contour_span",
@@ -1610,15 +1644,7 @@ def _fake_directional_extractor(holder: dict, *, expected_projection_mode: str):
                 roi=(0, 0, 160, 80),
                 point_a_px=tuple(spec["a"]),
                 point_b_px=tuple(spec["b"]),
-                meta={
-                    "selection_mode": spec.get(
-                        "selection_mode", "directional_contour_envelope_max_width"
-                    ),
-                    "projection_point_mode": spec.get("projection_point_mode", "envelope_max_width"),
-                    "component_area": 400,
-                    "envelope_support_px": spec.get("envelope_support_px", 24),
-                    "side_guard_foreground_area": spec.get("side_guard_foreground_area", 0),
-                },
+                meta=meta,
             )
 
     return FakeDirectionalExtractor
@@ -1870,6 +1896,100 @@ def test_prior_tracking_envelope_holds_last_good_for_single_frame_scratch_spike(
     # The genuine target is re-accepted on the following frame.
     assert recovered.meta["tracking_state"] == "accepted_global_envelope"
     assert recovered.point_b_px == (80, 32)
+
+
+def test_source_endpoint_component_must_be_trusted_and_does_not_poison_axis_prior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    clean = source.extract(frame0, temp0, sample_index=0, total_samples=3)
+
+    holder["value"] = {
+        "span": 130.0,
+        "a": (10, 56),
+        "b": (140, 56),
+        "source_point_a_px": (10, 56),
+        "source_point_b_px": (140, 56),
+        "source_point_a_trusted": False,
+        "source_point_b_trusted": True,
+        "envelope_source_trust_state": "detached_endpoint",
+        "envelope_support_px": 32,
+    }
+    frame1, temp1 = _frame_temp(2)
+    contaminated = source.extract(frame1, temp1, sample_index=1, total_samples=3)
+
+    holder["value"] = {"span": 60.0, "a": (20, 32), "b": (80, 32)}
+    frame2, temp2 = _frame_temp(3)
+    recovered = source.extract(frame2, temp2, sample_index=2, total_samples=3)
+
+    assert clean.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
+    assert contaminated.meta["tracking_state"] == "envelope_contaminated_hold"
+    assert contaminated.meta["original_rejection_reason"] == "detached_source_endpoint"
+    assert contaminated.meta["has_visual_candidate"] is True
+    assert contaminated.meta["observed_metric_raw"] == pytest.approx(130.0)
+    assert contaminated.point_a_px == clean.point_a_px
+    assert contaminated.point_b_px == clean.point_b_px
+    assert source._last_good_point_a == PixelPoint(x=20, y=32)
+    assert source._last_good_point_b == PixelPoint(x=80, y=32)
+    assert source._last_clean_axis_offset_px == pytest.approx(32.0)
+    assert recovered.meta["tracking_state"] == "accepted_global_envelope"
+    assert recovered.point_a_px == (20, 32)
+    assert recovered.point_b_px == (80, 32)
+
+
+def test_source_point_outside_metric_box_rejected_without_refreshing_last_good(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (20, 32), "b": (80, 32)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(20, 32), point_b=(80, 32))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    clean = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 112.0,
+        "a": (4, 32),
+        "b": (116, 32),
+        "source_point_a_px": (4, 32),
+        "source_point_b_px": (116, 32),
+        "source_point_a_in_metric_box": False,
+        "source_point_b_in_metric_box": True,
+        "envelope_source_trust_state": "source_outside_metric_box",
+        "envelope_support_px": 32,
+    }
+    frame1, temp1 = _frame_temp(2)
+    held = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert clean.meta["tracking_state"] in {"bootstrapped_global_envelope", "accepted_global_envelope"}
+    assert held.meta["tracking_state"] == "envelope_contaminated_hold"
+    assert held.meta["original_rejection_reason"] == "source_outside_metric_box"
+    assert held.meta["source_point_a_in_metric_box"] is False
+    assert held.point_a_px == clean.point_a_px
+    assert held.point_b_px == clean.point_b_px
+    assert source._last_good_span_px == pytest.approx(60.0)
 
 
 def test_locked_definition_envelope_resolves_metric_box_angle_and_parallel_ab() -> None:

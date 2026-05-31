@@ -168,6 +168,44 @@ def test_envelope_max_width_line_bundle_rejects_background_dot_on_the_side() -> 
     assert result.rejected_component_count >= 1
 
 
+def test_line_bundle_transient_debris_same_lateral_band_is_not_trusted_source() -> None:
+    # The detached dark blob sits in the same lateral/normal band as the real
+    # line bundle, but it is far away along the measurement direction. It must
+    # not become source_point_a or stretch the accepted envelope.
+    image = np.full((170, 260), 240, dtype=np.uint8)
+    for top in (72, 82, 92):
+        image[top : top + 5, 92:181] = 30
+    image[78:88, 32:50] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=260, height=170),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=130, center_y=84, width=230, height=90, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            side_guard_ratio=0.02,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(88.0, abs=8.0)
+    assert result.source_point_a.x >= 85
+    assert result.source_point_b.x <= 185
+    assert result.envelope_source_trust_state == "trusted"
+    assert result.source_point_a_trusted is True
+    assert result.source_point_b_trusted is True
+    assert result.rejected_component_count >= 1
+    assert any("along_detached" in reason for reason in result.rejected_component_reasons)
+
+
 def test_envelope_max_width_line_bundle_picks_widest_middle_over_dense_bottom() -> None:
     # A connected line bundle whose widest cross-section is on the middle/upper
     # band: outer filaments fan out there (x in [40, 170]). The lower band is
@@ -210,6 +248,44 @@ def test_envelope_max_width_line_bundle_picks_widest_middle_over_dense_bottom() 
     # Endpoints stay on the middle/upper band, never on the dense lower band.
     assert result.point_a.y <= 95
     assert result.point_b.y <= 95
+
+
+def test_mesh_lattice_transient_scratch_same_lateral_band_is_rejected() -> None:
+    image = np.full((180, 260), 240, dtype=np.uint8)
+    # Real lattice body.
+    image[72:76, 92:182] = 30
+    image[98:102, 92:182] = 30
+    image[124:128, 92:182] = 30
+    for left in (92, 122, 152, 178):
+        image[72:128, left : left + 4] = 30
+    # Detached same-band scratch in the ROI background.
+    image[96:104, 30:58] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=260, height=180),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=130, center_y=100, width=230, height=116, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=20,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="mesh_lattice",
+            side_guard_ratio=0.02,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.metric_raw == pytest.approx(89.0, abs=8.0)
+    assert result.source_point_a.x >= 85
+    assert result.source_point_b.x <= 186
+    assert result.envelope_source_trust_state == "trusted"
+    assert result.rejected_component_count >= 1
+    assert any("along_detached" in reason for reason in result.rejected_component_reasons)
 
 
 def test_envelope_max_width_mesh_lattice_ignores_internal_holes() -> None:

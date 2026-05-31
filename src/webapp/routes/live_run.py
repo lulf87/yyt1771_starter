@@ -425,6 +425,17 @@ def auto_detect_measurement_definition(
         point_b_px=PixelPointResponse(x=metric.point_b_px[0], y=metric.point_b_px[1]),
         source_point_a_px=_metric_meta_point_response(metric, "source_point_a_px"),
         source_point_b_px=_metric_meta_point_response(metric, "source_point_b_px"),
+        source_point_a_component_id=_metric_meta_int(metric, "source_point_a_component_id"),
+        source_point_b_component_id=_metric_meta_int(metric, "source_point_b_component_id"),
+        source_point_a_trusted=_metric_meta_bool(metric, "source_point_a_trusted"),
+        source_point_b_trusted=_metric_meta_bool(metric, "source_point_b_trusted"),
+        source_point_a_distance_to_core_px=_metric_meta_float(metric, "source_point_a_distance_to_core_px"),
+        source_point_b_distance_to_core_px=_metric_meta_float(metric, "source_point_b_distance_to_core_px"),
+        source_point_a_in_metric_box=_metric_meta_bool(metric, "source_point_a_in_metric_box"),
+        source_point_b_in_metric_box=_metric_meta_bool(metric, "source_point_b_in_metric_box"),
+        source_point_a_in_analysis_roi=_metric_meta_bool(metric, "source_point_a_in_analysis_roi"),
+        source_point_b_in_analysis_roi=_metric_meta_bool(metric, "source_point_b_in_analysis_roi"),
+        envelope_source_trust_state=_metric_meta_str(metric, "envelope_source_trust_state"),
         axis_point_a_px=_metric_meta_point_response(metric, "axis_point_a_px"),
         axis_point_b_px=_metric_meta_point_response(metric, "axis_point_b_px"),
         quality=metric.quality,
@@ -454,6 +465,8 @@ def auto_detect_measurement_definition(
         endpoint_support_right_px=_metric_meta_int(metric, "endpoint_support_right_px"),
         selected_candidate_score=_metric_meta_float(metric, "selected_candidate_score"),
         envelope_reject_reason=_metric_meta_str(metric, "envelope_reject_reason"),
+        rejected_component_reasons=metric.meta.get("rejected_component_reasons"),
+        rejected_components=metric.meta.get("rejected_components"),
         axis_offset_px=_metric_meta_float(metric, "axis_offset_px"),
         tracking_state=_metric_meta_str(metric, "tracking_state"),
         detail=detail,
@@ -1002,6 +1015,11 @@ def _metric_meta_float(metric, key: str) -> float | None:
         return None if value is None else float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _metric_meta_bool(metric, key: str) -> bool | None:
+    value = getattr(metric, "meta", {}).get(key)
+    return None if value is None else bool(value)
 
 
 def _metric_meta_str(metric, key: str) -> str | None:

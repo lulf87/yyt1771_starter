@@ -45,6 +45,7 @@ class DirectionalContourConfig:
     envelope_endpoint_min_support_px: int = 3
     envelope_axis_prior_px: float | None = None
     envelope_axis_prior_tolerance_px: float | None = None
+    envelope_sample_core_descriptor: dict[str, Any] | None = None
     max_chord_axis_prior_point: PixelPoint | None = None
     max_chord_axis_prior_tolerance_px: float | None = None
     max_chord_prior_point_a: PixelPoint | None = None
@@ -71,6 +72,17 @@ class DirectionalProjection:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     candidate_reject_reason: str | None = None
+    source_point_a_component_id: int | None = None
+    source_point_b_component_id: int | None = None
+    source_point_a_trusted: bool = True
+    source_point_b_trusted: bool = True
+    source_point_a_distance_to_core_px: float | None = None
+    source_point_b_distance_to_core_px: float | None = None
+    envelope_source_trust_state: str = "trusted"
+    source_point_a_in_metric_box: bool | None = None
+    source_point_b_in_metric_box: bool | None = None
+    source_point_a_in_analysis_roi: bool | None = None
+    source_point_b_in_analysis_roi: bool | None = None
 
 
 @dataclass(slots=True)
@@ -102,6 +114,20 @@ class DirectionalContourResult:
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    rejected_component_reasons: list[str] | None = None
+    rejected_components: list[dict[str, Any]] | None = None
+    sample_core_descriptor: dict[str, Any] | None = None
+    source_point_a_component_id: int | None = None
+    source_point_b_component_id: int | None = None
+    source_point_a_trusted: bool = True
+    source_point_b_trusted: bool = True
+    source_point_a_distance_to_core_px: float | None = None
+    source_point_b_distance_to_core_px: float | None = None
+    envelope_source_trust_state: str = "trusted"
+    source_point_a_in_metric_box: bool | None = None
+    source_point_b_in_metric_box: bool | None = None
+    source_point_a_in_analysis_roi: bool | None = None
+    source_point_b_in_analysis_roi: bool | None = None
     configured_envelope_min_support_px: int | None = None
     effective_envelope_min_support_px: int | None = None
     resolved_measurement_angle_deg: float | None = None
@@ -130,6 +156,20 @@ class _ProcessingGeometry:
     @property
     def scale(self) -> float:
         return (float(self.scale_x) + float(self.scale_y)) / 2.0
+
+
+@dataclass(slots=True)
+class _EnvelopeTargetSelection:
+    candidate_mask: np.ndarray
+    trusted_mask: np.ndarray
+    component_labels: np.ndarray
+    trusted_component_ids: set[int]
+    component_stats: dict[int, dict[str, Any]]
+    selected_component_count: int
+    rejected_component_count: int
+    rejected_component_reasons: list[str]
+    rejected_components: list[dict[str, Any]]
+    sample_core_descriptor: dict[str, Any] | None
 
 
 class DirectionalContourMetricExtractor(VisionMetricExtractor):
@@ -183,6 +223,9 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
             "selected_candidate_span": result.metric_raw,
             "selected_candidate_axis_offset": result.axis_offset_px,
             "envelope_reject_reason": result.envelope_reject_reason,
+            "rejected_component_reasons": result.rejected_component_reasons or [],
+            "rejected_components": result.rejected_components or [],
+            "sample_core_descriptor": result.sample_core_descriptor,
             "axis_offset_px": result.axis_offset_px,
         }
         if result.projection_point_mode == "envelope_max_width":
@@ -200,6 +243,17 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                     "metric_raw_mode": "along_axis_span",
                     "configured_envelope_min_support_px": result.configured_envelope_min_support_px,
                     "effective_envelope_min_support_px": result.effective_envelope_min_support_px,
+                    "source_point_a_component_id": result.source_point_a_component_id,
+                    "source_point_b_component_id": result.source_point_b_component_id,
+                    "source_point_a_trusted": result.source_point_a_trusted,
+                    "source_point_b_trusted": result.source_point_b_trusted,
+                    "source_point_a_distance_to_core_px": result.source_point_a_distance_to_core_px,
+                    "source_point_b_distance_to_core_px": result.source_point_b_distance_to_core_px,
+                    "envelope_source_trust_state": result.envelope_source_trust_state,
+                    "source_point_a_in_metric_box": result.source_point_a_in_metric_box,
+                    "source_point_b_in_metric_box": result.source_point_b_in_metric_box,
+                    "source_point_a_in_analysis_roi": result.source_point_a_in_analysis_roi,
+                    "source_point_b_in_analysis_roi": result.source_point_b_in_analysis_roi,
                 }
             )
         return ShapeMetric(
@@ -255,16 +309,37 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     endpoint_support_right_px: int | None = None
     selected_candidate_score: float | None = None
     envelope_reject_reason: str | None = None
+    rejected_component_reasons: list[str] = []
+    rejected_components: list[dict[str, Any]] = []
+    sample_core_descriptor: dict[str, Any] | None = None
     configured_envelope_min_support_px: int | None = None
     effective_envelope_min_support_px: int | None = None
     if projection_mode == "envelope_max_width":
-        component_mask, selected_component_count, rejected_component_count = _envelope_target_mask(
+        target_selection = _envelope_target_mask(
             mask,
             config,
             cv2=cv2,
+            angle_deg=resolved_angle_deg,
+            sample_core_descriptor=_sample_core_descriptor_to_processing_space(
+                config.envelope_sample_core_descriptor,
+                processing,
+                resolved_angle_deg,
+            ),
+        )
+        component_mask = target_selection.trusted_mask
+        selected_component_count = target_selection.selected_component_count
+        rejected_component_count = target_selection.rejected_component_count
+        rejected_component_reasons = target_selection.rejected_component_reasons
+        rejected_components = target_selection.rejected_components
+        sample_core_descriptor = _sample_core_descriptor_to_original_space(
+            target_selection.sample_core_descriptor,
+            processing,
+            resolved_angle_deg,
         )
         raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
-        boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
+        candidate_mask = target_selection.candidate_mask
+        boundary_mask = _actual_component_boundary_mask(source_mask, candidate_mask)
+        trusted_boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
         scale = max(float(processing.scale), 1e-6)
         projection = measure_component_envelope_max_width(
             boundary_mask,
@@ -284,6 +359,11 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             quantile=float(config.envelope_quantile),
             endpoint_support_radius_px=max(0.0, float(config.envelope_endpoint_support_radius_px) * scale),
             endpoint_min_support_px=int(config.envelope_endpoint_min_support_px),
+            trusted_mask=trusted_boundary_mask,
+            component_labels=target_selection.component_labels,
+            trusted_component_ids=target_selection.trusted_component_ids,
+            component_stats=target_selection.component_stats,
+            metric_box=config.metric_box,
             axis_prior_px=(
                 None
                 if config.envelope_axis_prior_px is None
@@ -391,6 +471,11 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             image_shape=gray.shape,
         )
     contour_xy = _contour_to_original_roi(contour_xy, processing)
+    rejected_components = _rejected_components_to_original_roi(
+        rejected_components,
+        processing,
+        image_shape=gray.shape,
+    )
 
     component_area = int(round(float(np.count_nonzero(component_mask)) / max(processing.scale_x * processing.scale_y, 1e-9)))
     quality = _quality_score(
@@ -426,9 +511,23 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         endpoint_support_right_px=endpoint_support_right_px,
         selected_candidate_score=selected_candidate_score,
         envelope_reject_reason=envelope_reject_reason,
+        rejected_component_reasons=rejected_component_reasons,
+        rejected_components=rejected_components,
+        sample_core_descriptor=sample_core_descriptor,
         configured_envelope_min_support_px=configured_envelope_min_support_px,
         effective_envelope_min_support_px=effective_envelope_min_support_px,
         axis_offset_px=float(projection.axis_offset_px),
+        source_point_a_component_id=projection.source_point_a_component_id,
+        source_point_b_component_id=projection.source_point_b_component_id,
+        source_point_a_trusted=projection.source_point_a_trusted,
+        source_point_b_trusted=projection.source_point_b_trusted,
+        source_point_a_distance_to_core_px=projection.source_point_a_distance_to_core_px,
+        source_point_b_distance_to_core_px=projection.source_point_b_distance_to_core_px,
+        envelope_source_trust_state=projection.envelope_source_trust_state,
+        source_point_a_in_metric_box=projection.source_point_a_in_metric_box,
+        source_point_b_in_metric_box=projection.source_point_b_in_metric_box,
+        source_point_a_in_analysis_roi=projection.source_point_a_in_analysis_roi,
+        source_point_b_in_analysis_roi=projection.source_point_b_in_analysis_roi,
         resolved_measurement_angle_deg=resolved_angle_deg,
         metric_box_angle_deg=metric_box_angle_deg,
         angle_delta_deg=angle_delta_deg,
@@ -667,6 +766,11 @@ def measure_component_envelope_max_width(
     quantile: float = 0.0,
     endpoint_support_radius_px: float = 0.0,
     endpoint_min_support_px: int = 0,
+    trusted_mask: np.ndarray | None = None,
+    component_labels: np.ndarray | None = None,
+    trusted_component_ids: set[int] | None = None,
+    component_stats: dict[int, dict[str, Any]] | None = None,
+    metric_box: MetricBox | None = None,
     axis_prior_px: float | None = None,
     axis_prior_tolerance_px: float | None = None,
 ) -> DirectionalProjection:
@@ -674,7 +778,9 @@ def measure_component_envelope_max_width(
     if len(rows) == 0:
         raise DirectionalContourDetectionError("direction_projection_unavailable")
 
-    points = np.column_stack([cols + int(roi.x), rows + int(roi.y)]).astype(float)
+    point_rows = rows.astype(np.int64, copy=False)
+    point_cols = cols.astype(np.int64, copy=False)
+    points = np.column_stack([point_cols + int(roi.x), point_rows + int(roi.y)]).astype(float)
     direction = directional_unit_vector(float(angle_deg))
     normal = np.array([-direction[1], direction[0]], dtype=float)
     along = points @ direction
@@ -692,6 +798,16 @@ def measure_component_envelope_max_width(
     points = points[keep_mask]
     along = along[keep_mask]
     lateral = lateral[keep_mask]
+    point_rows = point_rows[keep_mask]
+    point_cols = point_cols[keep_mask]
+    trusted_lookup: np.ndarray | None = None
+    if trusted_mask is not None and np.asarray(trusted_mask).shape[:2] == np.asarray(component_mask).shape[:2]:
+        trusted_lookup = np.asarray(trusted_mask) > 0
+    label_lookup: np.ndarray | None = None
+    if component_labels is not None and np.asarray(component_labels).shape[:2] == np.asarray(component_mask).shape[:2]:
+        label_lookup = np.asarray(component_labels)
+    trusted_ids = set(int(value) for value in (trusted_component_ids or set()))
+    stats = component_stats or {}
 
     bin_width = max(0.5, float(normal_bin_width_px))
     median_lateral = float(np.median(lateral))
@@ -711,6 +827,7 @@ def measure_component_envelope_max_width(
     span_tolerance = max(3.0, bin_width)
     best: dict[str, Any] | None = None
     best_supported: dict[str, Any] | None = None
+    best_trusted_supported: dict[str, Any] | None = None
     candidate_count = 0
     unique_bins = np.unique(bin_indices)
     for bin_index in unique_bins:
@@ -722,6 +839,25 @@ def measure_component_envelope_max_width(
         support = int(len(indices))
         if support < effective_min_support:
             continue
+        if trusted_lookup is not None or trusted_ids:
+            trusted_indices = [
+                int(index)
+                for index in indices
+                if _source_point_is_trusted(
+                    trusted_lookup,
+                    trusted_ids,
+                    _component_id_for_point(
+                        label_lookup,
+                        row=int(point_rows[int(index)]),
+                        col=int(point_cols[int(index)]),
+                    ),
+                    row=int(point_rows[int(index)]),
+                    col=int(point_cols[int(index)]),
+                )
+            ]
+            if len(trusted_indices) >= effective_min_support:
+                indices = np.asarray(trusted_indices, dtype=np.int64)
+                support = int(len(indices))
         ordered = indices[np.argsort(along[indices])]
         ordered_along = along[ordered]
         low_value = float(np.quantile(ordered_along, endpoint_quantile))
@@ -739,6 +875,33 @@ def measure_component_envelope_max_width(
         if endpoint_tree is not None:
             endpoint_support_left = int(len(endpoint_tree.query_ball_point(points[low_index], endpoint_radius)))
             endpoint_support_right = int(len(endpoint_tree.query_ball_point(points[high_index], endpoint_radius)))
+        low_component_id = _component_id_for_point(
+            label_lookup,
+            row=int(point_rows[low_index]),
+            col=int(point_cols[low_index]),
+        )
+        high_component_id = _component_id_for_point(
+            label_lookup,
+            row=int(point_rows[high_index]),
+            col=int(point_cols[high_index]),
+        )
+        low_trusted = _source_point_is_trusted(
+            trusted_lookup,
+            trusted_ids,
+            low_component_id,
+            row=int(point_rows[low_index]),
+            col=int(point_cols[low_index]),
+        )
+        high_trusted = _source_point_is_trusted(
+            trusted_lookup,
+            trusted_ids,
+            high_component_id,
+            row=int(point_rows[high_index]),
+            col=int(point_cols[high_index]),
+        )
+        endpoints_trusted = bool(low_trusted and high_trusted)
+        low_distance_to_core = _component_distance_to_core_px(stats, low_component_id)
+        high_distance_to_core = _component_distance_to_core_px(stats, high_component_id)
         endpoints_supported = (
             endpoint_min_support <= 0
             or (
@@ -756,6 +919,12 @@ def measure_component_envelope_max_width(
             axis_jump=axis_jump,
             span_tolerance=span_tolerance,
             axis_prior_tolerance_px=axis_prior_tolerance_px,
+            endpoints_trusted=endpoints_trusted,
+            source_to_core_distance_px=max(
+                0.0,
+                float(low_distance_to_core or 0.0),
+                float(high_distance_to_core or 0.0),
+            ),
         )
         candidate = {
             "span": span,
@@ -769,6 +938,13 @@ def measure_component_envelope_max_width(
             "endpoint_support_left": endpoint_support_left,
             "endpoint_support_right": endpoint_support_right,
             "endpoints_supported": endpoints_supported,
+            "low_component_id": low_component_id,
+            "high_component_id": high_component_id,
+            "low_trusted": low_trusted,
+            "high_trusted": high_trusted,
+            "endpoints_trusted": endpoints_trusted,
+            "low_distance_to_core": low_distance_to_core,
+            "high_distance_to_core": high_distance_to_core,
             "score": score,
         }
         candidate_count += 1
@@ -776,13 +952,23 @@ def measure_component_envelope_max_width(
             best = candidate
         if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported):
             best_supported = candidate
+        if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(candidate, best_trusted_supported):
+            best_trusted_supported = candidate
 
     reject_reason: str | None = None
-    chosen = best_supported
+    chosen = best_trusted_supported
+    if chosen is None and best_supported is not None:
+        chosen = best_supported
+        if not bool(chosen.get("endpoints_trusted", True)):
+            reject_reason = "detached_endpoint"
     if chosen is None:
         chosen = best
         if chosen is not None:
-            reject_reason = "weak_endpoint_support"
+            reject_reason = (
+                "detached_endpoint"
+                if not bool(chosen.get("endpoints_trusted", True))
+                else "weak_endpoint_support"
+            )
     if chosen is None:
         raise DirectionalContourDetectionError("direction_projection_unavailable")
     best = chosen
@@ -800,6 +986,20 @@ def measure_component_envelope_max_width(
         image_shape=image_shape,
         clip_region=clip_region,
     )
+    source_a_in_roi = _point_in_region_float(roi, float(source_point_a.x), float(source_point_a.y))
+    source_b_in_roi = _point_in_region_float(roi, float(source_point_b.x), float(source_point_b.y))
+    source_a_in_box = None if metric_box is None else _point_in_metric_box_float(metric_box, source_point_a)
+    source_b_in_box = None if metric_box is None else _point_in_metric_box_float(metric_box, source_point_b)
+    trust_state = "trusted"
+    if not bool(best.get("low_trusted", True)) or not bool(best.get("high_trusted", True)):
+        trust_state = "detached_endpoint"
+        reject_reason = reject_reason or "detached_endpoint"
+    if source_a_in_box is False or source_b_in_box is False:
+        trust_state = "source_outside_metric_box"
+        reject_reason = reject_reason or "source_outside_metric_box"
+    if not source_a_in_roi or not source_b_in_roi:
+        trust_state = "source_outside_analysis_roi"
+        reject_reason = reject_reason or "source_outside_core"
     # Axis-projected measurement points: same lateral (axis_offset), differing
     # only along the measurement direction, so A/B is strictly parallel to it.
     best_axis_offset = float(best["axis_offset"])
@@ -824,6 +1024,17 @@ def measure_component_envelope_max_width(
         endpoint_support_right_px=int(best.get("endpoint_support_right", best["support"])),
         selected_candidate_score=float(best.get("score", best["span"])),
         candidate_reject_reason=reject_reason,
+        source_point_a_component_id=best.get("low_component_id"),
+        source_point_b_component_id=best.get("high_component_id"),
+        source_point_a_trusted=bool(best.get("low_trusted", True)),
+        source_point_b_trusted=bool(best.get("high_trusted", True)),
+        source_point_a_distance_to_core_px=best.get("low_distance_to_core"),
+        source_point_b_distance_to_core_px=best.get("high_distance_to_core"),
+        envelope_source_trust_state=trust_state,
+        source_point_a_in_metric_box=source_a_in_box,
+        source_point_b_in_metric_box=source_b_in_box,
+        source_point_a_in_analysis_roi=source_a_in_roi,
+        source_point_b_in_analysis_roi=source_b_in_roi,
     )
 
 
@@ -837,6 +1048,8 @@ def _envelope_candidate_score(
     axis_jump: float | None,
     span_tolerance: float,
     axis_prior_tolerance_px: float | None,
+    endpoints_trusted: bool = True,
+    source_to_core_distance_px: float | None = None,
 ) -> float:
     """Composite candidate score for envelope_max_width selection.
 
@@ -860,7 +1073,18 @@ def _envelope_candidate_score(
             within = float(axis_jump) <= float(axis_prior_tolerance_px)
             weight = 0.2 if within else 0.9
         axis_penalty = float(axis_jump) * weight
-    return float(span) + support_bonus - endpoint_penalty - axis_penalty
+    detached_component_penalty = 0.0 if endpoints_trusted else max(200.0, float(span) * 2.0)
+    source_to_core_distance_penalty = 0.0
+    if source_to_core_distance_px is not None:
+        source_to_core_distance_penalty = max(0.0, float(source_to_core_distance_px)) * 0.45
+    return (
+        float(span)
+        + support_bonus
+        - endpoint_penalty
+        - axis_penalty
+        - detached_component_penalty
+        - source_to_core_distance_penalty
+    )
 
 
 def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -868,6 +1092,10 @@ def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, 
         return True
     candidate_score = float(candidate.get("score", candidate["span"]))
     current_score = float(current.get("score", current["span"]))
+    candidate_trusted = bool(candidate.get("endpoints_trusted", True))
+    current_trusted = bool(current.get("endpoints_trusted", True))
+    if candidate_trusted != current_trusted:
+        return candidate_trusted
     score_delta = candidate_score - current_score
     if abs(score_delta) > 1e-9:
         return score_delta > 0.0
@@ -878,6 +1106,71 @@ def _envelope_candidate_is_better(candidate: dict[str, Any], current: dict[str, 
     if support_delta != 0:
         return support_delta > 0
     return float(candidate["center_distance"]) < float(current["center_distance"])
+
+
+def _component_id_for_point(
+    labels: np.ndarray | None,
+    *,
+    row: int,
+    col: int,
+) -> int | None:
+    if labels is None:
+        return None
+    if row < 0 or col < 0 or row >= labels.shape[0] or col >= labels.shape[1]:
+        return None
+    value = int(labels[row, col])
+    return value if value > 0 else None
+
+
+def _source_point_is_trusted(
+    trusted_mask: np.ndarray | None,
+    trusted_component_ids: set[int],
+    component_id: int | None,
+    *,
+    row: int,
+    col: int,
+) -> bool:
+    if component_id is not None and trusted_component_ids:
+        return int(component_id) in trusted_component_ids
+    if trusted_mask is None:
+        return True
+    if row < 0 or col < 0 or row >= trusted_mask.shape[0] or col >= trusted_mask.shape[1]:
+        return False
+    return bool(trusted_mask[row, col])
+
+
+def _component_distance_to_core_px(
+    component_stats: dict[int, dict[str, Any]],
+    component_id: int | None,
+) -> float | None:
+    if component_id is None:
+        return None
+    stats = component_stats.get(int(component_id))
+    if not stats:
+        return None
+    value = stats.get("distance_to_core_px")
+    return None if value is None else float(value)
+
+
+def _point_in_region_float(region: RectRegion, x: float, y: float) -> bool:
+    return (
+        float(region.x) - 0.5 <= float(x) <= float(region.x + region.width - 1) + 0.5
+        and float(region.y) - 0.5 <= float(y) <= float(region.y + region.height - 1) + 0.5
+    )
+
+
+def _point_in_metric_box_float(box: MetricBox, point: PixelPoint, *, epsilon: float = 2.0) -> bool:
+    angle_rad = math.radians(float(box.angle_deg))
+    cos_theta = math.cos(angle_rad)
+    sin_theta = math.sin(angle_rad)
+    translated_x = float(point.x) - float(box.center_x)
+    translated_y = float(point.y) - float(box.center_y)
+    local_x = translated_x * cos_theta + translated_y * sin_theta
+    local_y = -translated_x * sin_theta + translated_y * cos_theta
+    return (
+        abs(local_x) <= float(box.width) / 2.0 + float(epsilon)
+        and abs(local_y) <= float(box.height) / 2.0 + float(epsilon)
+    )
 
 
 def choose_component_direction_projection_mode(
@@ -961,7 +1254,9 @@ def _envelope_target_mask(
     config: DirectionalContourConfig,
     *,
     cv2: Any | None,
-) -> tuple[np.ndarray, int, int]:
+    angle_deg: float,
+    sample_core_descriptor: dict[str, Any] | None = None,
+) -> _EnvelopeTargetSelection:
     foreground = np.asarray(mask) > 0
     if not bool(np.any(foreground)):
         raise DirectionalContourDetectionError("target_component_not_found")
@@ -974,7 +1269,7 @@ def _envelope_target_mask(
     if geometry_mode not in {"line_bundle", "single_component", "mesh_lattice"}:
         geometry_mode = "line_bundle"
 
-    direction = directional_unit_vector(float(config.direction_angle_deg))
+    direction = directional_unit_vector(float(angle_deg))
     normal = np.array([-direction[1], direction[0]], dtype=float)
 
     components: list[dict[str, Any]] = []
@@ -987,15 +1282,26 @@ def _envelope_target_mask(
         rows, cols = np.where(component)
         lateral = cols * float(normal[0]) + rows * float(normal[1])
         along = cols * float(direction[0]) + rows * float(direction[1])
+        bbox_x = int(np.min(cols))
+        bbox_y = int(np.min(rows))
+        bbox_w = int(np.max(cols) - bbox_x + 1)
+        bbox_h = int(np.max(rows) - bbox_y + 1)
+        points = np.column_stack([cols, rows]).astype(float)
         components.append(
             {
+                "label": int(label),
                 "mask": component,
                 "area": area,
+                "along_min": float(np.min(along)),
+                "along_max": float(np.max(along)),
+                "along_centroid": float(np.median(along)),
                 "lateral_centroid": float(np.median(lateral)),
                 "lateral_min": float(np.min(lateral)),
                 "lateral_max": float(np.max(lateral)),
                 "lateral_extent": float(np.ptp(lateral)),
                 "along_extent": float(np.ptp(along)),
+                "bbox": [bbox_x, bbox_y, bbox_w, bbox_h],
+                "pca_aspect_ratio": _component_pca_aspect_ratio(points),
                 "lateral": lateral,
             }
         )
@@ -1003,9 +1309,45 @@ def _envelope_target_mask(
     if not components:
         raise DirectionalContourDetectionError("target_component_not_found")
 
+    component_stats = {
+        int(component["label"]): {
+            key: component[key]
+            for key in (
+                "area",
+                "along_min",
+                "along_max",
+                "along_centroid",
+                "along_extent",
+                "lateral_min",
+                "lateral_max",
+                "lateral_centroid",
+                "lateral_extent",
+                "bbox",
+                "pca_aspect_ratio",
+            )
+        }
+        for component in components
+    }
+
     # single_component keeps the historical union-of-all-above-floor behaviour.
     if geometry_mode == "single_component":
-        return union_kept.astype(np.uint8) * 255, len(components), 0
+        trusted_ids = {int(component["label"]) for component in components}
+        descriptor = _sample_core_descriptor_from_components(components)
+        for component_id in trusted_ids:
+            component_stats[component_id]["trusted"] = True
+            component_stats[component_id]["distance_to_core_px"] = 0.0
+        return _EnvelopeTargetSelection(
+            candidate_mask=union_kept.astype(np.uint8) * 255,
+            trusted_mask=union_kept.astype(np.uint8) * 255,
+            component_labels=labels,
+            trusted_component_ids=trusted_ids,
+            component_stats=component_stats,
+            selected_component_count=len(components),
+            rejected_component_count=0,
+            rejected_component_reasons=[],
+            rejected_components=[],
+            sample_core_descriptor=descriptor,
+        )
 
     # Group components into lateral clusters separated by gaps in the normal
     # (cross-measurement) direction. A genuine line bundle stacks contiguously,
@@ -1035,27 +1377,263 @@ def _envelope_target_mask(
 
     core_cluster = max(clusters, key=_cluster_area)
     core_ids = {id(component) for component in core_cluster}
+    prior_descriptor = _normalized_sample_core_descriptor(sample_core_descriptor)
+    core_descriptor = prior_descriptor or _sample_core_descriptor_from_components(
+        _dominant_core_components(core_cluster, area_floor=area_floor)
+    )
+    if core_descriptor is None:
+        core_descriptor = _sample_core_descriptor_from_components(core_cluster)
 
     selected = np.zeros_like(foreground, dtype=bool)
     selected_count = 0
     rejected_count = 0
+    rejected_reasons: list[str] = []
+    rejected_components: list[dict[str, Any]] = []
+    trusted_ids: set[int] = set()
+    largest_area = max(int(component["area"]) for component in core_cluster)
     for component in components:
-        if id(component) in core_ids:
+        component_id = int(component["label"])
+        reason: str | None = None
+        if prior_descriptor is not None:
+            if not _component_matches_sample_core(component, prior_descriptor):
+                reason = "outside_sample_core"
+        elif id(component) not in core_ids:
+            reason = "lateral_cluster_background"
+        elif _component_is_along_detached_debris(
+            component,
+            core_descriptor,
+            largest_core_area=largest_area,
+            area_floor=area_floor,
+        ):
+            reason = "along_detached_background_debris"
+
+        distance_to_core = _distance_to_sample_core_px(component, core_descriptor)
+        component_stats[component_id]["distance_to_core_px"] = distance_to_core
+        if reason is None:
             selected |= component["mask"]
             selected_count += 1
+            trusted_ids.add(component_id)
+            component_stats[component_id]["trusted"] = True
         else:
             rejected_count += 1
+            rejected_reasons.append(f"component_{component_id}:{reason}")
+            component_stats[component_id]["trusted"] = False
+            component_stats[component_id]["reject_reason"] = reason
+            rejected_components.append(
+                {
+                    "component_id": component_id,
+                    "reason": reason,
+                    "bbox": list(component["bbox"]),
+                    "area": int(component["area"]),
+                    "distance_to_core_px": distance_to_core,
+                }
+            )
 
     if selected_count == 0:
         core = max(components, key=lambda item: item["area"])
         selected |= core["mask"]
         selected_count = 1
         rejected_count = max(0, len(components) - 1)
+        trusted_ids = {int(core["label"])}
+        component_stats[int(core["label"])]["trusted"] = True
+        component_stats[int(core["label"])]["distance_to_core_px"] = 0.0
 
     if geometry_mode == "mesh_lattice":
         selected = _mesh_lattice_envelope_mask(selected, config, cv2=cv2)
 
-    return selected.astype(np.uint8) * 255, int(selected_count), int(rejected_count)
+    return _EnvelopeTargetSelection(
+        candidate_mask=union_kept.astype(np.uint8) * 255,
+        trusted_mask=selected.astype(np.uint8) * 255,
+        component_labels=labels,
+        trusted_component_ids=trusted_ids,
+        component_stats=component_stats,
+        selected_component_count=int(selected_count),
+        rejected_component_count=int(rejected_count),
+        rejected_component_reasons=rejected_reasons,
+        rejected_components=rejected_components,
+        sample_core_descriptor=core_descriptor,
+    )
+
+
+def _dominant_core_components(
+    components: list[dict[str, Any]],
+    *,
+    area_floor: int,
+) -> list[dict[str, Any]]:
+    if not components:
+        return []
+    max_area = max(int(component["area"]) for component in components)
+    area_threshold = max(int(area_floor), int(round(float(max_area) * 0.45)))
+    dominant = [component for component in components if int(component["area"]) >= area_threshold]
+    return dominant or [max(components, key=lambda item: int(item["area"]))]
+
+
+def _sample_core_descriptor_from_components(
+    components: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not components:
+        return None
+    along_min = min(float(component["along_min"]) for component in components)
+    along_max = max(float(component["along_max"]) for component in components)
+    lateral_min = min(float(component["lateral_min"]) for component in components)
+    lateral_max = max(float(component["lateral_max"]) for component in components)
+    total_area = max(1, sum(int(component["area"]) for component in components))
+    centroid_along = sum(float(component["along_centroid"]) * int(component["area"]) for component in components) / total_area
+    centroid_lateral = sum(float(component["lateral_centroid"]) * int(component["area"]) for component in components) / total_area
+    return {
+        "core_along_min": along_min,
+        "core_along_max": along_max,
+        "core_lateral_min": lateral_min,
+        "core_lateral_max": lateral_max,
+        "core_centroid_along": centroid_along,
+        "core_centroid_lateral": centroid_lateral,
+        "core_component_area": int(total_area),
+        "core_component_count": int(len(components)),
+    }
+
+
+def _normalized_sample_core_descriptor(
+    descriptor: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(descriptor, dict):
+        return None
+    required = (
+        "core_along_min",
+        "core_along_max",
+        "core_lateral_min",
+        "core_lateral_max",
+        "core_centroid_along",
+        "core_centroid_lateral",
+        "core_component_area",
+        "core_component_count",
+    )
+    normalized: dict[str, Any] = {}
+    try:
+        for key in required:
+            value = descriptor[key]
+            normalized[key] = int(value) if key in {"core_component_area", "core_component_count"} else float(value)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if normalized["core_along_max"] < normalized["core_along_min"]:
+        normalized["core_along_min"], normalized["core_along_max"] = (
+            normalized["core_along_max"],
+            normalized["core_along_min"],
+        )
+    if normalized["core_lateral_max"] < normalized["core_lateral_min"]:
+        normalized["core_lateral_min"], normalized["core_lateral_max"] = (
+            normalized["core_lateral_max"],
+            normalized["core_lateral_min"],
+        )
+    return normalized
+
+
+def _component_matches_sample_core(
+    component: dict[str, Any],
+    core: dict[str, Any],
+) -> bool:
+    core_along_extent = max(1.0, float(core["core_along_max"]) - float(core["core_along_min"]))
+    core_lateral_extent = max(1.0, float(core["core_lateral_max"]) - float(core["core_lateral_min"]))
+    lateral_overlap = _range_overlap(
+        float(component["lateral_min"]),
+        float(component["lateral_max"]),
+        float(core["core_lateral_min"]),
+        float(core["core_lateral_max"]),
+    )
+    along_overlap = _range_overlap(
+        float(component["along_min"]),
+        float(component["along_max"]),
+        float(core["core_along_min"]),
+        float(core["core_along_max"]),
+    )
+    if lateral_overlap > 0.0 and along_overlap > 0.0:
+        return True
+    lateral_gap = _range_gap(
+        float(component["lateral_min"]),
+        float(component["lateral_max"]),
+        float(core["core_lateral_min"]),
+        float(core["core_lateral_max"]),
+    )
+    along_gap = _range_gap(
+        float(component["along_min"]),
+        float(component["along_max"]),
+        float(core["core_along_min"]),
+        float(core["core_along_max"]),
+    )
+    close_lateral = lateral_gap <= max(8.0, core_lateral_extent * 0.35)
+    close_along = along_gap <= max(12.0, core_along_extent * 0.12)
+    return close_lateral and close_along
+
+
+def _component_is_along_detached_debris(
+    component: dict[str, Any],
+    core: dict[str, Any] | None,
+    *,
+    largest_core_area: int,
+    area_floor: int,
+) -> bool:
+    if core is None:
+        return False
+    core_along_extent = max(1.0, float(core["core_along_max"]) - float(core["core_along_min"]))
+    core_lateral_extent = max(1.0, float(core["core_lateral_max"]) - float(core["core_lateral_min"]))
+    lateral_gap = _range_gap(
+        float(component["lateral_min"]),
+        float(component["lateral_max"]),
+        float(core["core_lateral_min"]),
+        float(core["core_lateral_max"]),
+    )
+    along_gap = _range_gap(
+        float(component["along_min"]),
+        float(component["along_max"]),
+        float(core["core_along_min"]),
+        float(core["core_along_max"]),
+    )
+    along_overlap = _range_overlap(
+        float(component["along_min"]),
+        float(component["along_max"]),
+        float(core["core_along_min"]),
+        float(core["core_along_max"]),
+    )
+    same_lateral_band = lateral_gap <= max(8.0, core_lateral_extent * 0.75 + float(component["lateral_extent"]))
+    along_detached = along_overlap <= 0.0 and along_gap > max(12.0, core_along_extent * 0.18)
+    # A legitimate outer filament in a sparse line bundle can be far along from
+    # the dominant core while still extending through the core lateral band. A
+    # compact dot/blob/scratch is the debris shape we reject here.
+    normal_filament_like = float(component["lateral_extent"]) >= max(16.0, float(component["along_extent"]) * 2.0)
+    small_or_short_lived = int(component["area"]) < max(int(area_floor) * 4, int(round(float(largest_core_area) * 0.50)))
+    return bool(same_lateral_band and along_detached and small_or_short_lived and not normal_filament_like)
+
+
+def _distance_to_sample_core_px(
+    component: dict[str, Any],
+    core: dict[str, Any] | None,
+) -> float | None:
+    if core is None:
+        return None
+    along_gap = _range_gap(
+        float(component["along_min"]),
+        float(component["along_max"]),
+        float(core["core_along_min"]),
+        float(core["core_along_max"]),
+    )
+    lateral_gap = _range_gap(
+        float(component["lateral_min"]),
+        float(component["lateral_max"]),
+        float(core["core_lateral_min"]),
+        float(core["core_lateral_max"]),
+    )
+    return math.hypot(along_gap, lateral_gap)
+
+
+def _range_overlap(a_min: float, a_max: float, b_min: float, b_max: float) -> float:
+    return max(0.0, min(float(a_max), float(b_max)) - max(float(a_min), float(b_min)))
+
+
+def _range_gap(a_min: float, a_max: float, b_min: float, b_max: float) -> float:
+    if float(a_max) < float(b_min):
+        return float(b_min) - float(a_max)
+    if float(b_max) < float(a_min):
+        return float(a_min) - float(b_max)
+    return 0.0
 
 
 def _mesh_lattice_envelope_mask(
@@ -1369,6 +1947,29 @@ def _projection_to_original_roi(
         envelope_support_px=projection.envelope_support_px,
         envelope_candidate_count=projection.envelope_candidate_count,
         side_guard_foreground_area=projection.side_guard_foreground_area,
+        endpoint_support_left_px=projection.endpoint_support_left_px,
+        endpoint_support_right_px=projection.endpoint_support_right_px,
+        selected_candidate_score=projection.selected_candidate_score,
+        candidate_reject_reason=projection.candidate_reject_reason,
+        source_point_a_component_id=projection.source_point_a_component_id,
+        source_point_b_component_id=projection.source_point_b_component_id,
+        source_point_a_trusted=projection.source_point_a_trusted,
+        source_point_b_trusted=projection.source_point_b_trusted,
+        source_point_a_distance_to_core_px=(
+            None
+            if projection.source_point_a_distance_to_core_px is None
+            else float(projection.source_point_a_distance_to_core_px) / max(float(geometry.scale), 1e-9)
+        ),
+        source_point_b_distance_to_core_px=(
+            None
+            if projection.source_point_b_distance_to_core_px is None
+            else float(projection.source_point_b_distance_to_core_px) / max(float(geometry.scale), 1e-9)
+        ),
+        envelope_source_trust_state=projection.envelope_source_trust_state,
+        source_point_a_in_metric_box=projection.source_point_a_in_metric_box,
+        source_point_b_in_metric_box=projection.source_point_b_in_metric_box,
+        source_point_a_in_analysis_roi=projection.source_point_a_in_analysis_roi,
+        source_point_b_in_analysis_roi=projection.source_point_b_in_analysis_roi,
     )
 
 
@@ -1483,6 +2084,52 @@ def _axis_offset_to_processing_space(
     normal = _axis_normal_vector(angle_deg)
     origin = np.array([float(geometry.original_roi.x), float(geometry.original_roi.y)], dtype=float)
     return (float(axis_offset_original) - float(origin @ normal)) * float(geometry.scale)
+
+
+def _sample_core_descriptor_to_processing_space(
+    descriptor: dict[str, Any] | None,
+    geometry: _ProcessingGeometry,
+    angle_deg: float,
+) -> dict[str, Any] | None:
+    normalized = _normalized_sample_core_descriptor(descriptor)
+    if normalized is None:
+        return None
+    direction = directional_unit_vector(float(angle_deg))
+    normal = np.array([-direction[1], direction[0]], dtype=float)
+    origin = np.array([float(geometry.original_roi.x), float(geometry.original_roi.y)], dtype=float)
+    origin_along = float(origin @ direction)
+    origin_lateral = float(origin @ normal)
+    scale = float(geometry.scale)
+    converted = dict(normalized)
+    for key in ("core_along_min", "core_along_max", "core_centroid_along"):
+        converted[key] = (float(normalized[key]) - origin_along) * scale
+    for key in ("core_lateral_min", "core_lateral_max", "core_centroid_lateral"):
+        converted[key] = (float(normalized[key]) - origin_lateral) * scale
+    converted["core_component_area"] = int(round(float(normalized["core_component_area"]) * scale * scale))
+    return converted
+
+
+def _sample_core_descriptor_to_original_space(
+    descriptor: dict[str, Any] | None,
+    geometry: _ProcessingGeometry,
+    angle_deg: float,
+) -> dict[str, Any] | None:
+    normalized = _normalized_sample_core_descriptor(descriptor)
+    if normalized is None:
+        return None
+    direction = directional_unit_vector(float(angle_deg))
+    normal = np.array([-direction[1], direction[0]], dtype=float)
+    origin = np.array([float(geometry.original_roi.x), float(geometry.original_roi.y)], dtype=float)
+    origin_along = float(origin @ direction)
+    origin_lateral = float(origin @ normal)
+    scale = max(float(geometry.scale), 1e-9)
+    converted = dict(normalized)
+    for key in ("core_along_min", "core_along_max", "core_centroid_along"):
+        converted[key] = origin_along + float(normalized[key]) / scale
+    for key in ("core_lateral_min", "core_lateral_max", "core_centroid_lateral"):
+        converted[key] = origin_lateral + float(normalized[key]) / scale
+    converted["core_component_area"] = int(round(float(normalized["core_component_area"]) / (scale * scale)))
+    return converted
 
 
 def _original_axis_refinement_tolerance_px(geometry: _ProcessingGeometry) -> float:
@@ -1617,6 +2264,41 @@ def _contour_to_original_roi(contour_xy: np.ndarray, geometry: _ProcessingGeomet
     contour[:, 0] = float(geometry.original_roi.x) + contour[:, 0] / max(float(geometry.scale_x), 1e-9)
     contour[:, 1] = float(geometry.original_roi.y) + contour[:, 1] / max(float(geometry.scale_y), 1e-9)
     return contour
+
+
+def _rejected_components_to_original_roi(
+    components: list[dict[str, Any]],
+    geometry: _ProcessingGeometry,
+    *,
+    image_shape: tuple[int, ...],
+) -> list[dict[str, Any]]:
+    if not components:
+        return []
+    roi = geometry.original_roi
+    scale_x = max(float(geometry.scale_x), 1e-9)
+    scale_y = max(float(geometry.scale_y), 1e-9)
+    scale = max(float(geometry.scale), 1e-9)
+    height, width = image_shape[:2]
+    converted: list[dict[str, Any]] = []
+    for component in components:
+        item = dict(component)
+        bbox = component.get("bbox")
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+            x0 = float(roi.x) + float(bbox[0]) / scale_x
+            y0 = float(roi.y) + float(bbox[1]) / scale_y
+            x1 = float(roi.x) + (float(bbox[0]) + float(bbox[2])) / scale_x
+            y1 = float(roi.y) + (float(bbox[1]) + float(bbox[3])) / scale_y
+            left = max(0, min(max(0, width - 1), int(math.floor(x0))))
+            top = max(0, min(max(0, height - 1), int(math.floor(y0))))
+            right = max(left + 1, min(width, int(math.ceil(x1))))
+            bottom = max(top + 1, min(height, int(math.ceil(y1))))
+            item["bbox"] = [left, top, max(1, right - left), max(1, bottom - top)]
+        if item.get("area") is not None:
+            item["area"] = int(round(float(item["area"]) / max(scale_x * scale_y, 1e-9)))
+        if item.get("distance_to_core_px") is not None:
+            item["distance_to_core_px"] = float(item["distance_to_core_px"]) / scale
+        converted.append(item)
+    return converted
 
 
 def _clip_roi(region: RectRegion, image_shape: tuple[int, ...]) -> RectRegion:

@@ -274,6 +274,14 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     # final segment, and the foreground support points only as debug markers.
     assert 'display_point_mode: "axis_projected"' in response.text
     assert "live-overlay-envelope-source" in response.text
+    assert "live-overlay-envelope-source--untrusted" in response.text
+    assert "source_point_a_trusted" in response.text
+    assert "source_point_b_trusted" in response.text
+    assert "last_clean_axis" in response.text
+    assert "live-overlay-envelope-last-clean-axis" in response.text
+    assert "previewRejectedComponentsFromPayload" in response.text
+    assert "live-overlay-envelope-rejected-component" in response.text
+    assert "envelope_contaminated_hold" in response.text
     assert "previewSourcePointFromTelemetryArray" in response.text
     assert "buildRealOfflineLiveProbeRequest" in response.text
     assert "real_offline_alignment_definition_attached" in response.text
