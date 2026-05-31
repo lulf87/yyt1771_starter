@@ -908,6 +908,9 @@ def measure_component_envelope_width(
         label_lookup = np.asarray(component_labels)
     trusted_ids = set(int(value) for value in (trusted_component_ids or set()))
     stats = component_stats or {}
+    allowed_lookup: np.ndarray | None = None
+    if allowed_mask is not None and np.asarray(allowed_mask).shape[:2] == np.asarray(component_mask).shape[:2]:
+        allowed_lookup = np.asarray(allowed_mask) > 0
 
     bin_width = max(0.5, float(normal_bin_width_px))
     median_lateral = float(np.median(lateral))
@@ -957,6 +960,8 @@ def measure_component_envelope_width(
         support = int(len(indices))
         if support < effective_min_support:
             continue
+        trusted_support_sufficient = True
+        trusted_support_count: int | None = None
         if trusted_lookup is not None or trusted_ids:
             trusted_indices = [
                 int(index)
@@ -973,9 +978,12 @@ def measure_component_envelope_width(
                     col=int(point_cols[int(index)]),
                 )
             ]
+            trusted_support_count = int(len(trusted_indices))
             if len(trusted_indices) >= effective_min_support:
                 indices = np.asarray(trusted_indices, dtype=np.int64)
                 support = int(len(indices))
+            else:
+                trusted_support_sufficient = False
         ordered = indices[np.argsort(along[indices])]
         ordered_along = along[ordered]
         low_value = float(np.quantile(ordered_along, endpoint_quantile))
@@ -1037,14 +1045,24 @@ def measure_component_envelope_width(
             image_shape=image_shape,
             clip_region=clip_region,
         )
-        source_points_in_metric_box = (
-            True
-            if metric_box is None or allowed_mask is not None
-            else (
-                _point_in_metric_box_float(metric_box, low_source_point)
-                and _point_in_metric_box_float(metric_box, high_source_point)
+        if allowed_lookup is not None:
+            low_in_metric_box = _point_in_allowed_mask(
+                int(point_rows[low_index]),
+                int(point_cols[low_index]),
+                allowed_lookup,
             )
-        )
+            high_in_metric_box = _point_in_allowed_mask(
+                int(point_rows[high_index]),
+                int(point_cols[high_index]),
+                allowed_lookup,
+            )
+        elif metric_box is not None:
+            low_in_metric_box = _point_in_metric_box_float(metric_box, low_source_point)
+            high_in_metric_box = _point_in_metric_box_float(metric_box, high_source_point)
+        else:
+            low_in_metric_box = True
+            high_in_metric_box = True
+        source_points_in_metric_box = bool(low_in_metric_box and high_in_metric_box)
         source_points_in_analysis_roi = (
             _point_in_region_float(roi, float(low_source_point.x), float(low_source_point.y))
             and _point_in_region_float(roi, float(high_source_point.x), float(high_source_point.y))
@@ -1083,7 +1101,11 @@ def measure_component_envelope_width(
             "low_trusted": low_trusted,
             "high_trusted": high_trusted,
             "endpoints_trusted": endpoints_trusted,
+            "trusted_support_sufficient": trusted_support_sufficient,
+            "trusted_support_count": trusted_support_count,
             "source_points_in_metric_box": source_points_in_metric_box,
+            "source_point_a_in_metric_box": bool(low_in_metric_box),
+            "source_point_b_in_metric_box": bool(high_in_metric_box),
             "source_points_in_analysis_roi": source_points_in_analysis_roi,
             "endpoint_weak": not endpoints_supported,
             "low_distance_to_core": low_distance_to_core,
@@ -1104,14 +1126,22 @@ def measure_component_envelope_width(
             candidate,
             span_floor_px=span_floor,
         )
+        max_width_reject_reason = _envelope_candidate_reject_reason(
+            candidate,
+            require_endpoint_support=False,
+        )
         strict_min_width_effective = min_width_reject_reason is None
         relaxed_min_width_effective = relaxed_min_width_reject_reason is None
+        max_width_effective = max_width_reject_reason is None
         candidate["min_width_effective"] = strict_min_width_effective
         candidate["min_width_relaxed_effective"] = relaxed_min_width_effective
+        candidate["max_width_effective"] = max_width_effective
         candidate["min_width_reject_reason"] = min_width_reject_reason
         candidate["min_width_relaxed_reject_reason"] = relaxed_min_width_reject_reason
+        candidate["max_width_reject_reason"] = max_width_reject_reason
+        candidate["candidate_reject_reason"] = max_width_reject_reason or min_width_reject_reason
         candidate_debug_items.append(candidate)
-        if endpoints_supported and endpoints_trusted:
+        if max_width_effective:
             max_width_valid_candidate_count += 1
             if strict_min_width_effective:
                 min_width_valid_candidate_count += 1
@@ -1129,12 +1159,21 @@ def measure_component_envelope_width(
                 width_extreme_mode="min_width",
             ):
                 best_min_width_relaxed = candidate
-        if _envelope_candidate_is_better(candidate, best, width_extreme_mode="max_width"):
-            best = candidate
-        if endpoints_supported and _envelope_candidate_is_better(candidate, best_supported, width_extreme_mode="max_width"):
-            best_supported = candidate
-        if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(candidate, best_trusted_supported, width_extreme_mode="max_width"):
-            best_trusted_supported = candidate
+        if max_width_effective:
+            if _envelope_candidate_is_better(candidate, best, width_extreme_mode="max_width"):
+                best = candidate
+            if endpoints_supported and _envelope_candidate_is_better(
+                candidate,
+                best_supported,
+                width_extreme_mode="max_width",
+            ):
+                best_supported = candidate
+            if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(
+                candidate,
+                best_trusted_supported,
+                width_extreme_mode="max_width",
+            ):
+                best_trusted_supported = candidate
 
     envelope_candidate_debug = _envelope_candidate_debug(candidate_debug_items)
     reject_reason: str | None = None
@@ -1196,8 +1235,13 @@ def measure_component_envelope_width(
     )
     source_a_in_roi = _point_in_region_float(roi, float(source_point_a.x), float(source_point_a.y))
     source_b_in_roi = _point_in_region_float(roi, float(source_point_b.x), float(source_point_b.y))
-    source_a_in_box = None if metric_box is None else _point_in_metric_box_float(metric_box, source_point_a)
-    source_b_in_box = None if metric_box is None else _point_in_metric_box_float(metric_box, source_point_b)
+    source_metric_box_known = allowed_lookup is not None or metric_box is not None
+    source_a_in_box = (
+        bool(best.get("source_point_a_in_metric_box", True)) if source_metric_box_known else None
+    )
+    source_b_in_box = (
+        bool(best.get("source_point_b_in_metric_box", True)) if source_metric_box_known else None
+    )
     trust_state = "trusted"
     if not bool(best.get("low_trusted", True)) or not bool(best.get("high_trusted", True)):
         trust_state = "detached_endpoint"
@@ -1330,12 +1374,11 @@ def _min_width_candidate_reject_reason(
     lateral_extent: float,
     exclude_end_fraction: float,
 ) -> str | None:
+    base_reason = _envelope_candidate_reject_reason(candidate, require_endpoint_support=True)
+    if base_reason is not None:
+        return base_reason
     if float(candidate["span"]) < float(span_floor_px):
         return "span_below_floor"
-    if not bool(candidate.get("endpoints_supported", False)):
-        return "endpoint_weak"
-    if not bool(candidate.get("endpoints_trusted", False)):
-        return "detached_endpoint"
     if lateral_extent > 0.0 and exclude_end_fraction > 0.0:
         margin = lateral_extent * exclude_end_fraction
         axis_offset = float(candidate["axis_offset"])
@@ -1349,14 +1392,29 @@ def _min_width_candidate_relaxed_reject_reason(
     *,
     span_floor_px: float,
 ) -> str | None:
+    base_reason = _envelope_candidate_reject_reason(candidate, require_endpoint_support=False)
+    if base_reason is not None:
+        return base_reason
     if float(candidate["span"]) < float(span_floor_px):
         return "span_below_floor"
-    if not bool(candidate.get("endpoints_trusted", False)):
-        return "detached_endpoint"
+    return None
+
+
+def _envelope_candidate_reject_reason(
+    candidate: dict[str, Any],
+    *,
+    require_endpoint_support: bool,
+) -> str | None:
     if not bool(candidate.get("source_points_in_metric_box", True)):
         return "source_outside_metric_box"
     if not bool(candidate.get("source_points_in_analysis_roi", True)):
         return "source_outside_analysis_roi"
+    if not bool(candidate.get("endpoints_trusted", False)):
+        return "detached_endpoint"
+    if not bool(candidate.get("trusted_support_sufficient", True)):
+        return "trusted_support_below_min"
+    if require_endpoint_support and not bool(candidate.get("endpoints_supported", False)):
+        return "endpoint_weak"
     return None
 
 
@@ -1380,8 +1438,15 @@ def _envelope_candidate_debug_item(candidate: dict[str, Any]) -> dict[str, Any]:
         "supported": bool(candidate.get("endpoints_supported", False)),
         "effective": bool(candidate.get("min_width_effective", False)),
         "relaxed_effective": bool(candidate.get("min_width_relaxed_effective", False)),
+        "max_effective": bool(candidate.get("max_width_effective", False)),
         "endpoint_weak": bool(candidate.get("endpoint_weak", False)),
-        "reject_reason": candidate.get("min_width_reject_reason"),
+        "source_in_metric_box": bool(candidate.get("source_points_in_metric_box", True)),
+        "source_in_analysis_roi": bool(candidate.get("source_points_in_analysis_roi", True)),
+        "trusted_support_sufficient": bool(candidate.get("trusted_support_sufficient", True)),
+        "trusted_support_count": candidate.get("trusted_support_count"),
+        "reject_reason": candidate.get("candidate_reject_reason") or candidate.get("min_width_reject_reason"),
+        "max_reject_reason": candidate.get("max_width_reject_reason"),
+        "min_reject_reason": candidate.get("min_width_reject_reason"),
         "relaxed_reject_reason": candidate.get("min_width_relaxed_reject_reason"),
     }
 
@@ -1505,6 +1570,15 @@ def _source_point_is_trusted(
     if row < 0 or col < 0 or row >= trusted_mask.shape[0] or col >= trusted_mask.shape[1]:
         return False
     return bool(trusted_mask[row, col])
+
+
+def _point_in_allowed_mask(row: int, col: int, allowed_mask: np.ndarray | None) -> bool:
+    if allowed_mask is None:
+        return True
+    mask = np.asarray(allowed_mask) > 0
+    if row < 0 or col < 0 or row >= mask.shape[0] or col >= mask.shape[1]:
+        return False
+    return bool(mask[row, col])
 
 
 def _component_distance_to_core_px(

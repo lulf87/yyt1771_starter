@@ -292,7 +292,7 @@ def test_envelope_min_width_meta_reports_candidate_counts() -> None:
 
     assert metric.meta["min_width_valid_candidate_count"] == 0
     assert metric.meta["min_width_relaxed_candidate_count"] >= 1
-    assert metric.meta["max_width_valid_candidate_count"] == 0
+    assert metric.meta["max_width_valid_candidate_count"] >= 3
     assert metric.meta["min_width_reject_reason"] == "min_width_relaxed_candidate"
     assert metric.meta["candidate_reject_reason"] == "min_width_relaxed_candidate"
     assert metric.meta["effective_envelope_min_support_px"] == 12
@@ -302,6 +302,114 @@ def test_envelope_min_width_meta_reports_candidate_counts() -> None:
     assert debug["smallest"][0]["span"] == pytest.approx(60.0, abs=2.0)
     assert debug["largest"][0]["span"] == pytest.approx(100.0, abs=2.0)
     assert debug["smallest"][0]["endpoint_weak"] is True
+
+
+def test_envelope_source_in_allowed_mask_checked_per_endpoint() -> None:
+    mask = np.zeros((80, 180), dtype=np.uint8)
+    mask[24:28, 20:171] = 255  # would be the widest span if allowed_mask were trusted blindly
+    mask[50:54, 70:131] = 255
+    allowed_mask = np.zeros_like(mask, dtype=bool)
+    allowed_mask[24:28, 20:90] = True  # low endpoint inside, high endpoint outside
+    allowed_mask[50:54, 70:131] = True
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=180, height=80),
+        0.0,
+        allowed_mask=allowed_mask,
+        metric_box=MetricBox(center_x=90, center_y=40, width=180, height=80, angle_deg=0.0),
+        min_support_px=3,
+        width_extreme_mode="max_width",
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=1.0)
+    assert result.source_point_a_in_metric_box is True
+    assert result.source_point_b_in_metric_box is True
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(150.0, abs=1.0)
+    assert largest["source_in_metric_box"] is False
+    assert largest["reject_reason"] == "source_outside_metric_box"
+
+
+def test_envelope_untrusted_window_does_not_fallback_to_all_indices() -> None:
+    mask = np.zeros((80, 180), dtype=np.uint8)
+    mask[24:28, 20:171] = 255
+    mask[50:54, 70:131] = 255
+    trusted_mask = np.zeros_like(mask, dtype=bool)
+    trusted_mask[24:28, 20] = True
+    trusted_mask[24:28, 170] = True
+    trusted_mask[50:54, 70:131] = True
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=180, height=80),
+        0.0,
+        trusted_mask=trusted_mask,
+        metric_box=MetricBox(center_x=90, center_y=40, width=180, height=80, angle_deg=0.0),
+        min_support_px=4,
+        width_extreme_mode="max_width",
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=1.0)
+    assert result.max_width_valid_candidate_count >= 1
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(150.0, abs=1.0)
+    assert largest["trusted_support_sufficient"] is False
+    assert largest["reject_reason"] == "trusted_support_below_min"
+
+
+def test_envelope_min_width_selects_smallest_valid_not_untrusted() -> None:
+    mask = np.zeros((80, 180), dtype=np.uint8)
+    mask[24:28, 80:121] = 255  # smaller, but outside allowed_mask at source endpoints
+    mask[50:54, 70:131] = 255
+    allowed_mask = np.zeros_like(mask, dtype=bool)
+    allowed_mask[50:54, 70:131] = True
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=180, height=80),
+        0.0,
+        allowed_mask=allowed_mask,
+        metric_box=MetricBox(center_x=90, center_y=40, width=180, height=80, angle_deg=0.0),
+        min_support_px=3,
+        width_extreme_mode="min_width",
+        min_width_min_span_px=5.0,
+        min_width_min_span_ratio=0.0,
+    )
+
+    assert result.metric_raw == pytest.approx(60.0, abs=1.0)
+    assert result.selected_width_extreme_mode == "min_width"
+    assert result.min_width_valid_candidate_count >= 1
+    smallest = result.envelope_candidate_debug["smallest"][0]
+    assert smallest["span"] == pytest.approx(40.0, abs=1.0)
+    assert smallest["source_in_metric_box"] is False
+    assert smallest["reject_reason"] == "source_outside_metric_box"
+
+
+def test_envelope_max_width_selects_largest_valid_not_untrusted() -> None:
+    mask = np.zeros((80, 180), dtype=np.uint8)
+    mask[24:28, 20:171] = 255  # larger, but outside allowed_mask at source endpoints
+    mask[50:54, 50:151] = 255
+    allowed_mask = np.zeros_like(mask, dtype=bool)
+    allowed_mask[50:54, 50:151] = True
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=180, height=80),
+        0.0,
+        allowed_mask=allowed_mask,
+        metric_box=MetricBox(center_x=90, center_y=40, width=180, height=80, angle_deg=0.0),
+        min_support_px=3,
+        width_extreme_mode="max_width",
+    )
+
+    assert result.metric_raw == pytest.approx(100.0, abs=1.0)
+    assert result.selected_width_extreme_mode == "max_width"
+    assert result.max_width_valid_candidate_count >= 1
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(150.0, abs=1.0)
+    assert largest["source_in_metric_box"] is False
+    assert largest["reject_reason"] == "source_outside_metric_box"
 
 
 def test_envelope_min_width_reports_span_floor_in_original_pixels_after_downscale() -> None:

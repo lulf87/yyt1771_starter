@@ -1516,8 +1516,16 @@ def test_web_auto_detect_min_and_max_differ_on_synthetic_geometry(tmp_path: Path
     assert min_payload["selected_width_extreme_mode"] == "min_width"
     assert min_payload["candidate_selection_goal"] == "min_span"
     assert min_payload["candidate_reject_reason"] == "min_width_relaxed_candidate"
+    assert min_payload["selected_candidate_span"] == pytest.approx(60.0, abs=2.0)
+    assert min_payload["candidate_span_floor_px"] is not None
     assert min_payload["min_width_valid_candidate_count"] == 0
     assert min_payload["min_width_relaxed_candidate_count"] >= 1
+    assert min_payload["max_width_valid_candidate_count"] >= 3
+    assert min_payload["source_point_a_in_metric_box"] is True
+    assert min_payload["source_point_b_in_metric_box"] is True
+    assert min_payload["source_point_a_trusted"] is True
+    assert min_payload["source_point_b_trusted"] is True
+    assert min_payload["envelope_source_trust_state"] == "trusted"
     assert min_payload["envelope_candidate_debug"]["smallest"][0]["span"] == pytest.approx(60.0, abs=2.0)
 
 

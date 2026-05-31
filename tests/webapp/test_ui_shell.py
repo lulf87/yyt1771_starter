@@ -299,6 +299,12 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "live-overlay-envelope-source--untrusted" in response.text
     assert "source_point_a_trusted" in response.text
     assert "source_point_b_trusted" in response.text
+    assert "source_point_a_in_analysis_roi" in response.text
+    assert "source_point_b_in_analysis_roi" in response.text
+    assert "envelopeDebugBool" in response.text
+    assert "floor=" in response.text
+    assert "trust=" in response.text
+    assert "box=" in response.text
     assert "last_clean_axis" in response.text
     assert "live-overlay-envelope-last-clean-axis" in response.text
     assert "previewRejectedComponentsFromPayload" in response.text

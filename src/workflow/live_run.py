@@ -732,6 +732,7 @@ class PriorTrackingMetricSource:
                 or observation.point_a_px is None
                 or observation.point_b_px is None
             ):
+                unavailable_reason = self._envelope_unavailable_reason(observation)
                 self._clear_envelope_pending()
                 return self._hold_last_good_for_envelope_outlier(
                     frame,
@@ -740,7 +741,8 @@ class PriorTrackingMetricSource:
                     total_samples=total_samples,
                     observation=observation,
                     diagnostics=diagnostics,
-                    reason="envelope_observation_unavailable",
+                    reason=unavailable_reason,
+                    tracking_state=self._envelope_tracking_state_for_reason(unavailable_reason),
                 )
             outlier_reason = self._envelope_outlier_reason(observation, diagnostics)
             if outlier_reason is not None:
@@ -1093,6 +1095,17 @@ class PriorTrackingMetricSource:
         if state == "source_outside_analysis_roi":
             return "source_outside_analysis_roi"
         return None
+
+    def _envelope_unavailable_reason(self, observation: ShapeMetric) -> str:
+        if self._is_min_width_envelope:
+            for key in ("min_width_reject_reason", "candidate_reject_reason", "reason"):
+                value = observation.meta.get(key)
+                if value is None:
+                    continue
+                reason = str(value)
+                if reason.startswith("min_width_"):
+                    return reason
+        return "envelope_observation_unavailable"
 
     def _envelope_side_guard_area_is_gross(self, observation: ShapeMetric) -> bool:
         guard_area = observation.meta.get("side_guard_foreground_area")
@@ -1582,6 +1595,7 @@ class PriorTrackingMetricSource:
     def _envelope_tracking_state_for_reason(self, reason: str) -> str:
         mapping = {
             "envelope_observation_unavailable": "envelope_observation_unavailable",
+            "min_width_no_effective_candidate": "min_width_no_effective_candidate",
             "envelope_quality_zero": "envelope_prior_hold",
             "envelope_border_touch": "envelope_background_component_rejected",
             "envelope_span_too_large": "envelope_prior_hold",

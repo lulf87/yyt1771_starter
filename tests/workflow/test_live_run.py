@@ -2115,6 +2115,93 @@ def test_source_point_outside_metric_box_rejected_without_refreshing_last_good(
     assert source._last_good_span_px == pytest.approx(60.0)
 
 
+def test_min_width_no_candidate_hold_reports_explicit_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {
+        "value": ShapeMetric(
+            timestamp_ms=1,
+            metric_name="directional_contour_span",
+            metric_raw=60.0,
+            quality=0.95,
+            roi=(0, 0, 160, 80),
+            point_a_px=(20, 32),
+            point_b_px=(80, 32),
+            meta={
+                "selection_mode": "directional_contour_envelope_max_width",
+                "projection_point_mode": "envelope_max_width",
+                "width_extreme_mode": "min_width",
+                "selected_width_extreme_mode": "min_width",
+                "candidate_selection_goal": "min_span",
+                "candidate_span_floor_px": 5.0,
+                "min_width_valid_candidate_count": 1,
+                "min_width_relaxed_candidate_count": 0,
+                "max_width_valid_candidate_count": 1,
+                "envelope_support_px": 24,
+                "endpoint_support_left_px": 8,
+                "endpoint_support_right_px": 8,
+                "source_point_a_trusted": True,
+                "source_point_b_trusted": True,
+                "source_point_a_in_metric_box": True,
+                "source_point_b_in_metric_box": True,
+                "source_point_a_in_analysis_roi": True,
+                "source_point_b_in_analysis_roi": True,
+                "envelope_source_trust_state": "trusted",
+            },
+        )
+    }
+
+    class FakeDirectionalExtractor:
+        def __init__(self, config):
+            assert config.projection_mode == "envelope_max_width"
+            assert config.width_extreme_mode == "min_width"
+
+        def extract(self, frame):
+            metric = holder["value"]
+            metric.timestamp_ms = frame.timestamp_ms
+            return metric
+
+    monkeypatch.setattr("src.workflow.live_run.DirectionalContourMetricExtractor", FakeDirectionalExtractor)
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(width_extreme_mode="min_width", point_a=(20, 32), point_b=(80, 32)),
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    clean = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = ShapeMetric(
+        timestamp_ms=2,
+        metric_name="directional_contour_span",
+        metric_raw=None,
+        quality=0.0,
+        roi=(0, 0, 160, 80),
+        meta={
+            "reason": "min_width_no_effective_candidate",
+            "width_extreme_mode": "min_width",
+            "selected_width_extreme_mode": None,
+            "candidate_selection_goal": "min_span",
+            "candidate_span_floor_px": 5.0,
+            "min_width_valid_candidate_count": 0,
+            "min_width_relaxed_candidate_count": 0,
+            "max_width_valid_candidate_count": 1,
+            "min_width_reject_reason": "min_width_no_effective_candidate",
+            "candidate_reject_reason": "min_width_no_effective_candidate",
+            "envelope_candidate_debug": {"smallest": [], "largest": []},
+        },
+    )
+    frame1, temp1 = _frame_temp(2)
+    held = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert held.point_a_px == clean.point_a_px
+    assert held.point_b_px == clean.point_b_px
+    assert held.meta["original_rejection_reason"] == "min_width_no_effective_candidate"
+    assert held.meta["min_width_reject_reason"] == "min_width_no_effective_candidate"
+    assert held.meta["candidate_selection_goal"] == "min_span"
+
+
 def test_locked_definition_envelope_resolves_metric_box_angle_and_parallel_ab() -> None:
     # A horizontal line bundle with a stale direction_angle_deg of 90 deg. The
     # metric box angle (0 deg) is authoritative, so the live extractor must

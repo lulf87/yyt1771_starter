@@ -2351,6 +2351,8 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     source_point_b_trusted: payload.source_point_b_trusted ?? true,
     source_point_a_in_metric_box: payload.source_point_a_in_metric_box ?? null,
     source_point_b_in_metric_box: payload.source_point_b_in_metric_box ?? null,
+    source_point_a_in_analysis_roi: payload.source_point_a_in_analysis_roi ?? null,
+    source_point_b_in_analysis_roi: payload.source_point_b_in_analysis_roi ?? null,
     last_clean_axis: payload.last_clean_axis ?? null,
     display_point_mode: "axis_projected",
     source_point_a_px: previewSourcePointFromObject(payload.source_point_a_px),
@@ -2438,6 +2440,8 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     source_point_b_trusted: latestTelemetry.source_point_b_trusted ?? true,
     source_point_a_in_metric_box: latestTelemetry.source_point_a_in_metric_box ?? null,
     source_point_b_in_metric_box: latestTelemetry.source_point_b_in_metric_box ?? null,
+    source_point_a_in_analysis_roi: latestTelemetry.source_point_a_in_analysis_roi ?? null,
+    source_point_b_in_analysis_roi: latestTelemetry.source_point_b_in_analysis_roi ?? null,
     display_point_mode: "axis_projected",
     point_a_px: pointA,
     point_b_px: pointB,
@@ -2726,6 +2730,32 @@ function envelopeSelectionDebugLabel(overlay) {
   if (reason) {
     parts.push(String(reason));
   }
+  const spanFloor = Number(overlay.candidate_span_floor_px);
+  if (Number.isFinite(spanFloor)) {
+    parts.push(`floor=${envelopeDebugNumber(spanFloor)}`);
+  }
+  if (overlay.endpoint_support_left_px != null || overlay.endpoint_support_right_px != null) {
+    parts.push(`ep=${overlay.endpoint_support_left_px ?? "-"}/${overlay.endpoint_support_right_px ?? "-"}`);
+  }
+  const sourceTrustState = overlay.envelope_source_trust_state;
+  if (sourceTrustState && sourceTrustState !== "trusted") {
+    parts.push(String(sourceTrustState));
+  }
+  if (overlay.source_point_a_trusted != null || overlay.source_point_b_trusted != null) {
+    parts.push(
+      `trust=${envelopeDebugBool(overlay.source_point_a_trusted)}/${envelopeDebugBool(overlay.source_point_b_trusted)}`,
+    );
+  }
+  if (overlay.source_point_a_in_metric_box != null || overlay.source_point_b_in_metric_box != null) {
+    parts.push(
+      `box=${envelopeDebugBool(overlay.source_point_a_in_metric_box)}/${envelopeDebugBool(overlay.source_point_b_in_metric_box)}`,
+    );
+  }
+  if (overlay.source_point_a_in_analysis_roi != null || overlay.source_point_b_in_analysis_roi != null) {
+    parts.push(
+      `roi=${envelopeDebugBool(overlay.source_point_a_in_analysis_roi)}/${envelopeDebugBool(overlay.source_point_b_in_analysis_roi)}`,
+    );
+  }
   const strictCount = overlay.min_width_valid_candidate_count;
   const relaxedCount = overlay.min_width_relaxed_candidate_count;
   const maxCount = overlay.max_width_valid_candidate_count;
@@ -2733,6 +2763,21 @@ function envelopeSelectionDebugLabel(overlay) {
     parts.push(`min=${strictCount ?? "-"} relaxed=${relaxedCount ?? "-"} max=${maxCount ?? "-"}`);
   }
   return parts.join(" | ");
+}
+
+function envelopeDebugBool(value) {
+  if (value == null) {
+    return "-";
+  }
+  return value ? "T" : "F";
+}
+
+function envelopeDebugNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "-";
+  }
+  return Math.abs(numeric) >= 100 ? numeric.toFixed(0) : numeric.toFixed(1);
 }
 
 function envelopeAxisOffsetLineToPreview(directionBox, axisOffset) {
