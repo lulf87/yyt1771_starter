@@ -1051,6 +1051,12 @@ code {
   stroke-width: 1.5;
 }
 
+.live-overlay-envelope-source--projection-warning {
+  fill: rgba(255, 213, 102, 0.82);
+  stroke: rgba(213, 69, 44, 0.98);
+  stroke-width: 2;
+}
+
 .live-overlay-envelope-reject-label {
   fill: rgba(243, 139, 79, 0.95);
   font-size: 12px;

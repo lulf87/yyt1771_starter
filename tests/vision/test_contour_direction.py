@@ -412,6 +412,133 @@ def test_envelope_max_width_selects_largest_valid_not_untrusted() -> None:
     assert largest["reject_reason"] == "source_outside_metric_box"
 
 
+def test_envelope_rejects_source_axis_offset_too_far() -> None:
+    mask = np.zeros((100, 220), dtype=np.uint8)
+    # Widest visual candidate: the low/high source support pixels sit 10 px away
+    # from the axis median, so projecting B to the median axis would put it on
+    # background instead of the supporting filament.
+    mask[20:23, 20:70] = 255
+    mask[30:33, 80:121] = 255
+    mask[40:43, 130:181] = 255
+    # Narrower but coherent candidate whose source endpoints lie on its axis.
+    mask[70:74, 55:146] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=220, height=100),
+        0.0,
+        normal_bin_width_px=10.0,
+        lateral_window_bins=1,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        envelope_source_axis_tolerance_px=4.0,
+    )
+
+    assert result.metric_raw == pytest.approx(90.0, abs=2.0)
+    assert result.source_axis_distance_a_px <= 4.0
+    assert result.source_axis_distance_b_px <= 4.0
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(160.0, abs=2.0)
+    assert largest["reject_reason"] == "source_axis_offset_too_far"
+    assert largest["source_axis_distance_b_px"] > largest["envelope_source_axis_tolerance_px"]
+
+
+def test_envelope_rejects_source_projection_too_far() -> None:
+    mask = np.zeros((100, 220), dtype=np.uint8)
+    mask[20:23, 20:70] = 255
+    mask[30:33, 80:121] = 255
+    mask[40:43, 130:181] = 255
+    mask[70:74, 55:146] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=220, height=100),
+        0.0,
+        normal_bin_width_px=10.0,
+        lateral_window_bins=1,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        envelope_source_axis_tolerance_px=20.0,
+        envelope_max_source_projection_distance_px=4.0,
+    )
+
+    assert result.metric_raw == pytest.approx(90.0, abs=2.0)
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(160.0, abs=2.0)
+    assert largest["reject_reason"] == "source_projection_too_far"
+    assert largest["source_projection_distance_b_px"] > largest["envelope_max_source_projection_distance_px"]
+
+
+def test_envelope_prefers_candidate_with_source_close_to_axis() -> None:
+    mask = np.zeros((120, 240), dtype=np.uint8)
+    # Slightly wider candidate with support endpoints 8 px off its projected axis.
+    mask[20:23, 20:71] = 255
+    mask[28:31, 72:121] = 255
+    mask[36:39, 122:171] = 255
+    # Near-tie candidate whose support and projected axis are aligned.
+    mask[82:86, 34:133] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=240, height=120),
+        0.0,
+        normal_bin_width_px=8.0,
+        lateral_window_bins=1,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        envelope_source_axis_tolerance_px=20.0,
+        envelope_max_source_projection_distance_px=20.0,
+    )
+
+    assert result.metric_raw == pytest.approx(98.0, abs=2.0)
+    assert result.source_axis_distance_a_px <= 1.0
+    assert result.source_axis_distance_b_px <= 1.0
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(150.0, abs=2.0)
+    assert largest["source_axis_distance_b_px"] > result.source_axis_distance_b_px
+
+
+def test_line_bundle_dense_phase_b_point_not_projected_to_empty_background() -> None:
+    image = np.full((130, 240), 240, dtype=np.uint8)
+    # Dense phase: left/right source support exists in one lateral window, but the
+    # projected B endpoint at the window median would fall on empty background.
+    image[20:23, 20:70] = 30
+    image[30:33, 80:121] = 30
+    image[40:43, 130:181] = 30
+    # Warmer/open phase candidate: narrower but the source endpoint and axis point
+    # describe the same physical filament row.
+    image[82:86, 55:146] = 30
+
+    result = detect_directional_contour(
+        image,
+        DirectionalContourConfig(
+            analysis_roi=RectRegion(x=0, y=0, width=240, height=130),
+            direction_angle_deg=0.0,
+            metric_box=MetricBox(center_x=120, center_y=65, width=220, height=120, angle_deg=0.0),
+            threshold_mode="binary",
+            threshold_value=100.0,
+            foreground_polarity="dark_on_light",
+            min_target_area_px=6,
+            projection_mode="envelope_max_width",
+            target_geometry_mode="line_bundle",
+            envelope_normal_bin_width_px=10.0,
+            envelope_lateral_window_bins=1,
+            envelope_source_axis_tolerance_px=4.0,
+            component_bridge_kernel=1,
+            open_kernel=1,
+            processing_max_side_px=0,
+        ),
+    )
+
+    assert result.projection_point_mode == "envelope_max_width"
+    assert result.metric_raw == pytest.approx(90.0, abs=2.0)
+    assert result.point_a.y == result.point_b.y
+    assert image[result.point_b.y, result.point_b.x] == 30
+    assert result.source_projection_reject_reason is None
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["reject_reason"] == "source_axis_offset_too_far"
+
+
 def test_envelope_min_width_reports_span_floor_in_original_pixels_after_downscale() -> None:
     image = np.full((120, 220), 240, dtype=np.uint8)
     image[46:56, 40:141] = 30

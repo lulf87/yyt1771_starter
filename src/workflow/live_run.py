@@ -289,6 +289,8 @@ class LockedDefinitionMetricSource:
                 envelope_lateral_window_bins=definition.envelope_lateral_window_bins,
                 envelope_endpoint_support_radius_px=definition.envelope_endpoint_support_radius_px,
                 envelope_endpoint_min_support_px=definition.envelope_endpoint_min_support_px,
+                envelope_source_axis_tolerance_px=definition.envelope_source_axis_tolerance_px,
+                envelope_max_source_projection_distance_px=definition.envelope_max_source_projection_distance_px,
                 processing_max_side_px=_directional_processing_max_side_px(
                     working_max_width,
                     working_max_height,
@@ -1115,6 +1117,9 @@ class PriorTrackingMetricSource:
         }
 
     def _envelope_source_trust_failure_reason(self, observation: ShapeMetric) -> str | None:
+        source_projection_reject_reason = observation.meta.get("source_projection_reject_reason")
+        if source_projection_reject_reason in {"source_axis_offset_too_far", "source_projection_too_far"}:
+            return str(source_projection_reject_reason)
         state = str(observation.meta.get("envelope_source_trust_state") or "trusted")
         if observation.meta.get("source_point_a_in_analysis_roi") is False or observation.meta.get("source_point_b_in_analysis_roi") is False:
             return "source_outside_analysis_roi"
@@ -1449,6 +1454,15 @@ class PriorTrackingMetricSource:
             "max_width_valid_candidate_count": observation.meta.get("max_width_valid_candidate_count"),
             "min_width_reject_reason": observation.meta.get("min_width_reject_reason"),
             "envelope_candidate_debug": observation.meta.get("envelope_candidate_debug"),
+            "source_axis_distance_a_px": observation.meta.get("source_axis_distance_a_px"),
+            "source_axis_distance_b_px": observation.meta.get("source_axis_distance_b_px"),
+            "source_projection_distance_a_px": observation.meta.get("source_projection_distance_a_px"),
+            "source_projection_distance_b_px": observation.meta.get("source_projection_distance_b_px"),
+            "envelope_source_axis_tolerance_px": observation.meta.get("envelope_source_axis_tolerance_px"),
+            "envelope_max_source_projection_distance_px": observation.meta.get(
+                "envelope_max_source_projection_distance_px"
+            ),
+            "source_projection_reject_reason": observation.meta.get("source_projection_reject_reason"),
             "envelope_support_px": observation.meta.get("envelope_support_px"),
             "endpoint_support_left_px": observation.meta.get("endpoint_support_left_px"),
             "endpoint_support_right_px": observation.meta.get("endpoint_support_right_px"),
@@ -1667,6 +1681,8 @@ class PriorTrackingMetricSource:
             "detached_source_endpoint": "envelope_contaminated_hold",
             "source_outside_metric_box": "envelope_contaminated_hold",
             "source_outside_analysis_roi": "envelope_contaminated_hold",
+            "source_axis_offset_too_far": "envelope_projection_offset_hold",
+            "source_projection_too_far": "envelope_projection_offset_hold",
             "envelope_relocation_pending": "envelope_pending_relocation",
             "envelope_near_tie_axis_jitter": "envelope_near_tie_hold",
         }
@@ -1696,6 +1712,15 @@ class PriorTrackingMetricSource:
             "max_width_valid_candidate_count": observation.meta.get("max_width_valid_candidate_count"),
             "min_width_reject_reason": observation.meta.get("min_width_reject_reason"),
             "envelope_candidate_debug": observation.meta.get("envelope_candidate_debug"),
+            "source_axis_distance_a_px": observation.meta.get("source_axis_distance_a_px"),
+            "source_axis_distance_b_px": observation.meta.get("source_axis_distance_b_px"),
+            "source_projection_distance_a_px": observation.meta.get("source_projection_distance_a_px"),
+            "source_projection_distance_b_px": observation.meta.get("source_projection_distance_b_px"),
+            "envelope_source_axis_tolerance_px": observation.meta.get("envelope_source_axis_tolerance_px"),
+            "envelope_max_source_projection_distance_px": observation.meta.get(
+                "envelope_max_source_projection_distance_px"
+            ),
+            "source_projection_reject_reason": observation.meta.get("source_projection_reject_reason"),
             **self._envelope_endpoint_support_policy_meta(
                 observation,
                 hard_reject=reason
@@ -1833,6 +1858,13 @@ class PriorTrackingMetricSource:
             "max_width_valid_candidate_count",
             "min_width_reject_reason",
             "envelope_candidate_debug",
+            "source_axis_distance_a_px",
+            "source_axis_distance_b_px",
+            "source_projection_distance_a_px",
+            "source_projection_distance_b_px",
+            "envelope_source_axis_tolerance_px",
+            "envelope_max_source_projection_distance_px",
+            "source_projection_reject_reason",
             "selected_component_count",
             "rejected_component_count",
             "envelope_candidate_count",
@@ -3468,6 +3500,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "envelope_lateral_window_bins": definition.envelope_lateral_window_bins,
         "envelope_endpoint_support_radius_px": definition.envelope_endpoint_support_radius_px,
         "envelope_endpoint_min_support_px": definition.envelope_endpoint_min_support_px,
+        "envelope_source_axis_tolerance_px": definition.envelope_source_axis_tolerance_px,
+        "envelope_max_source_projection_distance_px": definition.envelope_max_source_projection_distance_px,
         "envelope_relocate_confirm_frames": definition.envelope_relocate_confirm_frames,
         "envelope_near_tie_span_ratio": definition.envelope_near_tie_span_ratio,
         "envelope_immediate_span_gain_ratio": definition.envelope_immediate_span_gain_ratio,
@@ -3518,6 +3552,13 @@ def _telemetry_row(
         "source_point_a_in_analysis_roi": metric_meta.get("source_point_a_in_analysis_roi"),
         "source_point_b_in_analysis_roi": metric_meta.get("source_point_b_in_analysis_roi"),
         "envelope_source_trust_state": metric_meta.get("envelope_source_trust_state"),
+        "source_axis_distance_a_px": metric_meta.get("source_axis_distance_a_px"),
+        "source_axis_distance_b_px": metric_meta.get("source_axis_distance_b_px"),
+        "source_projection_distance_a_px": metric_meta.get("source_projection_distance_a_px"),
+        "source_projection_distance_b_px": metric_meta.get("source_projection_distance_b_px"),
+        "envelope_source_axis_tolerance_px": metric_meta.get("envelope_source_axis_tolerance_px"),
+        "envelope_max_source_projection_distance_px": metric_meta.get("envelope_max_source_projection_distance_px"),
+        "source_projection_reject_reason": metric_meta.get("source_projection_reject_reason"),
         "axis_point_a_px": _metric_meta_point(metric_meta, "axis_point_a_px"),
         "axis_point_b_px": _metric_meta_point(metric_meta, "axis_point_b_px"),
         "tracking_mode": metric_meta.get("tracking_mode"),

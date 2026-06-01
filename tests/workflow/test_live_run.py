@@ -1881,6 +1881,56 @@ def test_envelope_axis_projected_points_do_not_cause_holding_last_good(
     assert max(jumps) > source._max_endpoint_jump_px
 
 
+def test_source_projection_rejection_does_not_update_last_good(monkeypatch: pytest.MonkeyPatch) -> None:
+    holder: dict = {
+        "value": {
+            "span": 60.0,
+            "a": (20, 32),
+            "b": (80, 32),
+            "source_point_a_px": (20, 32),
+            "source_point_b_px": (80, 32),
+        }
+    }
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    source = PriorTrackingMetricSource(
+        definition=_envelope_definition(point_a=(20, 32), point_b=(80, 32)),
+        max_endpoint_jump_px=5.0,
+        max_midpoint_drift_px=12.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    accepted = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+    assert accepted.meta["tracking_state"] == "bootstrapped_global_envelope"
+
+    holder["value"] = {
+        "span": 60.0,
+        "a": (28, 32),
+        "b": (88, 32),
+        "source_point_a_px": (28, 32),
+        "source_point_b_px": (88, 48),
+        "meta": {
+            "source_projection_reject_reason": "source_projection_too_far",
+            "candidate_reject_reason": "source_projection_too_far",
+            "source_projection_distance_a_px": 0.0,
+            "source_projection_distance_b_px": 16.0,
+            "envelope_max_source_projection_distance_px": 12.0,
+        },
+    }
+    frame1, temp1 = _frame_temp(2)
+    rejected = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert rejected.meta["tracking_state"] == "envelope_projection_offset_hold"
+    assert rejected.meta["original_rejection_reason"] == "source_projection_too_far"
+    assert rejected.point_a_px == (20, 32)
+    assert rejected.point_b_px == (80, 32)
+    assert source._last_good_point_a == PixelPoint(x=20, y=32)
+    assert source._last_good_point_b == PixelPoint(x=80, y=32)
+
+
 def test_live_run_min_width_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     holder: dict = {
         "expected_width_extreme_mode": "min_width",

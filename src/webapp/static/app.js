@@ -1185,8 +1185,8 @@ function renderHomeTaskState() {
     title = currentLocale === "en" ? "Review ROI-local A/B" : "复核 ROI 内 A/B";
     copy = liveRunState.setupRecomputeInFlight
       ? currentLocale === "en"
-        ? "A/B anchors are being recalculated from a newly captured frame. Wait for the latest result before starting."
-        : "系统正在基于新抓取的画面重算 A/B 锚点，等待最新结果后再继续。"
+        ? "A/B anchors are being recalculated from the current still frame. Wait for the latest result before starting."
+        : "系统正在基于当前静帧重算 A/B 锚点，等待最新结果后再继续。"
       : currentLocale === "en"
         ? "A/B stays diagnostic-only. Review the latest automatic anchors and recompute if needed."
         : "A/B 只作为诊断结果出现。请复核当前自动结果，必要时重新计算。";
@@ -1746,8 +1746,8 @@ function renderLiveToolPrompt() {
     livePointPromptBodyNode.textContent =
       liveRunState.setupRecomputeDetail ||
       (currentLocale === "en"
-        ? "Capturing a new frame before recalculating ROI-local A/B. Wait for the points to update or an error message to appear."
-        : "正在先抓取新画面，再重算 ROI 内 A/B。请等待点位更新，或查看是否出现错误提示。");
+        ? "Recomputing ROI-local A/B from the current still frame. Wait for the points to update or an error message to appear."
+        : "正在基于当前静帧重算 ROI 内 A/B。请等待点位更新，或查看是否出现错误提示。");
     return;
   }
   livePointPromptNode.hidden = true;
@@ -2249,6 +2249,12 @@ function normalizeDefinitionForComparison(definition) {
     envelope_endpoint_min_support_px: Number(
       definition.envelope_endpoint_min_support_px ?? currentEnvelopeEndpointMinSupportPx(),
     ),
+    envelope_source_axis_tolerance_px:
+      definition.envelope_source_axis_tolerance_px == null ? null : Number(definition.envelope_source_axis_tolerance_px),
+    envelope_max_source_projection_distance_px:
+      definition.envelope_max_source_projection_distance_px == null
+        ? null
+        : Number(definition.envelope_max_source_projection_distance_px),
     envelope_relocate_confirm_frames: Number(
       definition.envelope_relocate_confirm_frames ?? currentEnvelopeRelocateConfirmFrames(),
     ),
@@ -2360,6 +2366,13 @@ function directionProjectionOverlayFromAutoPayload(payload) {
     source_point_b_in_metric_box: payload.source_point_b_in_metric_box ?? null,
     source_point_a_in_analysis_roi: payload.source_point_a_in_analysis_roi ?? null,
     source_point_b_in_analysis_roi: payload.source_point_b_in_analysis_roi ?? null,
+    source_axis_distance_a_px: payload.source_axis_distance_a_px ?? null,
+    source_axis_distance_b_px: payload.source_axis_distance_b_px ?? null,
+    source_projection_distance_a_px: payload.source_projection_distance_a_px ?? null,
+    source_projection_distance_b_px: payload.source_projection_distance_b_px ?? null,
+    envelope_source_axis_tolerance_px: payload.envelope_source_axis_tolerance_px ?? null,
+    envelope_max_source_projection_distance_px: payload.envelope_max_source_projection_distance_px ?? null,
+    source_projection_reject_reason: payload.source_projection_reject_reason ?? null,
     last_clean_axis: payload.last_clean_axis ?? null,
     display_point_mode: "axis_projected",
     source_point_a_px: previewSourcePointFromObject(payload.source_point_a_px),
@@ -2456,6 +2469,13 @@ function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB
     source_point_b_in_metric_box: latestTelemetry.source_point_b_in_metric_box ?? null,
     source_point_a_in_analysis_roi: latestTelemetry.source_point_a_in_analysis_roi ?? null,
     source_point_b_in_analysis_roi: latestTelemetry.source_point_b_in_analysis_roi ?? null,
+    source_axis_distance_a_px: latestTelemetry.source_axis_distance_a_px ?? null,
+    source_axis_distance_b_px: latestTelemetry.source_axis_distance_b_px ?? null,
+    source_projection_distance_a_px: latestTelemetry.source_projection_distance_a_px ?? null,
+    source_projection_distance_b_px: latestTelemetry.source_projection_distance_b_px ?? null,
+    envelope_source_axis_tolerance_px: latestTelemetry.envelope_source_axis_tolerance_px ?? null,
+    envelope_max_source_projection_distance_px: latestTelemetry.envelope_max_source_projection_distance_px ?? null,
+    source_projection_reject_reason: latestTelemetry.source_projection_reject_reason ?? null,
     display_point_mode: "axis_projected",
     point_a_px: pointA,
     point_b_px: pointB,
@@ -2708,16 +2728,31 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
   // are drawn as small distinct markers and never as the final A/B segment.
   const sourceA = overlay.source_point_a_px;
   const sourceB = overlay.source_point_b_px;
+  const sourceProjectionReason = overlay.source_projection_reject_reason || "";
+  const sourceProjectionWarningA =
+    sourceProjectionReason === "source_axis_offset_too_far" ||
+    sourceProjectionReason === "source_projection_too_far" ||
+    (Number.isFinite(Number(overlay.source_projection_distance_a_px)) &&
+      Number.isFinite(Number(overlay.envelope_max_source_projection_distance_px)) &&
+      Number(overlay.source_projection_distance_a_px) > Number(overlay.envelope_max_source_projection_distance_px));
+  const sourceProjectionWarningB =
+    sourceProjectionReason === "source_axis_offset_too_far" ||
+    sourceProjectionReason === "source_projection_too_far" ||
+    (Number.isFinite(Number(overlay.source_projection_distance_b_px)) &&
+      Number.isFinite(Number(overlay.envelope_max_source_projection_distance_px)) &&
+      Number(overlay.source_projection_distance_b_px) > Number(overlay.envelope_max_source_projection_distance_px));
   if (sourceA && Number.isFinite(sourceA.x) && Number.isFinite(sourceA.y)) {
     const trustClass = overlay.source_point_a_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
+    const projectionClass = sourceProjectionWarningA ? " live-overlay-envelope-source--projection-warning" : "";
     fragments.push(
-      `<circle class="live-overlay-envelope-source${trustClass}" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
+      `<circle class="live-overlay-envelope-source${trustClass}${projectionClass}" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
     );
   }
   if (sourceB && Number.isFinite(sourceB.x) && Number.isFinite(sourceB.y)) {
     const trustClass = overlay.source_point_b_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
+    const projectionClass = sourceProjectionWarningB ? " live-overlay-envelope-source--projection-warning" : "";
     fragments.push(
-      `<circle class="live-overlay-envelope-source${trustClass}" cx="${sourceB.x}" cy="${sourceB.y}" r="3"></circle>`,
+      `<circle class="live-overlay-envelope-source${trustClass}${projectionClass}" cx="${sourceB.x}" cy="${sourceB.y}" r="3"></circle>`,
     );
   }
   if (overlay.envelope_reject_reason || overlay.tracking_state === "envelope_contaminated_hold") {
@@ -2740,7 +2775,11 @@ function envelopeSelectionDebugLabel(overlay) {
   if (goal) {
     parts.push(String(goal));
   }
-  const reason = overlay.min_width_reject_reason || overlay.candidate_reject_reason || overlay.envelope_reject_reason;
+  const reason =
+    overlay.source_projection_reject_reason ||
+    overlay.min_width_reject_reason ||
+    overlay.candidate_reject_reason ||
+    overlay.envelope_reject_reason;
   if (reason) {
     parts.push(String(reason));
   }
@@ -2780,6 +2819,20 @@ function envelopeSelectionDebugLabel(overlay) {
   if (overlay.source_point_a_in_analysis_roi != null || overlay.source_point_b_in_analysis_roi != null) {
     parts.push(
       `roi=${envelopeDebugBool(overlay.source_point_a_in_analysis_roi)}/${envelopeDebugBool(overlay.source_point_b_in_analysis_roi)}`,
+    );
+  }
+  if (overlay.source_projection_distance_b_px != null || overlay.envelope_max_source_projection_distance_px != null) {
+    parts.push(
+      `srcProjB=${envelopeDebugNumber(overlay.source_projection_distance_b_px)}/${envelopeDebugNumber(
+        overlay.envelope_max_source_projection_distance_px,
+      )}`,
+    );
+  }
+  if (overlay.source_axis_distance_b_px != null || overlay.envelope_source_axis_tolerance_px != null) {
+    parts.push(
+      `srcAxisB=${envelopeDebugNumber(overlay.source_axis_distance_b_px)}/${envelopeDebugNumber(
+        overlay.envelope_source_axis_tolerance_px,
+      )}`,
     );
   }
   const strictCount = overlay.min_width_valid_candidate_count;
@@ -3153,10 +3206,34 @@ function clearMetricBoxInputs() {
   return;
 }
 
-function scheduleRoiPointRecompute({ message = "" } = {}) {
-  if (!liveRunState.runId || !hasValidAnalysisRoi() || getPreviewStatePayload().stream_active) {
+function buildLiveAutoDetectPriorPayload({ coordinateSpace = "preview" } = {}) {
+  if (!hasValidPointInputs()) {
+    return {};
+  }
+  const pointA = {
+    x: getNumericInputValue(livePointAXInput),
+    y: getNumericInputValue(livePointAYInput),
+  };
+  const pointB = {
+    x: getNumericInputValue(livePointBXInput),
+    y: getNumericInputValue(livePointBYInput),
+  };
+  if (pointA.x === pointB.x && pointA.y === pointB.y) {
+    return {};
+  }
+  const convertPoint = coordinateSpace === "source" ? convertPointToSource : (point) => point;
+  return {
+    prior_point_a_px: convertPoint(pointA),
+    prior_point_b_px: convertPoint(pointB),
+  };
+}
+
+function scheduleRoiPointRecompute({ message = "", priorPoints = null } = {}) {
+  const previewState = getPreviewStatePayload();
+  if (!liveRunState.runId || !hasValidAnalysisRoi() || previewState.stream_active) {
     return;
   }
+  const resolvedPriorPoints = priorPoints || buildLiveAutoDetectPriorPayload({ coordinateSpace: "source" });
   if (liveRunState.setupRecomputeTimer) {
     window.clearTimeout(liveRunState.setupRecomputeTimer);
   }
@@ -3165,12 +3242,12 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
   clearPointInputs();
   renderLivePreviewOverlay();
   setLivePointPickerStatus(
-    currentLocale === "en" ? "Capturing a new frame and recomputing ROI-local A/B points..." : "正在抓取新画面并重算 ROI 内 A/B...",
+    currentLocale === "en" ? "Recomputing ROI-local A/B points from the current still frame..." : "正在基于当前静帧重算 ROI 内 A/B...",
   );
   setSetupRecomputeState({
     inFlight: true,
     detail:
-      "Capturing a new frame to recalculate ROI-local A/B from the current ROI and sensitivity settings.",
+      "Recalculating ROI-local A/B from the current ROI and detection settings; the frozen frame is reused when available.",
   });
   liveRunState.setupRecomputeTimer = window.setTimeout(async () => {
     liveRunState.setupRecomputeTimer = null;
@@ -3179,10 +3256,11 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
       try {
         await loadFrozenPreviewFrame({
           runId: liveRunState.runId,
-          cached: false,
+          cached: previewState.frozen_frame_available,
           refreshDetail: false,
           seedDefaults: false,
         });
+        reusedCachedFrame = previewState.frozen_frame_available;
       } catch (error) {
         await loadFrozenPreviewFrame({
           runId: liveRunState.runId,
@@ -3192,15 +3270,15 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
         });
         reusedCachedFrame = true;
       }
-      await autoDetectLiveDefinition({ silent: true, origin: "roi-refresh", recomputeToken });
+      await autoDetectLiveDefinition({ silent: true, origin: "roi-refresh", recomputeToken, priorPoints: resolvedPriorPoints });
       if (recomputeToken !== liveRunState.setupRecomputeActiveToken) {
         return;
       }
       if (message && reusedCachedFrame) {
         setLiveRunMessage(
           currentLocale === "en"
-            ? `${message} Fresh capture was unavailable, so the cached frozen frame was reused.`
-            : `${message} 新抓帧不可用，已回退为当前缓存静帧继续重算。`,
+            ? `${message} Reused the current frozen frame.`
+            : `${message} 已复用当前冻结帧。`,
           "info",
         );
       } else if (message) {
@@ -3208,8 +3286,8 @@ function scheduleRoiPointRecompute({ message = "" } = {}) {
       } else if (reusedCachedFrame) {
         setLiveRunMessage(
           currentLocale === "en"
-            ? "Fresh capture was unavailable. Reused the cached frozen frame and recomputed ROI-local A/B."
-            : "新抓帧不可用，已回退为当前缓存静帧并重算 ROI 内 A/B。",
+            ? "Reused the current frozen frame and recomputed ROI-local A/B."
+            : "已复用当前冻结帧并重算 ROI 内 A/B。",
           "info",
         );
       }
@@ -3239,6 +3317,7 @@ function commitAnalysisRoiSelection({ force = false, message = "", recompute = t
   }
   const roiSignature = getAnalysisRoiSignature();
   const roiChanged = roiSignature !== liveRunState.confirmedRoiSignature;
+  const priorPoints = buildLiveAutoDetectPriorPayload({ coordinateSpace: "source" });
   if ((roiChanged || force) && hasValidPointInputs()) {
     clearPointInputs();
   }
@@ -3262,13 +3341,13 @@ function commitAnalysisRoiSelection({ force = false, message = "", recompute = t
     return;
   }
   setLivePointPickerStatus(
-    currentLocale === "en" ? "ROI ready. Capturing a new frame and recomputing A/B along the current ROI axis." : "ROI 已就绪，正在抓取新画面并沿当前 ROI 轴线重算 A/B。",
+    currentLocale === "en" ? "ROI ready. Recomputing A/B along the current ROI axis." : "ROI 已就绪，正在沿当前 ROI 轴线重算 A/B。",
   );
   if (message) {
     setLiveRunMessage(message, "info");
   }
   if (recompute && (roiChanged || force || !hasValidPointInputs())) {
-    scheduleRoiPointRecompute({ message });
+    scheduleRoiPointRecompute({ message, priorPoints });
   }
 }
 
@@ -4033,6 +4112,8 @@ function buildLiveDefinitionBasePayload({ coordinateSpace = "preview" } = {}) {
     envelope_lateral_window_bins: currentEnvelopeLateralWindowBins(),
     envelope_endpoint_support_radius_px: currentEnvelopeEndpointSupportRadiusPx(),
     envelope_endpoint_min_support_px: currentEnvelopeEndpointMinSupportPx(),
+    envelope_source_axis_tolerance_px: null,
+    envelope_max_source_projection_distance_px: null,
     envelope_relocate_confirm_frames: currentEnvelopeRelocateConfirmFrames(),
     envelope_near_tie_span_ratio: currentEnvelopeNearTieSpanRatio(),
     envelope_immediate_span_gain_ratio: currentEnvelopeImmediateSpanGainRatio(),
@@ -4333,18 +4414,22 @@ async function loadFrozenPreviewFrame({ runId, cached = false, refreshDetail = t
   }
 }
 
-async function autoDetectLiveDefinition({ silent = false, origin = "button", recomputeToken = null } = {}) {
+async function autoDetectLiveDefinition({ silent = false, origin = "button", recomputeToken = null, priorPoints = {} } = {}) {
   if (!liveRunState.runId || !hasValidAnalysisRoi()) {
     return;
   }
   if (!silent) {
     setLiveRunMessage("Auto-detecting locked points along the contour direction...", "info");
   }
+  const autoDetectPayload = {
+    ...buildLiveDefinitionBasePayload({ coordinateSpace: "source" }),
+    ...(priorPoints || {}),
+  };
   try {
     const response = await fetch(`/api/runs/${liveRunState.runId}/definition/auto`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildLiveDefinitionBasePayload({ coordinateSpace: "source" })),
+      body: JSON.stringify(autoDetectPayload),
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -4354,7 +4439,7 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
       return;
     }
     const sourceDefinition = {
-      ...buildLiveDefinitionBasePayload({ coordinateSpace: "source" }),
+      ...autoDetectPayload,
       point_a_px: payload.point_a_px,
       point_b_px: payload.point_b_px,
     };
@@ -4432,8 +4517,8 @@ async function autoDetectLiveDefinition({ silent = false, origin = "button", rec
     renderLivePreviewOverlay();
     setLivePointPickerStatus(
       currentLocale === "en"
-        ? "ROI-local A/B is ready. Review the result and recompute from a fresh frame if needed."
-        : "ROI 内 A/B 已就绪。如有需要，请基于新画面重新计算。",
+        ? "ROI-local A/B is ready. Review the result and recompute from the current still frame if needed."
+        : "ROI 内 A/B 已就绪。如有需要，请基于当前静帧重新计算。",
     );
     if (!silent || payload.detail) {
       setLiveRunMessage(
@@ -4656,14 +4741,14 @@ function handleLivePreviewPointerUp(event) {
     commitAnalysisRoiSelection({
       force: true,
       message:
-        currentLocale === "en" ? "ROI adjusted. Capturing a new frame to recompute ROI-local A/B." : "ROI 已调整，正在抓取新画面并重算 ROI 内 A/B。",
+        currentLocale === "en" ? "ROI adjusted. Recomputing ROI-local A/B from the current still frame." : "ROI 已调整，正在基于当前静帧重算 ROI 内 A/B。",
     });
   } else if (completedTool === "rotate-roi") {
     commitAnalysisRoiSelection({
       force: true,
       constrain: false,
       message:
-        currentLocale === "en" ? "ROI adjusted. Capturing a new frame to recompute ROI-local A/B." : "ROI 已调整，正在抓取新画面并重算 ROI 内 A/B。",
+        currentLocale === "en" ? "ROI adjusted. Recomputing ROI-local A/B from the current still frame." : "ROI 已调整，正在基于当前静帧重算 ROI 内 A/B。",
     });
   }
   setActiveLiveTool("");
@@ -7219,8 +7304,8 @@ if (recomputeDefinitionButton) {
     scheduleRoiPointRecompute({
       message:
         currentLocale === "en"
-          ? "Captured a new frame and recomputed ROI-local A/B."
-          : "已抓取新画面并重新计算 ROI 内 A/B。",
+          ? "Recomputed ROI-local A/B from the current still frame."
+          : "已基于当前静帧重新计算 ROI 内 A/B。",
     });
   });
 }
@@ -7276,8 +7361,8 @@ for (const envelopeInput of [
       scheduleRoiPointRecompute({
         message:
           currentLocale === "en"
-            ? "Detection mode updated. Captured a new frame and recomputed ROI-local A/B."
-            : "检测模式已更新，已抓取新画面并重新计算 ROI 内 A/B。",
+            ? "Detection mode updated. Recomputed ROI-local A/B from the current still frame."
+            : "检测模式已更新，已基于当前静帧重新计算 ROI 内 A/B。",
       });
     });
   }
@@ -7298,7 +7383,7 @@ if (liveSensitivityInput) {
   liveSensitivityInput.addEventListener("input", updateLiveDefinitionAfterLocalEdit);
   liveSensitivityInput.addEventListener("change", () => {
     updateLiveDefinitionAfterLocalEdit();
-    scheduleRoiPointRecompute({ message: "Sensitivity updated. Captured a new frame and recomputed ROI-local A/B." });
+    scheduleRoiPointRecompute({ message: "Sensitivity updated. Recomputed ROI-local A/B from the current still frame." });
   });
 }
 for (const pointInput of [livePointAXInput, livePointAYInput, livePointBXInput, livePointBYInput]) {

@@ -45,6 +45,8 @@ class DirectionalContourConfig:
     envelope_lateral_window_bins: int = 1
     envelope_endpoint_support_radius_px: float = 3.0
     envelope_endpoint_min_support_px: int = 3
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
     envelope_axis_prior_px: float | None = None
     envelope_axis_prior_tolerance_px: float | None = None
     envelope_sample_core_descriptor: dict[str, Any] | None = None
@@ -104,6 +106,13 @@ class DirectionalProjection:
     source_point_b_in_metric_box: bool | None = None
     source_point_a_in_analysis_roi: bool | None = None
     source_point_b_in_analysis_roi: bool | None = None
+    source_axis_distance_a_px: float | None = None
+    source_axis_distance_b_px: float | None = None
+    source_projection_distance_a_px: float | None = None
+    source_projection_distance_b_px: float | None = None
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
+    source_projection_reject_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -166,6 +175,13 @@ class DirectionalContourResult:
     source_point_b_in_metric_box: bool | None = None
     source_point_a_in_analysis_roi: bool | None = None
     source_point_b_in_analysis_roi: bool | None = None
+    source_axis_distance_a_px: float | None = None
+    source_axis_distance_b_px: float | None = None
+    source_projection_distance_a_px: float | None = None
+    source_projection_distance_b_px: float | None = None
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
+    source_projection_reject_reason: str | None = None
     configured_envelope_min_support_px: int | None = None
     effective_envelope_min_support_px: int | None = None
     resolved_measurement_angle_deg: float | None = None
@@ -351,6 +367,13 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
                     "source_point_b_in_metric_box": result.source_point_b_in_metric_box,
                     "source_point_a_in_analysis_roi": result.source_point_a_in_analysis_roi,
                     "source_point_b_in_analysis_roi": result.source_point_b_in_analysis_roi,
+                    "source_axis_distance_a_px": result.source_axis_distance_a_px,
+                    "source_axis_distance_b_px": result.source_axis_distance_b_px,
+                    "source_projection_distance_a_px": result.source_projection_distance_a_px,
+                    "source_projection_distance_b_px": result.source_projection_distance_b_px,
+                    "envelope_source_axis_tolerance_px": result.envelope_source_axis_tolerance_px,
+                    "envelope_max_source_projection_distance_px": result.envelope_max_source_projection_distance_px,
+                    "source_projection_reject_reason": result.source_projection_reject_reason,
                 }
             )
         return ShapeMetric(
@@ -476,6 +499,17 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             endpoint_min_support_px=endpoint_support.effective_min_support_px,
             configured_endpoint_support_radius_px=endpoint_support.configured_radius_px,
             configured_endpoint_min_support_px=endpoint_support.configured_min_support_px,
+            envelope_source_axis_tolerance_px=(
+                None
+                if config.envelope_source_axis_tolerance_px is None
+                else max(0.0, float(config.envelope_source_axis_tolerance_px) * scale)
+            ),
+            envelope_max_source_projection_distance_px=(
+                _default_envelope_source_projection_distance_px(target_geometry_mode)
+                if config.envelope_max_source_projection_distance_px is None
+                else max(0.0, float(config.envelope_max_source_projection_distance_px))
+            )
+            * scale,
             trusted_mask=trusted_boundary_mask,
             component_labels=target_selection.component_labels,
             trusted_component_ids=target_selection.trusted_component_ids,
@@ -681,6 +715,13 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         source_point_b_in_metric_box=projection.source_point_b_in_metric_box,
         source_point_a_in_analysis_roi=projection.source_point_a_in_analysis_roi,
         source_point_b_in_analysis_roi=projection.source_point_b_in_analysis_roi,
+        source_axis_distance_a_px=projection.source_axis_distance_a_px,
+        source_axis_distance_b_px=projection.source_axis_distance_b_px,
+        source_projection_distance_a_px=projection.source_projection_distance_a_px,
+        source_projection_distance_b_px=projection.source_projection_distance_b_px,
+        envelope_source_axis_tolerance_px=projection.envelope_source_axis_tolerance_px,
+        envelope_max_source_projection_distance_px=projection.envelope_max_source_projection_distance_px,
+        source_projection_reject_reason=projection.source_projection_reject_reason,
         resolved_measurement_angle_deg=resolved_angle_deg,
         metric_box_angle_deg=metric_box_angle_deg,
         angle_delta_deg=angle_delta_deg,
@@ -944,6 +985,8 @@ def measure_component_envelope_width(
     endpoint_min_support_px: int = 0,
     configured_endpoint_support_radius_px: float | None = None,
     configured_endpoint_min_support_px: int | None = None,
+    envelope_source_axis_tolerance_px: float | None = None,
+    envelope_max_source_projection_distance_px: float | None = None,
     trusted_mask: np.ndarray | None = None,
     component_labels: np.ndarray | None = None,
     trusted_component_ids: set[int] | None = None,
@@ -1002,6 +1045,16 @@ def measure_component_envelope_width(
         effective_min_support = max(effective_min_support, int(geometry_min_support_px))
     endpoint_quantile = max(0.0, min(0.20, float(quantile)))
     window = max(0, int(lateral_window_bins))
+    resolved_source_axis_tolerance = (
+        max(3.0, bin_width * (float(window) + 1.5))
+        if envelope_source_axis_tolerance_px is None
+        else max(0.0, float(envelope_source_axis_tolerance_px))
+    )
+    resolved_max_source_projection_distance = (
+        _default_envelope_source_projection_distance_px(None)
+        if envelope_max_source_projection_distance_px is None
+        else max(0.0, float(envelope_max_source_projection_distance_px))
+    )
     endpoint_radius = max(0.0, float(endpoint_support_radius_px))
     endpoint_min_support = max(0, int(endpoint_min_support_px))
     configured_endpoint_radius = (
@@ -1035,6 +1088,7 @@ def measure_component_envelope_width(
     best: dict[str, Any] | None = None
     best_supported: dict[str, Any] | None = None
     best_trusted_supported: dict[str, Any] | None = None
+    best_rejected: dict[str, Any] | None = None
     best_min_width: dict[str, Any] | None = None
     best_min_width_relaxed: dict[str, Any] | None = None
     candidate_count = 0
@@ -1083,11 +1137,23 @@ def measure_component_envelope_width(
         span = high_value - low_value
         if span <= 0.0:
             continue
-        low_index = int(ordered[int(np.argmin(np.abs(ordered_along - low_value)))])
-        high_index = int(ordered[int(np.argmin(np.abs(ordered_along - high_value)))])
+        axis_offset = float(np.median(lateral[indices]))
+        low_index = _endpoint_index_closest_to_axis(
+            ordered,
+            ordered_along,
+            lateral,
+            target_along=low_value,
+            axis_offset=axis_offset,
+        )
+        high_index = _endpoint_index_closest_to_axis(
+            ordered,
+            ordered_along,
+            lateral,
+            target_along=high_value,
+            axis_offset=axis_offset,
+        )
         if low_index == high_index:
             continue
-        axis_offset = float(np.median(lateral[indices]))
         endpoint_support_left = support
         endpoint_support_right = support
         if endpoint_tree is not None:
@@ -1159,6 +1225,25 @@ def measure_component_envelope_width(
             _point_in_region_float(roi, float(low_source_point.x), float(low_source_point.y))
             and _point_in_region_float(roi, float(high_source_point.x), float(high_source_point.y))
         )
+        low_source_lateral = float(lateral[low_index])
+        high_source_lateral = float(lateral[high_index])
+        source_axis_distance_a = abs(low_source_lateral - axis_offset)
+        source_axis_distance_b = abs(high_source_lateral - axis_offset)
+        axis_a_xy = direction * low_value + normal * axis_offset
+        axis_b_xy = direction * high_value + normal * axis_offset
+        source_projection_distance_a = float(np.linalg.norm(axis_a_xy - points[low_index]))
+        source_projection_distance_b = float(np.linalg.norm(axis_b_xy - points[high_index]))
+        source_projection_reject_reason = None
+        if (
+            source_axis_distance_a > resolved_source_axis_tolerance
+            or source_axis_distance_b > resolved_source_axis_tolerance
+        ):
+            source_projection_reject_reason = "source_axis_offset_too_far"
+        elif (
+            source_projection_distance_a > resolved_max_source_projection_distance
+            or source_projection_distance_b > resolved_max_source_projection_distance
+        ):
+            source_projection_reject_reason = "source_projection_too_far"
         axis_jump = None if axis_prior_px is None else abs(axis_offset - float(axis_prior_px))
         score = _envelope_candidate_score(
             span=span,
@@ -1175,6 +1260,8 @@ def measure_component_envelope_width(
                 float(low_distance_to_core or 0.0),
                 float(high_distance_to_core or 0.0),
             ),
+            source_axis_distance_px=max(source_axis_distance_a, source_axis_distance_b),
+            source_projection_distance_px=max(source_projection_distance_a, source_projection_distance_b),
         )
         candidate = {
             "span": span,
@@ -1203,6 +1290,13 @@ def measure_component_envelope_width(
             "endpoint_weak": not endpoints_supported,
             "low_distance_to_core": low_distance_to_core,
             "high_distance_to_core": high_distance_to_core,
+            "source_axis_distance_a_px": source_axis_distance_a,
+            "source_axis_distance_b_px": source_axis_distance_b,
+            "source_projection_distance_a_px": source_projection_distance_a,
+            "source_projection_distance_b_px": source_projection_distance_b,
+            "envelope_source_axis_tolerance_px": resolved_source_axis_tolerance,
+            "envelope_max_source_projection_distance_px": resolved_max_source_projection_distance,
+            "source_projection_reject_reason": source_projection_reject_reason,
             "axis_jump": axis_jump,
             "score": score,
         }
@@ -1267,6 +1361,8 @@ def measure_component_envelope_width(
                 width_extreme_mode="max_width",
             ):
                 best_trusted_supported = candidate
+        elif _envelope_rejected_candidate_is_better(candidate, best_rejected):
+            best_rejected = candidate
 
     envelope_candidate_debug = _envelope_candidate_debug(candidate_debug_items)
     reject_reason: str | None = None
@@ -1307,6 +1403,13 @@ def measure_component_envelope_width(
             )
     else:
         chosen = best_trusted_supported or best_supported or best
+        if chosen is None and best_rejected is not None:
+            chosen = best_rejected
+            reject_reason = str(
+                chosen.get("max_width_reject_reason")
+                or chosen.get("candidate_reject_reason")
+                or "envelope_candidate_rejected"
+            )
         if chosen is best_supported and chosen is not None:
             if not bool(chosen.get("endpoints_trusted", True)):
                 reject_reason = "detached_endpoint"
@@ -1343,6 +1446,9 @@ def measure_component_envelope_width(
         bool(best.get("source_point_b_in_metric_box", True)) if source_metric_box_known else None
     )
     trust_state = "trusted"
+    source_projection_reject_reason = best.get("source_projection_reject_reason")
+    if source_projection_reject_reason:
+        reject_reason = reject_reason or str(source_projection_reject_reason)
     if not bool(best.get("low_trusted", True)) or not bool(best.get("high_trusted", True)):
         trust_state = "detached_endpoint"
         reject_reason = reject_reason or "detached_endpoint"
@@ -1406,6 +1512,13 @@ def measure_component_envelope_width(
         source_point_b_in_metric_box=source_b_in_box,
         source_point_a_in_analysis_roi=source_a_in_roi,
         source_point_b_in_analysis_roi=source_b_in_roi,
+        source_axis_distance_a_px=best.get("source_axis_distance_a_px"),
+        source_axis_distance_b_px=best.get("source_axis_distance_b_px"),
+        source_projection_distance_a_px=best.get("source_projection_distance_a_px"),
+        source_projection_distance_b_px=best.get("source_projection_distance_b_px"),
+        envelope_source_axis_tolerance_px=best.get("envelope_source_axis_tolerance_px"),
+        envelope_max_source_projection_distance_px=best.get("envelope_max_source_projection_distance_px"),
+        source_projection_reject_reason=source_projection_reject_reason,
     )
 
 
@@ -1422,6 +1535,30 @@ def measure_component_envelope_max_width(
 
 def _resolve_projection_width_extreme_mode(value: str | None) -> str:
     return "min_width" if str(value or "max_width") == "min_width" else "max_width"
+
+
+def _default_envelope_source_projection_distance_px(target_geometry_mode: str | None) -> float:
+    if str(target_geometry_mode or "") == "mesh_lattice":
+        return 16.0
+    return 12.0
+
+
+def _endpoint_index_closest_to_axis(
+    ordered: np.ndarray,
+    ordered_along: np.ndarray,
+    lateral: np.ndarray,
+    *,
+    target_along: float,
+    axis_offset: float,
+) -> int:
+    along_distance = np.abs(ordered_along - float(target_along))
+    min_along_distance = float(np.min(along_distance))
+    endpoint_positions = np.flatnonzero(np.isclose(along_distance, min_along_distance, rtol=0.0, atol=1e-9))
+    if len(endpoint_positions) == 0:
+        return int(ordered[int(np.argmin(along_distance))])
+    endpoint_indices = ordered[endpoint_positions]
+    lateral_distance = np.abs(lateral[endpoint_indices] - float(axis_offset))
+    return int(endpoint_indices[int(np.argmin(lateral_distance))])
 
 
 def _min_width_span_floor_px(
@@ -1515,6 +1652,9 @@ def _envelope_candidate_reject_reason(
     *,
     require_endpoint_support: bool,
 ) -> str | None:
+    source_projection_reject_reason = candidate.get("source_projection_reject_reason")
+    if source_projection_reject_reason:
+        return str(source_projection_reject_reason)
     if not bool(candidate.get("source_points_in_metric_box", True)):
         return "source_outside_metric_box"
     if not bool(candidate.get("source_points_in_analysis_roi", True)):
@@ -1556,6 +1696,13 @@ def _envelope_candidate_debug_item(candidate: dict[str, Any]) -> dict[str, Any]:
         "source_in_analysis_roi": bool(candidate.get("source_points_in_analysis_roi", True)),
         "trusted_support_sufficient": bool(candidate.get("trusted_support_sufficient", True)),
         "trusted_support_count": candidate.get("trusted_support_count"),
+        "source_axis_distance_a_px": candidate.get("source_axis_distance_a_px"),
+        "source_axis_distance_b_px": candidate.get("source_axis_distance_b_px"),
+        "source_projection_distance_a_px": candidate.get("source_projection_distance_a_px"),
+        "source_projection_distance_b_px": candidate.get("source_projection_distance_b_px"),
+        "envelope_source_axis_tolerance_px": candidate.get("envelope_source_axis_tolerance_px"),
+        "envelope_max_source_projection_distance_px": candidate.get("envelope_max_source_projection_distance_px"),
+        "source_projection_reject_reason": candidate.get("source_projection_reject_reason"),
         "reject_reason": candidate.get("candidate_reject_reason") or candidate.get("min_width_reject_reason"),
         "max_reject_reason": candidate.get("max_width_reject_reason"),
         "min_reject_reason": candidate.get("min_width_reject_reason"),
@@ -1575,6 +1722,8 @@ def _envelope_candidate_score(
     axis_prior_tolerance_px: float | None,
     endpoints_trusted: bool = True,
     source_to_core_distance_px: float | None = None,
+    source_axis_distance_px: float | None = None,
+    source_projection_distance_px: float | None = None,
 ) -> float:
     """Composite candidate score for envelope_max_width selection.
 
@@ -1602,6 +1751,12 @@ def _envelope_candidate_score(
     source_to_core_distance_penalty = 0.0
     if source_to_core_distance_px is not None:
         source_to_core_distance_penalty = max(0.0, float(source_to_core_distance_px)) * 0.45
+    source_axis_distance_penalty = 0.0
+    if source_axis_distance_px is not None:
+        source_axis_distance_penalty = max(0.0, float(source_axis_distance_px)) * 3.0
+    source_projection_distance_penalty = 0.0
+    if source_projection_distance_px is not None:
+        source_projection_distance_penalty = max(0.0, float(source_projection_distance_px)) * 4.0
     return (
         float(span)
         + support_bonus
@@ -1609,6 +1764,8 @@ def _envelope_candidate_score(
         - axis_penalty
         - detached_component_penalty
         - source_to_core_distance_penalty
+        - source_axis_distance_penalty
+        - source_projection_distance_penalty
     )
 
 
@@ -1641,6 +1798,37 @@ def _envelope_candidate_is_better(
         if support_delta != 0:
             return support_delta > 0
         return float(candidate["center_distance"]) < float(current["center_distance"])
+    near_tie = abs(float(candidate["span"]) - float(current["span"])) <= max(
+        2.0,
+        max(float(candidate["span"]), float(current["span"])) * 0.35,
+    )
+    if near_tie:
+        candidate_source_axis = max(
+            float(candidate.get("source_axis_distance_a_px") or 0.0),
+            float(candidate.get("source_axis_distance_b_px") or 0.0),
+        )
+        current_source_axis = max(
+            float(current.get("source_axis_distance_a_px") or 0.0),
+            float(current.get("source_axis_distance_b_px") or 0.0),
+        )
+        if abs(candidate_source_axis - current_source_axis) > 1e-9:
+            return candidate_source_axis < current_source_axis
+        candidate_projection = max(
+            float(candidate.get("source_projection_distance_a_px") or 0.0),
+            float(candidate.get("source_projection_distance_b_px") or 0.0),
+        )
+        current_projection = max(
+            float(current.get("source_projection_distance_a_px") or 0.0),
+            float(current.get("source_projection_distance_b_px") or 0.0),
+        )
+        if abs(candidate_projection - current_projection) > 1e-9:
+            return candidate_projection < current_projection
+        candidate_axis_jump = candidate.get("axis_jump")
+        current_axis_jump = current.get("axis_jump")
+        if candidate_axis_jump is not None and current_axis_jump is not None:
+            axis_delta = float(candidate_axis_jump) - float(current_axis_jump)
+            if abs(axis_delta) > 1e-9:
+                return axis_delta < 0.0
     score_delta = candidate_score - current_score
     if abs(score_delta) > 1e-9:
         return score_delta > 0.0
@@ -1651,6 +1839,28 @@ def _envelope_candidate_is_better(
     if support_delta != 0:
         return support_delta > 0
     return float(candidate["center_distance"]) < float(current["center_distance"])
+
+
+def _envelope_rejected_candidate_is_better(
+    candidate: dict[str, Any],
+    current: dict[str, Any] | None,
+) -> bool:
+    if current is None:
+        return True
+    candidate_priority = _envelope_rejected_candidate_priority(candidate)
+    current_priority = _envelope_rejected_candidate_priority(current)
+    if candidate_priority != current_priority:
+        return candidate_priority < current_priority
+    return _envelope_candidate_is_better(candidate, current, width_extreme_mode="max_width")
+
+
+def _envelope_rejected_candidate_priority(candidate: dict[str, Any]) -> int:
+    reason = candidate.get("source_projection_reject_reason") or candidate.get("max_width_reject_reason")
+    if reason in {"source_axis_offset_too_far", "source_projection_too_far"}:
+        return 2
+    if reason in {"detached_endpoint", "trusted_support_below_min"}:
+        return 1
+    return 0
 
 
 def _component_id_for_point(
@@ -2452,6 +2662,16 @@ def _envelope_candidate_debug_to_original_space(
             converted_row = dict(row)
             if converted_row.get("span") is not None:
                 converted_row["span"] = float(converted_row["span"]) / scale
+            for distance_key in (
+                "source_axis_distance_a_px",
+                "source_axis_distance_b_px",
+                "source_projection_distance_a_px",
+                "source_projection_distance_b_px",
+                "envelope_source_axis_tolerance_px",
+                "envelope_max_source_projection_distance_px",
+            ):
+                if converted_row.get(distance_key) is not None:
+                    converted_row[distance_key] = float(converted_row[distance_key]) / scale
             if converted_row.get("axis_offset") is not None:
                 converted_row["axis_offset"] = _axis_offset_to_original_space(
                     float(converted_row["axis_offset"]),
@@ -2598,6 +2818,37 @@ def _projection_to_original_roi(
         source_point_b_in_metric_box=projection.source_point_b_in_metric_box,
         source_point_a_in_analysis_roi=projection.source_point_a_in_analysis_roi,
         source_point_b_in_analysis_roi=projection.source_point_b_in_analysis_roi,
+        source_axis_distance_a_px=(
+            None
+            if projection.source_axis_distance_a_px is None
+            else float(projection.source_axis_distance_a_px) / max(float(geometry.scale), 1e-9)
+        ),
+        source_axis_distance_b_px=(
+            None
+            if projection.source_axis_distance_b_px is None
+            else float(projection.source_axis_distance_b_px) / max(float(geometry.scale), 1e-9)
+        ),
+        source_projection_distance_a_px=(
+            None
+            if projection.source_projection_distance_a_px is None
+            else float(projection.source_projection_distance_a_px) / max(float(geometry.scale), 1e-9)
+        ),
+        source_projection_distance_b_px=(
+            None
+            if projection.source_projection_distance_b_px is None
+            else float(projection.source_projection_distance_b_px) / max(float(geometry.scale), 1e-9)
+        ),
+        envelope_source_axis_tolerance_px=(
+            None
+            if projection.envelope_source_axis_tolerance_px is None
+            else float(projection.envelope_source_axis_tolerance_px) / max(float(geometry.scale), 1e-9)
+        ),
+        envelope_max_source_projection_distance_px=(
+            None
+            if projection.envelope_max_source_projection_distance_px is None
+            else float(projection.envelope_max_source_projection_distance_px) / max(float(geometry.scale), 1e-9)
+        ),
+        source_projection_reject_reason=projection.source_projection_reject_reason,
     )
 
 

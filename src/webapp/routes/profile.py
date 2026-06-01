@@ -223,6 +223,8 @@ def _measurement_definition_from_payload(payload: MeasurementDefinitionRequest) 
         envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
         envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
         envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
+        envelope_source_axis_tolerance_px=payload.envelope_source_axis_tolerance_px,
+        envelope_max_source_projection_distance_px=payload.envelope_max_source_projection_distance_px,
         envelope_relocate_confirm_frames=payload.envelope_relocate_confirm_frames,
         envelope_near_tie_span_ratio=payload.envelope_near_tie_span_ratio,
         envelope_immediate_span_gain_ratio=payload.envelope_immediate_span_gain_ratio,

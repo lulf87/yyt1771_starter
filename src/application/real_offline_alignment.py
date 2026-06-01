@@ -561,6 +561,16 @@ def _measurement_definition_from_payload(
         envelope_lateral_window_bins=int(payload.get("envelope_lateral_window_bins", 1) or 1),
         envelope_endpoint_support_radius_px=float(payload.get("envelope_endpoint_support_radius_px", 3.0) or 3.0),
         envelope_endpoint_min_support_px=int(payload.get("envelope_endpoint_min_support_px", 3) or 3),
+        envelope_source_axis_tolerance_px=(
+            None
+            if payload.get("envelope_source_axis_tolerance_px") is None
+            else float(payload["envelope_source_axis_tolerance_px"])
+        ),
+        envelope_max_source_projection_distance_px=(
+            None
+            if payload.get("envelope_max_source_projection_distance_px") is None
+            else float(payload["envelope_max_source_projection_distance_px"])
+        ),
         envelope_relocate_confirm_frames=int(payload.get("envelope_relocate_confirm_frames", 3) or 3),
         envelope_near_tie_span_ratio=float(payload.get("envelope_near_tie_span_ratio", 0.03) or 0.03),
         envelope_immediate_span_gain_ratio=float(payload.get("envelope_immediate_span_gain_ratio", 0.12) or 0.12),

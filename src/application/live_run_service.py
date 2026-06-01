@@ -602,6 +602,8 @@ def _definition_payload(definition: MeasurementDefinition) -> dict[str, Any]:
         "envelope_lateral_window_bins": definition.envelope_lateral_window_bins,
         "envelope_endpoint_support_radius_px": definition.envelope_endpoint_support_radius_px,
         "envelope_endpoint_min_support_px": definition.envelope_endpoint_min_support_px,
+        "envelope_source_axis_tolerance_px": definition.envelope_source_axis_tolerance_px,
+        "envelope_max_source_projection_distance_px": definition.envelope_max_source_projection_distance_px,
         "envelope_relocate_confirm_frames": definition.envelope_relocate_confirm_frames,
         "envelope_near_tie_span_ratio": definition.envelope_near_tie_span_ratio,
         "envelope_immediate_span_gain_ratio": definition.envelope_immediate_span_gain_ratio,

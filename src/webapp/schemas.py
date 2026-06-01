@@ -153,6 +153,8 @@ class MeasurementDefinitionRequest(BaseModel):
     envelope_lateral_window_bins: int = Field(default=1, ge=0, le=32)
     envelope_endpoint_support_radius_px: float = Field(default=3.0, ge=0.0, le=64.0)
     envelope_endpoint_min_support_px: int = Field(default=3, ge=0, le=500)
+    envelope_source_axis_tolerance_px: float | None = Field(default=None, ge=0.0, le=256.0)
+    envelope_max_source_projection_distance_px: float | None = Field(default=None, ge=0.0, le=256.0)
     envelope_relocate_confirm_frames: int = Field(default=3, ge=1, le=60)
     envelope_near_tie_span_ratio: float = Field(default=0.03, ge=0.0, le=1.0)
     envelope_immediate_span_gain_ratio: float = Field(default=0.12, ge=0.0, le=2.0)
@@ -185,6 +187,8 @@ class AutoDetectDefinitionRequest(BaseModel):
     analysis_roi: RectRegionRequest
     metric_box: MetricBoxRequest | None = None
     direction_angle_deg: float | None = None
+    prior_point_a_px: PixelPointRequest | None = None
+    prior_point_b_px: PixelPointRequest | None = None
     observation_axis: Literal["long_axis", "short_axis"] = "long_axis"
     foreground_polarity: Literal["dark_on_light", "light_on_dark"]
     threshold_mode: Literal["adaptive", "binary", "otsu"]
@@ -201,6 +205,8 @@ class AutoDetectDefinitionRequest(BaseModel):
     envelope_lateral_window_bins: int = Field(default=1, ge=0, le=32)
     envelope_endpoint_support_radius_px: float = Field(default=3.0, ge=0.0, le=64.0)
     envelope_endpoint_min_support_px: int = Field(default=3, ge=0, le=500)
+    envelope_source_axis_tolerance_px: float | None = Field(default=None, ge=0.0, le=256.0)
+    envelope_max_source_projection_distance_px: float | None = Field(default=None, ge=0.0, le=256.0)
     envelope_relocate_confirm_frames: int = Field(default=3, ge=1, le=60)
     envelope_near_tie_span_ratio: float = Field(default=0.03, ge=0.0, le=1.0)
     envelope_immediate_span_gain_ratio: float = Field(default=0.12, ge=0.0, le=2.0)
@@ -232,6 +238,13 @@ class AutoDetectDefinitionResponse(BaseModel):
     source_point_a_in_analysis_roi: bool | None = None
     source_point_b_in_analysis_roi: bool | None = None
     envelope_source_trust_state: str | None = None
+    source_axis_distance_a_px: float | None = None
+    source_axis_distance_b_px: float | None = None
+    source_projection_distance_a_px: float | None = None
+    source_projection_distance_b_px: float | None = None
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
+    source_projection_reject_reason: str | None = None
     axis_point_a_px: PixelPointResponse | None = None
     axis_point_b_px: PixelPointResponse | None = None
     quality: float
@@ -376,6 +389,13 @@ class RunTelemetryPointResponse(BaseModel):
     source_point_a_in_analysis_roi: bool | None = None
     source_point_b_in_analysis_roi: bool | None = None
     envelope_source_trust_state: str | None = None
+    source_axis_distance_a_px: float | None = None
+    source_axis_distance_b_px: float | None = None
+    source_projection_distance_a_px: float | None = None
+    source_projection_distance_b_px: float | None = None
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
+    source_projection_reject_reason: str | None = None
     axis_point_a_px: list[int] | None = None
     axis_point_b_px: list[int] | None = None
     source_point_a_preview_px: list[int] | None = None

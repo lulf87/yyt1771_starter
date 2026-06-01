@@ -115,6 +115,20 @@ def test_static_app_js_sends_width_extreme_mode() -> None:
     assert "selected_candidate_axis_offset" in app_js
 
 
+def test_static_app_js_recomputes_ab_from_frozen_frame_with_prior() -> None:
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+
+    schedule_body = _js_function_body(app_js, "scheduleRoiPointRecompute")
+    auto_detect_body = _js_function_body(app_js, "autoDetectLiveDefinition")
+
+    assert "function buildLiveAutoDetectPriorPayload" in app_js
+    assert 'buildLiveAutoDetectPriorPayload({ coordinateSpace: "source" })' in schedule_body
+    assert "const previewState = getPreviewStatePayload();" in schedule_body
+    assert "cached: previewState.frozen_frame_available" in schedule_body
+    assert "priorPoints" in auto_detect_body
+    assert "...(priorPoints || {})" in auto_detect_body
+
+
 def test_static_app_js_rotates_roi_without_resizing() -> None:
     app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
 
@@ -385,8 +399,8 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "live-point-prompt" in response.text
     assert "renderLiveToolPrompt" in response.text
     assert "Recomputing Locked Points" in response.text
-    assert "Capturing a new frame to recalculate ROI-local A/B" in response.text
-    assert "cached: false" in response.text
+    assert "Recalculating ROI-local A/B from the current ROI" in response.text
+    assert "cached: previewState.frozen_frame_available" in response.text
     assert "Point recompute failed. Adjust ROI or sensitivity and try again." in response.text
     assert "Failed to recompute ROI-local A/B:" in response.text
     assert "setupRecomputeInFlight" in response.text
@@ -605,6 +619,48 @@ def test_ui_debug_shows_endpoint_support_threshold() -> None:
     labels = json.loads(completed.stdout)
     assert "ep=1/1 pass" in labels["passLabel"]
     assert "ep=1/3 weak" in labels["weakLabel"]
+
+
+def test_frontend_debug_shows_source_projection_distance() -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate envelope debug helpers")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function envelopeSelectionDebugLabel(",
+        "function envelopeAxisOffsetLineToPreview(",
+    )
+    driver = (
+        block
+        + "\n"
+        "const label = envelopeSelectionDebugLabel({\n"
+        "  selected_width_extreme_mode: 'max_width',\n"
+        "  candidate_selection_goal: 'max_span',\n"
+        "  source_projection_distance_b_px: 18.25,\n"
+        "  envelope_max_source_projection_distance_px: 12,\n"
+        "  source_projection_reject_reason: 'source_projection_too_far',\n"
+        "});\n"
+        "process.stdout.write(JSON.stringify(label));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    label = json.loads(completed.stdout)
+    assert "source_projection_too_far" in label
+    assert "srcProjB=18.3/12.0" in label
 
 
 def test_mesh_lattice_mode_not_single_component() -> None:

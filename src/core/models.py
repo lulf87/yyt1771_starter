@@ -68,6 +68,8 @@ class MeasurementDefinition:
     envelope_lateral_window_bins: int = 1
     envelope_endpoint_support_radius_px: float = 3.0
     envelope_endpoint_min_support_px: int = 3
+    envelope_source_axis_tolerance_px: float | None = None
+    envelope_max_source_projection_distance_px: float | None = None
     envelope_relocate_confirm_frames: int = 3
     envelope_near_tie_span_ratio: float = 0.03
     envelope_immediate_span_gain_ratio: float = 0.12
@@ -107,6 +109,14 @@ class MeasurementDefinition:
             and int(self.envelope_lateral_window_bins) >= 0
             and float(self.envelope_endpoint_support_radius_px) >= 0.0
             and int(self.envelope_endpoint_min_support_px) >= 0
+            and (
+                self.envelope_source_axis_tolerance_px is None
+                or float(self.envelope_source_axis_tolerance_px) >= 0.0
+            )
+            and (
+                self.envelope_max_source_projection_distance_px is None
+                or float(self.envelope_max_source_projection_distance_px) >= 0.0
+            )
             and int(self.envelope_relocate_confirm_frames) >= 1
             and 0.0 <= float(self.envelope_near_tie_span_ratio) <= 1.0
             and 0.0 <= float(self.envelope_immediate_span_gain_ratio) <= 2.0

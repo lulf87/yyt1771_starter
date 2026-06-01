@@ -2288,6 +2288,68 @@ def test_auto_detect_definition_accepts_edge_endpoint_for_clearly_fuller_envelop
     assert payload["point_b_px"] == {"x": 1694, "y": 698}
 
 
+def test_directional_auto_detect_passes_previous_ab_as_envelope_axis_prior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "line_bundle"})
+    run_id = created.json()["run_id"]
+    captured_configs = []
+
+    class FakeDirectionalExtractor:
+        def __init__(self, config):
+            captured_configs.append(config)
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=48.0,
+                quality=0.95,
+                point_a_px=(24, 42),
+                point_b_px=(72, 42),
+                meta={
+                    "selection_mode": "directional_envelope_max_width",
+                    "projection_point_mode": "envelope_max_width",
+                    "component_area": 320,
+                    "selected_width_extreme_mode": "max_width",
+                    "width_extreme_mode": "max_width",
+                    "axis_offset_px": 42.0,
+                },
+            )
+
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalExtractor)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 128, "height": 96},
+            "metric_box": {"center_x": 64, "center_y": 48, "width": 110, "height": 80, "angle_deg": 0.0},
+            "direction_angle_deg": 0.0,
+            "direction_projection_mode": "envelope_max_width",
+            "width_extreme_mode": "max_width",
+            "target_geometry_mode": "line_bundle",
+            "prior_point_a_px": {"x": 20, "y": 42},
+            "prior_point_b_px": {"x": 76, "y": 42},
+            "observation_axis": "long_axis",
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "adaptive",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 20,
+            "sensitivity": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured_configs
+    assert captured_configs[0].envelope_axis_prior_px == pytest.approx(42.0)
+    assert captured_configs[0].envelope_axis_prior_tolerance_px is not None
+    assert captured_configs[0].envelope_axis_prior_tolerance_px >= 8.0
+
+
 def test_auto_detect_definition_uses_fixed_working_scale_for_roi_local_setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

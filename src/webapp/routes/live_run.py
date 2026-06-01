@@ -437,6 +437,16 @@ def auto_detect_measurement_definition(
         source_point_a_in_analysis_roi=_metric_meta_bool(metric, "source_point_a_in_analysis_roi"),
         source_point_b_in_analysis_roi=_metric_meta_bool(metric, "source_point_b_in_analysis_roi"),
         envelope_source_trust_state=_metric_meta_str(metric, "envelope_source_trust_state"),
+        source_axis_distance_a_px=_metric_meta_float(metric, "source_axis_distance_a_px"),
+        source_axis_distance_b_px=_metric_meta_float(metric, "source_axis_distance_b_px"),
+        source_projection_distance_a_px=_metric_meta_float(metric, "source_projection_distance_a_px"),
+        source_projection_distance_b_px=_metric_meta_float(metric, "source_projection_distance_b_px"),
+        envelope_source_axis_tolerance_px=_metric_meta_float(metric, "envelope_source_axis_tolerance_px"),
+        envelope_max_source_projection_distance_px=_metric_meta_float(
+            metric,
+            "envelope_max_source_projection_distance_px",
+        ),
+        source_projection_reject_reason=_metric_meta_str(metric, "source_projection_reject_reason"),
         axis_point_a_px=_metric_meta_point_response(metric, "axis_point_a_px"),
         axis_point_b_px=_metric_meta_point_response(metric, "axis_point_b_px"),
         quality=metric.quality,
@@ -759,6 +769,18 @@ def _extract_directional_auto_detect_metric(
     measurement_angle_deg = (
         float(metric_box.angle_deg) if metric_box is not None else float(payload.direction_angle_deg)
     )
+    prior_point_a, prior_point_b = _auto_detect_prior_points(payload, analysis_roi)
+    prior_midpoint = _auto_detect_prior_midpoint(prior_point_a, prior_point_b)
+    prior_axis_offset = _auto_detect_prior_axis_offset_px(
+        prior_point_a,
+        prior_point_b,
+        measurement_angle_deg,
+    )
+    prior_tolerance = _auto_detect_axis_prior_tolerance_px(
+        analysis_roi=analysis_roi,
+        metric_box=metric_box,
+        payload=payload,
+    )
     detector = DirectionalContourMetricExtractor(
         DirectionalContourConfig(
             analysis_roi=analysis_roi,
@@ -784,9 +806,84 @@ def _extract_directional_auto_detect_metric(
             envelope_lateral_window_bins=payload.envelope_lateral_window_bins,
             envelope_endpoint_support_radius_px=payload.envelope_endpoint_support_radius_px,
             envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
+            envelope_source_axis_tolerance_px=payload.envelope_source_axis_tolerance_px,
+            envelope_max_source_projection_distance_px=payload.envelope_max_source_projection_distance_px,
+            envelope_axis_prior_px=prior_axis_offset,
+            envelope_axis_prior_tolerance_px=prior_tolerance,
+            max_chord_axis_prior_point=prior_midpoint,
+            max_chord_axis_prior_tolerance_px=prior_tolerance,
+            max_chord_prior_point_a=prior_point_a,
+            max_chord_prior_point_b=prior_point_b,
+            max_chord_prior_endpoint_tolerance_px=prior_tolerance,
         )
     )
     return detector.extract(frame)
+
+
+def _auto_detect_prior_points(
+    payload: AutoDetectDefinitionRequest,
+    analysis_roi: RectRegion,
+) -> tuple[PixelPoint | None, PixelPoint | None]:
+    point_a = payload.prior_point_a_px
+    point_b = payload.prior_point_b_px
+    if point_a is None or point_b is None:
+        return None, None
+    prior_a = PixelPoint(x=int(point_a.x), y=int(point_a.y))
+    prior_b = PixelPoint(x=int(point_b.x), y=int(point_b.y))
+    if prior_a == prior_b:
+        return None, None
+    if not _auto_detect_point_in_region(analysis_roi, prior_a) or not _auto_detect_point_in_region(
+        analysis_roi,
+        prior_b,
+    ):
+        return None, None
+    return prior_a, prior_b
+
+
+def _auto_detect_point_in_region(region: RectRegion, point: PixelPoint, *, margin_px: float = 2.0) -> bool:
+    return (
+        float(region.x) - margin_px <= float(point.x) <= float(region.x + region.width) + margin_px
+        and float(region.y) - margin_px <= float(point.y) <= float(region.y + region.height) + margin_px
+    )
+
+
+def _auto_detect_prior_midpoint(
+    point_a: PixelPoint | None,
+    point_b: PixelPoint | None,
+) -> PixelPoint | None:
+    if point_a is None or point_b is None:
+        return None
+    return PixelPoint(
+        x=int(round((float(point_a.x) + float(point_b.x)) / 2.0)),
+        y=int(round((float(point_a.y) + float(point_b.y)) / 2.0)),
+    )
+
+
+def _auto_detect_prior_axis_offset_px(
+    point_a: PixelPoint | None,
+    point_b: PixelPoint | None,
+    measurement_angle_deg: float,
+) -> float | None:
+    midpoint = _auto_detect_prior_midpoint(point_a, point_b)
+    if midpoint is None:
+        return None
+    angle_rad = math.radians(float(measurement_angle_deg))
+    normal_x = -math.sin(angle_rad)
+    normal_y = math.cos(angle_rad)
+    return float(midpoint.x) * normal_x + float(midpoint.y) * normal_y
+
+
+def _auto_detect_axis_prior_tolerance_px(
+    *,
+    analysis_roi: RectRegion,
+    metric_box: MetricBox | None,
+    payload: AutoDetectDefinitionRequest,
+) -> float:
+    lateral_reference = float(metric_box.height if metric_box is not None else analysis_roi.height)
+    bin_reference = max(0.5, float(payload.envelope_normal_bin_width_px)) * (
+        max(0, int(payload.envelope_lateral_window_bins)) + 3.0
+    )
+    return max(8.0, bin_reference, lateral_reference * 0.04)
 
 
 def _candidate_threshold_modes(requested_threshold_mode: str) -> list[str]:
@@ -1331,6 +1428,8 @@ def _build_measurement_definition(definition: MeasurementDefinition) -> Measurem
         envelope_lateral_window_bins=definition.envelope_lateral_window_bins,
         envelope_endpoint_support_radius_px=definition.envelope_endpoint_support_radius_px,
         envelope_endpoint_min_support_px=definition.envelope_endpoint_min_support_px,
+        envelope_source_axis_tolerance_px=definition.envelope_source_axis_tolerance_px,
+        envelope_max_source_projection_distance_px=definition.envelope_max_source_projection_distance_px,
         envelope_relocate_confirm_frames=definition.envelope_relocate_confirm_frames,
         envelope_near_tie_span_ratio=definition.envelope_near_tie_span_ratio,
         envelope_immediate_span_gain_ratio=definition.envelope_immediate_span_gain_ratio,
