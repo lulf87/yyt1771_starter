@@ -1,8 +1,11 @@
+import json
+import math
+from pathlib import Path
+
 import numpy as np
 import pytest
-import math
 
-from src.core.models import FramePacket, MetricBox, PixelPoint, RectRegion
+from src.core.models import FramePacket, MetricBox, PixelPoint, RectRegion, ShapeMetric
 import src.vision.contour_direction as contour_direction
 from src.vision.contour_direction import (
     DirectionalContourConfig,
@@ -1346,6 +1349,36 @@ def test_effective_endpoint_min_support_scaled_for_downsampled_line_bundle() -> 
     assert metric.meta["endpoint_support_mode"] == "pass"
 
 
+def test_line_bundle_dense_phase_ab_stable_when_analysis_roi_padding_changes() -> None:
+    metrics = _offline_envelope_metrics_for_roi_padding(
+        capture_key="20260529-194304-dev_lab",
+        run_id="run-90aa048f9d65",
+        frame_id=5002,
+        padding_values=(0, 40, 80, 120, 180),
+    )
+
+    axis_offsets = [float(metric.meta["axis_offset_px"]) for metric in metrics]
+    spans = [float(metric.metric_raw or 0.0) for metric in metrics]
+
+    assert max(axis_offsets) - min(axis_offsets) <= 24.0
+    assert max(spans) - min(spans) <= 24.0
+
+
+def test_mesh_lattice_dense_phase_ab_stable_when_analysis_roi_padding_changes() -> None:
+    metrics = _offline_envelope_metrics_for_roi_padding(
+        capture_key="20260522-183158-dev_lab",
+        run_id="run-2542c5fa40ce",
+        frame_id=3650,
+        padding_values=(0, 40, 80, 120, 180),
+    )
+
+    axis_offsets = [float(metric.meta["axis_offset_px"]) for metric in metrics]
+    spans = [float(metric.metric_raw or 0.0) for metric in metrics]
+
+    assert max(axis_offsets) - min(axis_offsets) <= 24.0
+    assert max(spans) - min(spans) <= 32.0
+
+
 def test_directional_contour_refines_downsampled_boundary_points_on_original_frame() -> None:
     image = np.full((120, 1000), 230, dtype=np.uint8)
     image[46:55, 123:877] = 20
@@ -2196,6 +2229,67 @@ def _point_in_rotated_metric_box_with_tolerance(box: MetricBox, point: PixelPoin
     local_x = translated_x * cos_theta + translated_y * sin_theta
     local_y = -translated_x * sin_theta + translated_y * cos_theta
     return abs(local_x) <= float(box.width) / 2.0 + epsilon and abs(local_y) <= float(box.height) / 2.0 + epsilon
+
+
+def _offline_envelope_metrics_for_roi_padding(
+    *,
+    capture_key: str,
+    run_id: str,
+    frame_id: int,
+    padding_values: tuple[int, ...],
+) -> list[ShapeMetric]:
+    repo_root = Path(__file__).resolve().parents[2]
+    capture_dir = repo_root / "examples/runtime/camera_captures" / capture_key
+    artifact_dir = repo_root / "examples/runtime/artifacts" / run_id
+    frame_path = capture_dir / "frames" / f"frame_{frame_id:06d}.npy"
+    definition_path = artifact_dir / "definition_effective_local.json"
+    capture_plan_path = artifact_dir / "measurement_capture_plan.json"
+    if not frame_path.exists() or not definition_path.exists() or not capture_plan_path.exists():
+        pytest.skip("local offline capture regression fixture is not available")
+
+    definition = json.loads(definition_path.read_text())
+    acquisition_roi = json.loads(capture_plan_path.read_text())["effective_acquisition_roi"]
+    source = np.load(frame_path)
+    acquisition_x = int(acquisition_roi["x"])
+    acquisition_y = int(acquisition_roi["y"])
+    acquisition_width = int(acquisition_roi["width"])
+    acquisition_height = int(acquisition_roi["height"])
+    image = source[
+        acquisition_y : acquisition_y + acquisition_height,
+        acquisition_x : acquisition_x + acquisition_width,
+    ]
+    base_roi = definition["analysis_roi"]
+    metric_box = MetricBox(**definition["metric_box"])
+    metrics: list[ShapeMetric] = []
+    for padding in padding_values:
+        roi_x = max(0, int(base_roi["x"]) - int(padding))
+        roi_y = max(0, int(base_roi["y"]) - int(padding))
+        roi_width = min(int(image.shape[1]) - roi_x, int(base_roi["width"]) + int(padding) * 2)
+        roi_height = min(int(image.shape[0]) - roi_y, int(base_roi["height"]) + int(padding) * 2)
+        config = DirectionalContourConfig(
+            analysis_roi=RectRegion(x=roi_x, y=roi_y, width=roi_width, height=roi_height),
+            metric_box=metric_box,
+            direction_angle_deg=float(definition["direction_angle_deg"]),
+            foreground_polarity=str(definition["foreground_polarity"]),
+            threshold_mode=str(definition["threshold_mode"]),
+            ignore_internal_texture=bool(definition.get("ignore_internal_texture", False)),
+            min_target_area_px=int(definition.get("min_target_area_px", 200)),
+            sensitivity=float(definition.get("sensitivity", 50.0)),
+            projection_mode="envelope_max_width",
+            width_extreme_mode="max_width",
+            target_geometry_mode=str(definition.get("target_geometry_mode", "line_bundle")),
+        )
+        metrics.append(
+            DirectionalContourMetricExtractor(config).extract(
+                FramePacket(
+                    timestamp_ms=int(frame_id),
+                    source="offline_roi_padding_fixture",
+                    image=image,
+                    frame_id=int(frame_id),
+                )
+            )
+        )
+    return metrics
 
 
 def _point_local_coords(box: MetricBox, point: PixelPoint) -> tuple[float, float]:

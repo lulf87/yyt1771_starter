@@ -391,7 +391,16 @@ class DirectionalContourMetricExtractor(VisionMetricExtractor):
 def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> DirectionalContourResult:
     gray = _normalize_gray_image(image)
     roi = _clip_roi(config.analysis_roi, gray.shape)
-    crop = gray[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
+    projection_mode = str(config.projection_mode or "max_chord")
+    detection_roi = (
+        _envelope_detection_roi(roi, config, gray.shape)
+        if projection_mode == "envelope_max_width"
+        else roi
+    )
+    crop = gray[
+        detection_roi.y : detection_roi.y + detection_roi.height,
+        detection_roi.x : detection_roi.x + detection_roi.width,
+    ]
     if crop.size == 0:
         raise DirectionalContourDetectionError("roi_outside_image")
 
@@ -406,7 +415,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     angle_mismatch_warning = angle_delta_deg > 0.5
 
     cv2 = _try_import_cv2()
-    processing = _prepare_processing_geometry(cv2, crop, roi, config)
+    processing = _prepare_processing_geometry(cv2, crop, detection_roi, config)
     crop = processing.crop
     processing_roi = processing.roi
     mask, threshold_value = _threshold_mask(cv2, crop, config)
@@ -417,7 +426,6 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
     if allowed_mask is not None:
         source_mask = _apply_allowed_mask(cv2, source_mask, allowed_mask)
     raw_mask = mask
-    projection_mode = str(config.projection_mode or "max_chord")
     width_extreme_mode = resolve_width_extreme_mode(config)
     mask = _cleanup_mask(cv2, mask, config)
     target_geometry_mode = str(config.target_geometry_mode or "single_component")
@@ -3203,6 +3211,44 @@ def _clip_roi(region: RectRegion, image_shape: tuple[int, ...]) -> RectRegion:
         raise DirectionalContourDetectionError("roi_outside_image")
     if x1 - x0 < 2 or y1 - y0 < 2:
         raise DirectionalContourDetectionError("roi_too_small")
+    return RectRegion(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
+
+
+def _envelope_detection_roi(
+    analysis_roi: RectRegion,
+    config: DirectionalContourConfig,
+    image_shape: tuple[int, ...],
+) -> RectRegion:
+    """Use the rotated metric box as the stable envelope processing window.
+
+    ``analysis_roi`` is the operator's search contract, but padding around the
+    same rotated ROI must not change the adaptive threshold/downsample grid and
+    move the selected A/B band. When a metric box is available, process its
+    axis-aligned bounding rectangle clipped to the analysis ROI; this keeps the
+    foreground content stable while still respecting the operator-selected ROI.
+    """
+    if config.metric_box is None:
+        return analysis_roi
+    corners = _metric_box_corners(config.metric_box)
+    min_x = math.floor(min(float(point[0]) for point in corners))
+    max_x = math.ceil(max(float(point[0]) for point in corners))
+    min_y = math.floor(min(float(point[1]) for point in corners))
+    max_y = math.ceil(max(float(point[1]) for point in corners))
+    box_roi = _clip_roi(
+        RectRegion(
+            x=int(min_x),
+            y=int(min_y),
+            width=max(1, int(max_x - min_x)),
+            height=max(1, int(max_y - min_y)),
+        ),
+        image_shape,
+    )
+    x0 = max(int(analysis_roi.x), int(box_roi.x))
+    y0 = max(int(analysis_roi.y), int(box_roi.y))
+    x1 = min(int(analysis_roi.x + analysis_roi.width), int(box_roi.x + box_roi.width))
+    y1 = min(int(analysis_roi.y + analysis_roi.height), int(box_roi.y + box_roi.height))
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return analysis_roi
     return RectRegion(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
 
 
