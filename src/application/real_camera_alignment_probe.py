@@ -255,6 +255,7 @@ def _probe_formal_ab_detection(
             envelope_endpoint_min_support_px=definition.envelope_endpoint_min_support_px,
             envelope_source_axis_tolerance_px=definition.envelope_source_axis_tolerance_px,
             envelope_max_source_projection_distance_px=definition.envelope_max_source_projection_distance_px,
+            envelope_near_tie_span_ratio=definition.envelope_near_tie_span_ratio,
         )
     )
     metric = extractor.extract(frame)

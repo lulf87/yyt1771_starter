@@ -472,12 +472,67 @@ def test_envelope_rejects_source_projection_too_far() -> None:
     assert largest["source_projection_distance_b_px"] > largest["envelope_max_source_projection_distance_px"]
 
 
-def test_envelope_prefers_candidate_with_source_close_to_axis() -> None:
+def test_envelope_max_width_span_dominates_source_alignment_outside_near_tie() -> None:
     mask = np.zeros((120, 240), dtype=np.uint8)
-    # Slightly wider candidate with support endpoints 8 px off its projected axis.
+    # Clearly wider candidate with support endpoints 8 px off its projected axis.
+    # This is still within the source/axis tolerance, so max_width must keep span
+    # as the primary objective instead of snapping to a much narrower aligned row.
     mask[20:23, 20:71] = 255
     mask[28:31, 72:121] = 255
     mask[36:39, 122:171] = 255
+    # Narrower candidate whose support and projected axis are aligned.
+    mask[82:86, 34:133] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=240, height=120),
+        0.0,
+        normal_bin_width_px=8.0,
+        lateral_window_bins=1,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        envelope_source_axis_tolerance_px=20.0,
+        envelope_max_source_projection_distance_px=20.0,
+    )
+
+    assert result.metric_raw == pytest.approx(150.0, abs=2.0)
+    assert result.source_axis_distance_a_px > 1.0
+    assert result.source_axis_distance_b_px > 1.0
+    largest = result.envelope_candidate_debug["largest"][0]
+    assert largest["span"] == pytest.approx(result.metric_raw, abs=2.0)
+
+
+def test_envelope_max_width_span_dominates_axis_prior_outside_near_tie() -> None:
+    mask = np.zeros((140, 260), dtype=np.uint8)
+    # True widest candidate after an angle/ROI recompute.
+    mask[24:28, 20:181] = 255
+    # Old-prior-adjacent candidate. It is intentionally much narrower, so the
+    # prior should not keep A/B stuck here when max_width is requested.
+    mask[100:104, 55:156] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=260, height=140),
+        0.0,
+        normal_bin_width_px=4.0,
+        lateral_window_bins=0,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        axis_prior_px=102.0,
+        axis_prior_tolerance_px=6.0,
+        envelope_near_tie_span_ratio=0.03,
+    )
+
+    assert result.metric_raw == pytest.approx(160.0, abs=2.0)
+    assert result.axis_offset_px == pytest.approx(26.0, abs=2.0)
+
+
+def test_envelope_prefers_candidate_with_source_close_to_axis_for_near_tie() -> None:
+    mask = np.zeros((120, 240), dtype=np.uint8)
+    # Slightly wider candidate with support endpoints 8 px off its projected axis.
+    mask[20:23, 20:58] = 255
+    mask[28:31, 59:96] = 255
+    mask[36:39, 97:121] = 255
     # Near-tie candidate whose support and projected axis are aligned.
     mask[82:86, 34:133] = 255
 
@@ -497,7 +552,7 @@ def test_envelope_prefers_candidate_with_source_close_to_axis() -> None:
     assert result.source_axis_distance_a_px <= 1.0
     assert result.source_axis_distance_b_px <= 1.0
     largest = result.envelope_candidate_debug["largest"][0]
-    assert largest["span"] == pytest.approx(150.0, abs=2.0)
+    assert largest["span"] == pytest.approx(100.0, abs=2.0)
     assert largest["source_axis_distance_b_px"] > result.source_axis_distance_b_px
 
 

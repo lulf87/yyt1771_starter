@@ -50,6 +50,7 @@ class DirectionalContourConfig:
     envelope_axis_prior_px: float | None = None
     envelope_axis_prior_tolerance_px: float | None = None
     envelope_sample_core_descriptor: dict[str, Any] | None = None
+    envelope_near_tie_span_ratio: float = 0.03
     min_width_min_span_px: float = 5.0
     min_width_min_span_ratio: float = 0.02
     min_width_exclude_end_fraction: float = 0.03
@@ -537,6 +538,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
                 if config.envelope_axis_prior_tolerance_px is None
                 else float(config.envelope_axis_prior_tolerance_px) * scale
             ),
+            envelope_near_tie_span_ratio=float(config.envelope_near_tie_span_ratio),
             width_extreme_mode=width_extreme_mode,
             min_width_min_span_px=max(0.0, float(config.min_width_min_span_px) * scale),
             min_width_min_span_ratio=float(config.min_width_min_span_ratio),
@@ -648,6 +650,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             resolved_angle_deg,
             image_shape=gray.shape,
         )
+        envelope_candidate_debug = projection.envelope_candidate_debug
     contour_xy = _contour_to_original_roi(contour_xy, processing)
     rejected_components = _rejected_components_to_original_roi(
         rejected_components,
@@ -1002,6 +1005,7 @@ def measure_component_envelope_width(
     metric_box: MetricBox | None = None,
     axis_prior_px: float | None = None,
     axis_prior_tolerance_px: float | None = None,
+    envelope_near_tie_span_ratio: float = 0.03,
     width_extreme_mode: str = "max_width",
     min_width_min_span_px: float = 5.0,
     min_width_min_span_ratio: float = 0.02,
@@ -1084,6 +1088,7 @@ def measure_component_envelope_width(
         min_span_ratio=min_width_min_span_ratio,
     )
     exclude_end_fraction = max(0.0, min(0.45, float(min_width_exclude_end_fraction)))
+    near_tie_span_ratio = max(0.0, min(1.0, float(envelope_near_tie_span_ratio)))
     lateral_min = float(np.min(lateral))
     lateral_max = float(np.max(lateral))
     lateral_extent = max(0.0, lateral_max - lateral_min)
@@ -1344,6 +1349,7 @@ def measure_component_envelope_width(
                     candidate,
                     best_min_width,
                     width_extreme_mode="min_width",
+                    near_tie_span_ratio=near_tie_span_ratio,
                 ):
                     best_min_width = candidate
         if relaxed_min_width_effective and not strict_min_width_effective:
@@ -1352,21 +1358,29 @@ def measure_component_envelope_width(
                 candidate,
                 best_min_width_relaxed,
                 width_extreme_mode="min_width",
+                near_tie_span_ratio=near_tie_span_ratio,
             ):
                 best_min_width_relaxed = candidate
         if max_width_effective:
-            if _envelope_candidate_is_better(candidate, best, width_extreme_mode="max_width"):
+            if _envelope_candidate_is_better(
+                candidate,
+                best,
+                width_extreme_mode="max_width",
+                near_tie_span_ratio=near_tie_span_ratio,
+            ):
                 best = candidate
             if endpoints_supported and _envelope_candidate_is_better(
                 candidate,
                 best_supported,
                 width_extreme_mode="max_width",
+                near_tie_span_ratio=near_tie_span_ratio,
             ):
                 best_supported = candidate
             if endpoints_supported and endpoints_trusted and _envelope_candidate_is_better(
                 candidate,
                 best_trusted_supported,
                 width_extreme_mode="max_width",
+                near_tie_span_ratio=near_tie_span_ratio,
             ):
                 best_trusted_supported = candidate
         elif _envelope_rejected_candidate_is_better(candidate, best_rejected):
@@ -1782,6 +1796,7 @@ def _envelope_candidate_is_better(
     current: dict[str, Any] | None,
     *,
     width_extreme_mode: str = "max_width",
+    near_tie_span_ratio: float = 0.03,
 ) -> bool:
     if current is None:
         return True
@@ -1808,8 +1823,12 @@ def _envelope_candidate_is_better(
         return float(candidate["center_distance"]) < float(current["center_distance"])
     near_tie = abs(float(candidate["span"]) - float(current["span"])) <= max(
         2.0,
-        max(float(candidate["span"]), float(current["span"])) * 0.35,
+        max(float(candidate["span"]), float(current["span"])) * max(0.0, min(1.0, float(near_tie_span_ratio))),
     )
+    if not near_tie:
+        span_delta = float(candidate["span"]) - float(current["span"])
+        if abs(span_delta) > 1e-9:
+            return span_delta > 0.0
     if near_tie:
         candidate_source_axis = max(
             float(candidate.get("source_axis_distance_a_px") or 0.0),

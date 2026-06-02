@@ -808,6 +808,7 @@ def _extract_directional_auto_detect_metric(
             envelope_endpoint_min_support_px=payload.envelope_endpoint_min_support_px,
             envelope_source_axis_tolerance_px=payload.envelope_source_axis_tolerance_px,
             envelope_max_source_projection_distance_px=payload.envelope_max_source_projection_distance_px,
+            envelope_near_tie_span_ratio=payload.envelope_near_tie_span_ratio,
             envelope_axis_prior_px=prior_axis_offset,
             envelope_axis_prior_tolerance_px=prior_tolerance,
             max_chord_axis_prior_point=prior_midpoint,

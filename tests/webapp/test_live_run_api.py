@@ -1529,6 +1529,67 @@ def test_web_auto_detect_min_and_max_differ_on_synthetic_geometry(tmp_path: Path
     assert min_payload["envelope_candidate_debug"]["smallest"][0]["span"] == pytest.approx(60.0, abs=2.0)
 
 
+def test_web_auto_detect_passes_envelope_near_tie_ratio_to_directional_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _make_app(tmp_path)
+    client = TestClient(app)
+    created = client.post("/api/runs", json={"preset": "balloon"})
+    run_id = created.json()["run_id"]
+    captured_configs = []
+
+    def fake_fetch_frame(runtime_config, *, run_id: str = "", prefer_cached: bool = False):
+        del runtime_config, run_id, prefer_cached
+        return FramePacket(timestamp_ms=4_000, source="direction_fixture", image=[[240] * 100 for _ in range(100)], frame_id=12)
+
+    class FakeDirectionalDetector:
+        def __init__(self, config):
+            captured_configs.append(config)
+
+        def extract(self, frame):
+            del frame
+            return ShapeMetric(
+                timestamp_ms=1_000,
+                metric_name="directional_contour_span",
+                metric_raw=60.0,
+                quality=0.95,
+                point_a_px=(20, 40),
+                point_b_px=(80, 40),
+                meta={
+                    "component_area": 1_200,
+                    "selection_mode": "directional_contour_envelope_max_width",
+                    "projection_point_mode": "envelope_max_width",
+                    "selected_width_extreme_mode": "max_width",
+                    "width_extreme_mode": "max_width",
+                },
+            )
+
+    app.state.live_preview_service.fetch_frame = fake_fetch_frame
+    monkeypatch.setattr("src.webapp.routes.live_run.DirectionalContourMetricExtractor", FakeDirectionalDetector)
+
+    response = client.post(
+        f"/api/runs/{run_id}/definition/auto",
+        json={
+            "analysis_roi": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "metric_box": {"center_x": 50, "center_y": 50, "width": 90, "height": 80, "angle_deg": 0.0},
+            "direction_angle_deg": 0.0,
+            "foreground_polarity": "dark_on_light",
+            "threshold_mode": "binary",
+            "ignore_internal_texture": True,
+            "min_target_area_px": 12,
+            "sensitivity": 50,
+            "direction_projection_mode": "envelope_max_width",
+            "target_geometry_mode": "line_bundle",
+            "envelope_near_tie_span_ratio": 0.11,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured_configs
+    assert all(config.envelope_near_tie_span_ratio == pytest.approx(0.11) for config in captured_configs)
+
+
 def test_auto_detect_definition_directional_contour_can_flip_from_border_hugging_requested_polarity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
