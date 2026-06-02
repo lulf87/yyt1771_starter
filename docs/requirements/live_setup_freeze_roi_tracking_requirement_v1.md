@@ -284,8 +284,12 @@ ROI 必须是一个可旋转矩形，而不是只能轴对齐的框。
 这意味着：
 
 - `envelope_max_width` 不是 convex hull
-- `envelope_max_width` 不是简单填洞后取单一连通域
-- `line_bundle` 应使用多组件 union 构造 `envelope_target_mask`
+- `envelope_max_width` 不是对整张 ROI 做无约束 convex hull 或盲目填洞后取单一连通域
+- `line_bundle` 应使用多组件 union 构造 `envelope_target_mask`，再在已选样品组件范围内
+  桥接相邻细丝并填充内部空隙，形成代表整束待测物的 `bundle_body_mask`
+- 对于 `line_bundle`，细丝之间被外包络包围的白色缝隙属于待测物整体的一部分；
+  正式 `A-B` 应来自 `bundle_body_mask` 的外边界最宽位置，而不是来自某一根细丝、
+  某一条暗像素 band，或内部空隙两侧的局部候选
 - `mesh_lattice` 应以主体组件 union 为基础，允许适度 close / fill small holes，
   但不得把 ROI 左右留白或边界杂物并入目标外包络
 - 操作员保证 ROI 本地测量方向的左右两端有背景留白；系统可使用

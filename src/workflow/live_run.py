@@ -509,6 +509,10 @@ class PriorTrackingMetricSource:
         )
         self._envelope_endpoint_min_support_px = max(0, int(definition.envelope_endpoint_min_support_px))
         self._envelope_target_geometry_mode = str(definition.target_geometry_mode or "single_component")
+        self._envelope_requires_identity_stable_axis = self._envelope_target_geometry_mode in {
+            "line_bundle",
+            "mesh_lattice",
+        }
         self._min_width_span_floor_px = max(
             5.0,
             float(definition.metric_box.width) * 0.02,
@@ -622,6 +626,16 @@ class PriorTrackingMetricSource:
         self._envelope_near_tie_span_ratio = max(0.0, float(definition.envelope_near_tie_span_ratio))
         self._envelope_growth_accept_ratio = self._envelope_immediate_span_gain_ratio
         self._envelope_near_tie_ratio = self._envelope_near_tie_span_ratio
+        self._envelope_axis_prior_accept_tolerance_px = self._max_midpoint_drift_px
+        if self._envelope_requires_identity_stable_axis:
+            bin_tolerance_px = float(definition.envelope_normal_bin_width_px) * max(
+                1.0,
+                float(definition.envelope_lateral_window_bins) + 1.0,
+            )
+            self._envelope_axis_prior_accept_tolerance_px = min(
+                self._max_midpoint_drift_px,
+                max(8.0, bin_tolerance_px),
+            )
         self._direction_unit: tuple[float, float] | None = None
         self._normal_unit: tuple[float, float] | None = None
         self._allows_axis_lateral_stabilization = (
@@ -1310,10 +1324,10 @@ class PriorTrackingMetricSource:
                 total_samples=total_samples,
                 state="accepted_min_width_envelope" if self._is_min_width_envelope else "envelope_relocated",
             )
-        # Near-equal span (or modest growth) but large lateral relocation: this
-        # looks like the widest section jumped sideways. Require the relocation to
-        # repeat for envelope_relocate_confirm_frames before committing, to
-        # suppress near-tie jitter.
+        # Near-equal span (or modest growth) but large lateral relocation looks
+        # like the widest section jumped sideways. Sparse/porous geometries keep
+        # the last identity-stable band; single-component envelopes may still
+        # commit after repeated confirmation.
         near_tie = self._span_near_tie(
             new_span,
             self._last_good_span_px,
@@ -1322,28 +1336,55 @@ class PriorTrackingMetricSource:
             px=6.0,
         )
         lateral_drift_px = self._envelope_lateral_drift_px(diagnostics)
-        large_lateral_drift = lateral_drift_px is not None and float(lateral_drift_px) > self._max_midpoint_drift_px
+        large_lateral_drift = (
+            lateral_drift_px is not None
+            and float(lateral_drift_px) > self._envelope_axis_prior_accept_tolerance_px
+        )
         if near_tie and large_lateral_drift:
             # A consistent near-tie relocation accumulates toward confirmation; an
             # inconsistent one (the near-tie candidate keeps jumping to different
             # lateral positions) is just jitter and is held without progress.
             consistent = self._envelope_pending_is_consistent(observation)
+            jittered = False
             if consistent:
                 self._pending_envelope_count += 1
             else:
                 jittered = self._pending_envelope_point_a is not None
                 self._record_envelope_pending(observation)
-                if jittered:
-                    return self._hold_last_good_for_envelope_outlier(
-                        frame,
-                        temp,
-                        sample_index=sample_index,
-                        total_samples=total_samples,
-                        observation=observation,
-                        diagnostics=diagnostics,
-                        reason="envelope_near_tie_axis_jitter",
-                        tracking_state="envelope_near_tie_hold",
-                    )
+            if self._envelope_requires_identity_stable_axis:
+                confirmed_hold = (
+                    jittered
+                    or self._pending_envelope_count >= self._envelope_relocation_confirm_frames
+                )
+                return self._hold_last_good_for_envelope_outlier(
+                    frame,
+                    temp,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                    observation=observation,
+                    diagnostics=diagnostics,
+                    reason=(
+                        "envelope_near_tie_axis_hold"
+                        if confirmed_hold
+                        else "envelope_relocation_pending"
+                    ),
+                    tracking_state=(
+                        "envelope_near_tie_hold"
+                        if confirmed_hold
+                        else "envelope_pending_relocation"
+                    ),
+                )
+            if jittered:
+                return self._hold_last_good_for_envelope_outlier(
+                    frame,
+                    temp,
+                    sample_index=sample_index,
+                    total_samples=total_samples,
+                    observation=observation,
+                    diagnostics=diagnostics,
+                    reason="envelope_near_tie_axis_jitter",
+                    tracking_state="envelope_near_tie_hold",
+                )
             if self._pending_envelope_count >= self._envelope_relocation_confirm_frames:
                 self._clear_envelope_pending()
                 return self._accept_envelope_metric(
@@ -1362,6 +1403,18 @@ class PriorTrackingMetricSource:
                 diagnostics=diagnostics,
                 reason="envelope_relocation_pending",
                 tracking_state="envelope_pending_relocation",
+            )
+        if large_lateral_drift and self._envelope_requires_identity_stable_axis:
+            self._record_envelope_pending(observation)
+            return self._hold_last_good_for_envelope_outlier(
+                frame,
+                temp,
+                sample_index=sample_index,
+                total_samples=total_samples,
+                observation=observation,
+                diagnostics=diagnostics,
+                reason="envelope_identity_axis_hold",
+                tracking_state="envelope_near_tie_hold",
             )
         # Any other accepted candidate (moderate span change without a large
         # lateral jump) updates the global envelope directly.
@@ -1481,7 +1534,7 @@ class PriorTrackingMetricSource:
         axis_jump = diagnostics.get("candidate_axis_jump_px")
         if axis_jump is None:
             return False
-        if float(axis_jump) > self._max_midpoint_drift_px:
+        if float(axis_jump) > self._envelope_axis_prior_accept_tolerance_px:
             return False
         if self._is_min_width_envelope:
             candidate_span = diagnostics.get("observed_metric_raw")
@@ -1686,6 +1739,8 @@ class PriorTrackingMetricSource:
             "source_projection_too_far": "envelope_projection_offset_hold",
             "envelope_relocation_pending": "envelope_pending_relocation",
             "envelope_near_tie_axis_jitter": "envelope_near_tie_hold",
+            "envelope_near_tie_axis_hold": "envelope_near_tie_hold",
+            "envelope_identity_axis_hold": "envelope_near_tie_hold",
         }
         return mapping.get(reason, "envelope_prior_hold")
 
@@ -1879,6 +1934,8 @@ class PriorTrackingMetricSource:
             "effective_envelope_min_support_px",
             "source_point_a_px",
             "source_point_b_px",
+            "axis_point_a_px",
+            "axis_point_b_px",
             "source_point_a_component_id",
             "source_point_b_component_id",
             "source_point_a_trusted",
@@ -1899,6 +1956,12 @@ class PriorTrackingMetricSource:
         metric.meta["envelope_reject_reason"] = reason
         metric.meta["observation_point_a_px"] = observation.point_a_px
         metric.meta["observation_point_b_px"] = observation.point_b_px
+        metric.meta["observed_point_a_px"] = observation.point_a_px
+        metric.meta["observed_point_b_px"] = observation.point_b_px
+        metric.meta["observed_source_point_a_px"] = observation.meta.get("source_point_a_px")
+        metric.meta["observed_source_point_b_px"] = observation.meta.get("source_point_b_px")
+        metric.meta["observed_axis_point_a_px"] = observation.meta.get("axis_point_a_px")
+        metric.meta["observed_axis_point_b_px"] = observation.meta.get("axis_point_b_px")
         last_good_axis_offset = (
             self._envelope_axis_offset_px(self._last_good_point_a, self._last_good_point_b)
             if self._has_runtime_lock
@@ -2854,7 +2917,7 @@ class PriorTrackingMetricSource:
     def _current_envelope_axis_prior_tolerance_px(self) -> float | None:
         if self._last_good_point_a is None or self._last_good_point_b is None:
             return None
-        return max(self._max_midpoint_drift_px, 8.0)
+        return max(self._envelope_axis_prior_accept_tolerance_px, 8.0)
 
     def _current_envelope_sample_core_descriptor(self) -> dict[str, Any] | None:
         return None if self._last_clean_sample_core_descriptor is None else dict(self._last_clean_sample_core_descriptor)
@@ -3540,6 +3603,12 @@ def _telemetry_row(
         "point_b_px": None
         if metric.point_b_px is None
         else [int(metric.point_b_px[0]), int(metric.point_b_px[1])],
+        "observed_point_a_px": _metric_meta_point(metric_meta, "observed_point_a_px"),
+        "observed_point_b_px": _metric_meta_point(metric_meta, "observed_point_b_px"),
+        "observed_source_point_a_px": _metric_meta_point(metric_meta, "observed_source_point_a_px"),
+        "observed_source_point_b_px": _metric_meta_point(metric_meta, "observed_source_point_b_px"),
+        "observed_axis_point_a_px": _metric_meta_point(metric_meta, "observed_axis_point_a_px"),
+        "observed_axis_point_b_px": _metric_meta_point(metric_meta, "observed_axis_point_b_px"),
         "source_point_a_px": _metric_meta_point(metric_meta, "source_point_a_px"),
         "source_point_b_px": _metric_meta_point(metric_meta, "source_point_b_px"),
         "source_point_a_component_id": metric_meta.get("source_point_a_component_id"),

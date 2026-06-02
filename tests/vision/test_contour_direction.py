@@ -556,15 +556,46 @@ def test_envelope_prefers_candidate_with_source_close_to_axis_for_near_tie() -> 
     assert largest["source_axis_distance_b_px"] > result.source_axis_distance_b_px
 
 
-def test_line_bundle_dense_phase_b_point_not_projected_to_empty_background() -> None:
+def test_envelope_prefers_axis_prior_for_near_tie_when_tracking_body_identity() -> None:
+    mask = np.zeros((120, 240), dtype=np.uint8)
+    # Same geometry as the no-prior near-tie case above: the upper staggered
+    # bundle describes the tracked body band, while the lower straight row has
+    # cleaner source/axis alignment but is only a near-tie in width.
+    mask[20:23, 20:58] = 255
+    mask[28:31, 59:96] = 255
+    mask[36:39, 97:121] = 255
+    mask[82:86, 34:133] = 255
+
+    result = contour_direction.measure_component_envelope_width(
+        mask,
+        RectRegion(x=0, y=0, width=240, height=120),
+        0.0,
+        normal_bin_width_px=8.0,
+        lateral_window_bins=1,
+        min_support_px=3,
+        width_extreme_mode="max_width",
+        envelope_source_axis_tolerance_px=20.0,
+        envelope_max_source_projection_distance_px=20.0,
+        axis_prior_px=28.0,
+        axis_prior_tolerance_px=8.0,
+        envelope_near_tie_span_ratio=0.03,
+    )
+
+    assert result.metric_raw == pytest.approx(100.0, abs=2.0)
+    assert result.axis_offset_px == pytest.approx(28.0, abs=2.0)
+    assert max(result.source_axis_distance_a_px, result.source_axis_distance_b_px) > 1.0
+
+
+def test_line_bundle_dense_phase_fills_internal_gaps_before_accepting_widest_body() -> None:
     image = np.full((130, 240), 240, dtype=np.uint8)
-    # Dense phase: left/right source support exists in one lateral window, but the
-    # projected B endpoint at the window median would fall on empty background.
+    # Dense phase: staggered filaments describe one bundle body. The white gaps
+    # between the filaments are internal to the measured object and must not make
+    # the widest body candidate look like an off-axis raw-pixel projection.
     image[20:23, 20:70] = 30
     image[30:33, 80:121] = 30
     image[40:43, 130:181] = 30
-    # Warmer/open phase candidate: narrower but the source endpoint and axis point
-    # describe the same physical filament row.
+    # A narrower lower band has perfectly aligned raw support, but it must not
+    # win over the filled whole-object envelope.
     image[82:86, 55:146] = 30
 
     result = detect_directional_contour(
@@ -589,12 +620,14 @@ def test_line_bundle_dense_phase_b_point_not_projected_to_empty_background() -> 
     )
 
     assert result.projection_point_mode == "envelope_max_width"
-    assert result.metric_raw == pytest.approx(90.0, abs=2.0)
+    assert result.metric_raw == pytest.approx(158.0, abs=3.0)
     assert result.point_a.y == result.point_b.y
-    assert image[result.point_b.y, result.point_b.x] == 30
     assert result.source_projection_reject_reason is None
+    assert result.envelope_reject_reason in {None, ""}
+    assert result.point_a.x == pytest.approx(21, abs=3)
+    assert result.point_b.x == pytest.approx(179, abs=3)
     largest = result.envelope_candidate_debug["largest"][0]
-    assert largest["reject_reason"] == "source_axis_offset_too_far"
+    assert largest["reject_reason"] in {None, ""}
 
 
 def test_envelope_min_width_reports_span_floor_in_original_pixels_after_downscale() -> None:

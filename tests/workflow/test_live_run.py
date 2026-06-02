@@ -1460,7 +1460,7 @@ def test_prior_tracking_metric_source_accepts_directional_relocation_when_span_i
     assert relocated.point_b_px == (150, 32)
 
 
-def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without_endpoint_prior(
+def test_prior_tracking_metric_source_accepts_single_component_envelope_global_relocation_without_endpoint_prior(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observations = iter(
@@ -1507,7 +1507,7 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
     class FakeDirectionalExtractor:
         def __init__(self, config):
             assert config.projection_mode == "envelope_max_width"
-            assert config.target_geometry_mode == "line_bundle"
+            assert config.target_geometry_mode == "single_component"
             assert config.max_chord_axis_prior_point is None
             assert config.max_chord_prior_point_a is None
 
@@ -1528,7 +1528,7 @@ def test_prior_tracking_metric_source_accepts_envelope_global_relocation_without
         min_target_area_px=20,
         direction_angle_deg=0.0,
         direction_projection_mode="envelope_max_width",
-        target_geometry_mode="line_bundle",
+        target_geometry_mode="single_component",
         side_guard_ratio=0.10,
         envelope_relocate_confirm_frames=2,
     )
@@ -1759,6 +1759,116 @@ def test_prior_tracking_envelope_line_bundle_moves_ab_to_wider_top_section(
     assert relocated.meta["tracking_state"] == "envelope_relocated"
     assert relocated.point_a_px == (20, 18)
     assert relocated.point_b_px == (110, 18)
+
+
+def test_prior_tracking_envelope_line_bundle_holds_repeated_near_tie_lateral_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (30, 60), "b": (90, 60)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 60), point_b=(90, 60))
+    definition.envelope_relocate_confirm_frames = 2
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    repeated_top = {"span": 61.0, "a": (30, 18), "b": (91, 18)}
+    states = []
+    points = []
+    for index, spec in enumerate(
+        [
+            {"span": 60.0, "a": (30, 60), "b": (90, 60)},
+            repeated_top,
+            repeated_top,
+            repeated_top,
+        ]
+    ):
+        holder["value"] = dict(spec)
+        frame, temp = _frame_temp(index + 1)
+        result = source.extract(frame, temp, sample_index=index, total_samples=4)
+        states.append(result.meta["tracking_state"])
+        points.append((result.point_a_px, result.point_b_px))
+
+    assert states == [
+        "bootstrapped_global_envelope",
+        "envelope_pending_relocation",
+        "envelope_near_tie_hold",
+        "envelope_near_tie_hold",
+    ]
+    assert all(point_a == (30, 60) and point_b == (90, 60) for point_a, point_b in points)
+
+
+def test_envelope_near_tie_hold_reports_current_visual_candidate_points(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (30, 60), "b": (90, 60)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 60), point_b=(90, 60))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=6.0,
+        max_midpoint_drift_px=6.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    accepted = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {
+        "span": 61.0,
+        "a": (30, 18),
+        "b": (91, 18),
+        "source_point_a_px": (28, 20),
+        "source_point_b_px": (92, 16),
+    }
+    frame1, temp1 = _frame_temp(2)
+    held = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert held.meta["tracking_state"] == "envelope_pending_relocation"
+    assert held.point_a_px == accepted.point_a_px
+    assert held.point_b_px == accepted.point_b_px
+    assert held.meta["observed_point_a_px"] == (30, 18)
+    assert held.meta["observed_point_b_px"] == (91, 18)
+    assert held.meta["observed_source_point_a_px"] == (28, 20)
+    assert held.meta["observed_source_point_b_px"] == (92, 16)
+
+
+def test_prior_tracking_envelope_line_bundle_rejects_adjacent_band_inside_generic_drift_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    holder: dict = {"value": {"span": 60.0, "a": (30, 60), "b": (90, 60)}}
+    monkeypatch.setattr(
+        "src.workflow.live_run.DirectionalContourMetricExtractor",
+        _fake_directional_extractor(holder, expected_projection_mode="envelope_max_width"),
+    )
+    definition = _envelope_definition(point_a=(30, 60), point_b=(90, 60))
+    source = PriorTrackingMetricSource(
+        definition=definition,
+        max_endpoint_jump_px=48.0,
+        max_midpoint_drift_px=48.0,
+        max_span_change_ratio=0.05,
+    )
+
+    frame0, temp0 = _frame_temp(1)
+    locked = source.extract(frame0, temp0, sample_index=0, total_samples=2)
+
+    holder["value"] = {"span": 61.0, "a": (30, 42), "b": (91, 42)}
+    frame1, temp1 = _frame_temp(2)
+    adjacent_band = source.extract(frame1, temp1, sample_index=1, total_samples=2)
+
+    assert locked.meta["tracking_state"] == "bootstrapped_global_envelope"
+    assert adjacent_band.meta["tracking_state"] == "envelope_pending_relocation"
+    assert adjacent_band.point_a_px == locked.point_a_px
+    assert adjacent_band.point_b_px == locked.point_b_px
 
 
 def test_prior_tracking_envelope_near_tie_does_not_jitter_between_top_and_bottom(

@@ -480,8 +480,12 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
         )
         raw_component_fill_ratio = _component_foreground_fill_ratio(raw_mask, component_mask)
         candidate_mask = target_selection.candidate_mask
-        boundary_mask = _actual_component_boundary_mask(source_mask, candidate_mask)
-        trusted_boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
+        if _line_bundle_uses_filled_body(config):
+            boundary_mask = _component_outer_boundary_mask(candidate_mask)
+            trusted_boundary_mask = _component_outer_boundary_mask(component_mask)
+        else:
+            boundary_mask = _actual_component_boundary_mask(source_mask, candidate_mask)
+            trusted_boundary_mask = _actual_component_boundary_mask(source_mask, component_mask)
         scale = max(float(processing.scale), 1e-6)
         endpoint_support = _effective_endpoint_support_parameters(
             config,
@@ -510,7 +514,7 @@ def detect_directional_contour(image: Any, config: DirectionalContourConfig) -> 
             configured_endpoint_min_support_px=endpoint_support.configured_min_support_px,
             envelope_source_axis_tolerance_px=(
                 None
-                if config.envelope_source_axis_tolerance_px is None
+                if _line_bundle_uses_filled_body(config) or config.envelope_source_axis_tolerance_px is None
                 else max(0.0, float(config.envelope_source_axis_tolerance_px) * scale)
             ),
             envelope_max_source_projection_distance_px=(
@@ -1830,6 +1834,12 @@ def _envelope_candidate_is_better(
         if abs(span_delta) > 1e-9:
             return span_delta > 0.0
     if near_tie:
+        candidate_axis_jump = candidate.get("axis_jump")
+        current_axis_jump = current.get("axis_jump")
+        if candidate_axis_jump is not None and current_axis_jump is not None:
+            axis_delta = float(candidate_axis_jump) - float(current_axis_jump)
+            if abs(axis_delta) > 1e-9:
+                return axis_delta < 0.0
         candidate_source_axis = max(
             float(candidate.get("source_axis_distance_a_px") or 0.0),
             float(candidate.get("source_axis_distance_b_px") or 0.0),
@@ -1850,12 +1860,6 @@ def _envelope_candidate_is_better(
         )
         if abs(candidate_projection - current_projection) > 1e-9:
             return candidate_projection < current_projection
-        candidate_axis_jump = candidate.get("axis_jump")
-        current_axis_jump = current.get("axis_jump")
-        if candidate_axis_jump is not None and current_axis_jump is not None:
-            axis_delta = float(candidate_axis_jump) - float(current_axis_jump)
-            if abs(axis_delta) > 1e-9:
-                return axis_delta < 0.0
     score_delta = candidate_score - current_score
     if abs(score_delta) > 1e-9:
         return score_delta > 0.0
@@ -2229,7 +2233,10 @@ def _envelope_target_mask(
         component_stats[int(core["label"])]["trusted"] = True
         component_stats[int(core["label"])]["distance_to_core_px"] = 0.0
 
-    if geometry_mode == "mesh_lattice":
+    if geometry_mode == "line_bundle" and _line_bundle_uses_filled_body(config):
+        selected = _line_bundle_envelope_body_mask(selected, config, cv2=cv2)
+        union_kept = _line_bundle_envelope_body_mask(union_kept, config, cv2=cv2)
+    elif geometry_mode == "mesh_lattice":
         selected = _mesh_lattice_envelope_mask(selected, config, cv2=cv2)
 
     return _EnvelopeTargetSelection(
@@ -2448,6 +2455,57 @@ def _mesh_lattice_envelope_mask(
     return _fill_small_holes(closed, max_area_px=max(8, int(config.min_target_area_px) * 4))
 
 
+def _line_bundle_uses_filled_body(config: DirectionalContourConfig) -> bool:
+    return (
+        str(config.target_geometry_mode or "") == "line_bundle"
+        and resolve_width_extreme_mode(config) == "max_width"
+    )
+
+
+def _line_bundle_envelope_body_mask(
+    selected: np.ndarray,
+    config: DirectionalContourConfig,
+    *,
+    cv2: Any | None,
+) -> np.ndarray:
+    foreground = np.asarray(selected, dtype=bool)
+    if not bool(np.any(foreground)):
+        return foreground
+
+    sensitivity = float(np.clip(config.sensitivity, 0.0, 100.0))
+    close_size = max(5, int(round(13.0 + (sensitivity / 100.0) * 38.0)))
+    max_close_size = max(5, int(round(float(min(foreground.shape[:2])) * 0.40)))
+    close_size = min(close_size, max_close_size)
+    if close_size % 2 == 0:
+        close_size += 1
+
+    if cv2 is not None:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_size, close_size))
+        closed = cv2.morphologyEx(foreground.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel, iterations=1)
+        contours, _hierarchy = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        filled = np.zeros_like(closed)
+        if contours:
+            cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
+        body = filled > 0
+    else:
+        closed = _binary_morphology_preserve_edges(
+            foreground,
+            ndimage.binary_closing,
+            _ellipse_structure(close_size),
+        )
+        body = ndimage.binary_fill_holes(closed)
+
+    labels, num_labels = ndimage.label(body, structure=np.ones((3, 3), dtype=bool))
+    if int(num_labels) <= 1:
+        return body
+    kept = np.zeros_like(body, dtype=bool)
+    for label in range(1, int(num_labels) + 1):
+        component = labels == label
+        if bool(np.any(component & foreground)):
+            kept |= component
+    return kept if bool(np.any(kept)) else body
+
+
 def _fill_small_holes(foreground: np.ndarray, *, max_area_px: int) -> np.ndarray:
     mask = np.asarray(foreground, dtype=bool)
     if not bool(np.any(mask)):
@@ -2476,6 +2534,21 @@ def _actual_component_boundary_mask(source_mask: np.ndarray, component_mask: np.
     if not bool(np.any(actual)):
         return np.asarray(component_mask, dtype=np.uint8)
     return actual.astype(np.uint8)
+
+
+def _component_outer_boundary_mask(component_mask: np.ndarray) -> np.ndarray:
+    foreground = np.asarray(component_mask) > 0
+    if not bool(np.any(foreground)):
+        return np.asarray(component_mask, dtype=np.uint8)
+    eroded = ndimage.binary_erosion(
+        foreground,
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    boundary = foreground & ~eroded
+    if not bool(np.any(boundary)):
+        boundary = foreground
+    return boundary.astype(np.uint8) * 255
 
 
 def _max_chord_candidate_is_better(

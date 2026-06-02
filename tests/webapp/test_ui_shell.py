@@ -325,6 +325,7 @@ def test_static_app_js_is_served(tmp_path: Path) -> None:
     assert "live-overlay-envelope-rejected-component" in response.text
     assert "envelope_contaminated_hold" in response.text
     assert "previewSourcePointFromTelemetryArray" in response.text
+    assert "shouldRenderEnvelopeSourcePoints" in response.text
     assert "buildRealOfflineLiveProbeRequest" in response.text
     assert "real_offline_alignment_definition_attached" in response.text
     assert 'buildLiveDefinitionPayload({ coordinateSpace: "source" })' in response.text
@@ -539,6 +540,7 @@ def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
         '  { tracking_state: "holding_last_good", tracking_quality: 0.8 },\n'
         '  { tracking_state: "invalidated", tracking_quality: 0.0 },\n'
         '  { tracking_state: "envelope_pending_relocation", tracking_quality: 0.8 },\n'
+        '  { tracking_state: "envelope_near_tie_hold", tracking_quality: 0.8 },\n'
         '  { tracking_state: "envelope_endpoint_weak_pending", tracking_quality: 0.8 },\n'
         '  { tracking_state: "envelope_low_support_rejected", tracking_quality: 0.8 },\n'
         '  { tracking_state: "envelope_endpoint_unsupported_rejected", tracking_quality: 0.8 },\n'
@@ -564,12 +566,52 @@ def test_live_process_outlier_breakdown_counts_tracking_states() -> None:
         "invalidated": 1,
         "low_quality": 1,
         "envelope_prior_hold": 0,
-        "envelope_pending_relocation": 1,
+        "envelope_pending_relocation": 2,
         "endpoint_weak_pending": 1,
         "envelope_low_support_rejected": 1,
         "endpoint_unsupported_rejected": 1,
         "envelope_background_component_rejected": 1,
     }
+
+
+def test_envelope_source_points_are_hidden_without_explicit_debug_flag() -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate envelope source point display logic")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    assert "function shouldRenderEnvelopeSourcePoints(" in app_js
+    block = _js_block_between(
+        app_js,
+        "function shouldRenderEnvelopeSourcePoints(",
+        "function envelopeSelectionDebugLabel(",
+    )
+    driver = (
+        "const store = new Map();\n"
+        "globalThis.window = { localStorage: { getItem: (key) => store.get(key) || null } };\n"
+        + block
+        + "\n"
+        "const hidden = shouldRenderEnvelopeSourcePoints({ tracking_state: 'envelope_pending_relocation' });\n"
+        "store.set('yyt1771.showEnvelopeSourcePoints', '1');\n"
+        "const shown = shouldRenderEnvelopeSourcePoints({ tracking_state: 'envelope_pending_relocation' });\n"
+        "process.stdout.write(JSON.stringify({ hidden, shown }));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+
+    assert payload == {"hidden": False, "shown": True}
 
 
 def test_ui_debug_shows_endpoint_support_threshold() -> None:
@@ -737,3 +779,45 @@ def test_live_process_chart_raw_candidate_series() -> None:
     payload = json.loads(completed.stdout)
     assert payload["rawCount"] == 2
     assert payload["acceptedCount"] == 0
+
+
+def test_live_overlay_prefers_observed_candidate_points_for_envelope_hold() -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node is required to evaluate live overlay point selection")
+
+    app_js = (PROJECT_ROOT / "src/webapp/static/app.js").read_text(encoding="utf-8")
+    block = _js_block_between(
+        app_js,
+        "function previewPointFromTelemetryArray(",
+        "function ensureMetricBoxWithinAnalysisRoi(",
+    )
+    driver = (
+        "function convertPointToPreview(point) { return { x: Number(point.x) / 2, y: Number(point.y) / 2 }; }\n"
+        + block
+        + "\n"
+        "const point = liveOverlayPointFromTelemetry(\n"
+        "  {\n"
+        "    tracking_state: 'envelope_near_tie_hold',\n"
+        "    has_visual_candidate: true,\n"
+        "    point_a_px: [30, 60],\n"
+        "    observed_point_a_px: [30, 18],\n"
+        "  },\n"
+        "  'a',\n"
+        ");\n"
+        "process.stdout.write(JSON.stringify(point));\n"
+    )
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"x": 15, "y": 9}

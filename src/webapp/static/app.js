@@ -2421,6 +2421,48 @@ function previewPointFromTelemetryArray(point) {
   return { x: Number(point[0]), y: Number(point[1]) };
 }
 
+function liveOverlayPointFromTelemetry(latestTelemetry, endpoint) {
+  const suffix = endpoint === "b" ? "b" : "a";
+  const useObserved = liveTelemetryShouldDisplayObservedCandidate(latestTelemetry, suffix);
+  const previewKey = useObserved ? `observed_point_${suffix}_preview_px` : `point_${suffix}_preview_px`;
+  const pointKey = useObserved ? `observed_point_${suffix}_px` : `point_${suffix}_px`;
+  const previewPoint = previewPointFromTelemetryArray(latestTelemetry?.[previewKey]);
+  if (previewPoint) {
+    return previewPoint;
+  }
+  const sourcePoint = previewPointFromTelemetryArray(latestTelemetry?.[pointKey]);
+  if (!sourcePoint) {
+    return null;
+  }
+  return convertPointToPreview(sourcePoint);
+}
+
+function liveTelemetryShouldDisplayObservedCandidate(latestTelemetry, suffix) {
+  if (!latestTelemetry) {
+    return false;
+  }
+  const trackingState = String(latestTelemetry.tracking_state || "");
+  const candidateStates = new Set([
+    "holding_last_good",
+    "envelope_outlier_hold",
+    "envelope_prior_hold",
+    "envelope_contaminated_hold",
+    "envelope_pending_relocation",
+    "envelope_near_tie_hold",
+    "envelope_endpoint_weak_pending",
+    "envelope_low_support_rejected",
+    "envelope_endpoint_unsupported_rejected",
+    "envelope_background_component_rejected",
+  ]);
+  if (!candidateStates.has(trackingState) || latestTelemetry.has_visual_candidate === false) {
+    return false;
+  }
+  return (
+    Array.isArray(latestTelemetry[`observed_point_${suffix}_preview_px`]) ||
+    Array.isArray(latestTelemetry[`observed_point_${suffix}_px`])
+  );
+}
+
 function directionProjectionOverlayFromTelemetry(latestTelemetry, pointA, pointB) {
   if (latestTelemetry?.projection_point_mode !== "envelope_max_width") {
     return null;
@@ -2741,14 +2783,15 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
     (Number.isFinite(Number(overlay.source_projection_distance_b_px)) &&
       Number.isFinite(Number(overlay.envelope_max_source_projection_distance_px)) &&
       Number(overlay.source_projection_distance_b_px) > Number(overlay.envelope_max_source_projection_distance_px));
-  if (sourceA && Number.isFinite(sourceA.x) && Number.isFinite(sourceA.y)) {
+  const renderSourcePoints = shouldRenderEnvelopeSourcePoints(overlay);
+  if (renderSourcePoints && sourceA && Number.isFinite(sourceA.x) && Number.isFinite(sourceA.y)) {
     const trustClass = overlay.source_point_a_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
     const projectionClass = sourceProjectionWarningA ? " live-overlay-envelope-source--projection-warning" : "";
     fragments.push(
       `<circle class="live-overlay-envelope-source${trustClass}${projectionClass}" cx="${sourceA.x}" cy="${sourceA.y}" r="3"></circle>`,
     );
   }
-  if (sourceB && Number.isFinite(sourceB.x) && Number.isFinite(sourceB.y)) {
+  if (renderSourcePoints && sourceB && Number.isFinite(sourceB.x) && Number.isFinite(sourceB.y)) {
     const trustClass = overlay.source_point_b_trusted === false ? " live-overlay-envelope-source--untrusted" : "";
     const projectionClass = sourceProjectionWarningB ? " live-overlay-envelope-source--projection-warning" : "";
     fragments.push(
@@ -2759,6 +2802,16 @@ function renderEnvelopeDebugOverlay(fragments, directionBox, pointA, pointB) {
     const reason = String(overlay.envelope_reject_reason || overlay.envelope_source_trust_state || "");
     const label = escapeHtml(reason);
     fragments.push(`<text class="live-overlay-envelope-reject-label" x="12" y="54">${label}</text>`);
+  }
+}
+
+function shouldRenderEnvelopeSourcePoints(overlay) {
+  void overlay;
+  try {
+    const value = window?.localStorage?.getItem?.("yyt1771.showEnvelopeSourcePoints");
+    return value === "1" || value === "true";
+  } catch (error) {
+    return false;
   }
 }
 
@@ -3444,16 +3497,8 @@ function applyTrackedPointInputs(latestTelemetry) {
     return;
   }
   liveRunState.latestTelemetry = latestTelemetry;
-  const pointA = Array.isArray(latestTelemetry.point_a_preview_px)
-    ? { x: Number(latestTelemetry.point_a_preview_px[0]), y: Number(latestTelemetry.point_a_preview_px[1]) }
-    : Array.isArray(latestTelemetry.point_a_px)
-      ? convertPointToPreview({ x: Number(latestTelemetry.point_a_px[0]), y: Number(latestTelemetry.point_a_px[1]) })
-      : null;
-  const pointB = Array.isArray(latestTelemetry.point_b_preview_px)
-    ? { x: Number(latestTelemetry.point_b_preview_px[0]), y: Number(latestTelemetry.point_b_preview_px[1]) }
-    : Array.isArray(latestTelemetry.point_b_px)
-      ? convertPointToPreview({ x: Number(latestTelemetry.point_b_px[0]), y: Number(latestTelemetry.point_b_px[1]) })
-      : null;
+  const pointA = liveOverlayPointFromTelemetry(latestTelemetry, "a");
+  const pointB = liveOverlayPointFromTelemetry(latestTelemetry, "b");
   if (pointA) {
     if (livePointAXInput) {
       livePointAXInput.value = String(pointA.x);

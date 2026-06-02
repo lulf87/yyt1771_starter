@@ -715,6 +715,12 @@ def _augment_telemetry_for_setup_preview(
     for key in (
         "point_a",
         "point_b",
+        "observed_point_a",
+        "observed_point_b",
+        "observed_source_point_a",
+        "observed_source_point_b",
+        "observed_axis_point_a",
+        "observed_axis_point_b",
         "source_point_a",
         "source_point_b",
         "axis_point_a",
